@@ -34,10 +34,6 @@ public final class CLIProcessRunner {
         guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, prompt.count <= 30_000 else {
             throw NativeCLIError.invalidPrompt
         }
-        // We do not enable Claude file-write tools without an OS-enforced sandbox.
-        if access == .stagedWrite && agent == .claude {
-            throw NativeCLIError.processFailed("Claude 的檔案寫入尚未完成系統層隔離；請選擇 Codex 進行副本修改。")
-        }
         try PrivacyGuard.validatePrompt(prompt)
         let binary = try CommandPlan.resolveExecutable(agent: agent, settings: settings)
         let cwd = try CommandPlan.workingDirectory(settings: settings, fallback: fallbackWorkspace)

@@ -10,6 +10,8 @@ struct ChatView: View {
     @State private var renaming = false
     @State private var renameText = ""
     @State private var dropTargeted = false
+    @State private var choosingFolder = false
+    @State private var confirmDiscard = false
 
     private var lang: InterfaceLanguage { model.archive.settings.language }
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, lang) }
@@ -37,6 +39,14 @@ struct ChatView: View {
                       allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { model.addAttachments(urls, to: agent) }
         }
+        .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
+            if case .success(let url) = result { model.setTopicFolder(agent, to: url) }
+        }
+        .task(id: topic?.id) { if let id = topic?.id { model.refreshDesk(id) } }
+        .confirmationDialog(t("丟棄這份工作副本的所有改動？原資料夾不受影響。", "Discard every change in this task copy? The original folder is untouched."),
+                            isPresented: $confirmDiscard) {
+            Button(t("丟棄工作副本", "Discard task copy"), role: .destructive) { model.discardDeskCopy(agent) }
+        }
         .alert(t("重新命名話題", "Rename topic"), isPresented: $renaming) {
             TextField(t("話題名稱", "Topic name"), text: $renameText)
             Button(t("儲存", "Save")) { if let id = topic?.id { model.renameTopic(id, title: renameText) } }
@@ -56,6 +66,7 @@ struct ChatView: View {
             }
             Spacer()
             if busy { ProgressView().controlSize(.small) }
+            folderMenu
             topicMenu
             Button { model.openVendorDesktop(for: agent) } label: {
                 Label(agent == .codex ? t("在 Codex App 開新工作階段", "New session in Codex App") : t("在 Claude App 開新工作階段", "New session in Claude App"), systemImage: "arrow.up.forward.app")
@@ -87,6 +98,83 @@ struct ChatView: View {
                 .lineLimit(1).frame(maxWidth: 220)
         }
         .disabled(busy)
+    }
+
+    private var folderMenu: some View {
+        let folder = topic?.workFolder ?? ""
+        return Menu {
+            Button { model.setTopicFolder(agent, to: nil) } label: {
+                Label(t("個人資料夾（直接修改）", "Personal folder (edited in place)"),
+                      systemImage: folder.isEmpty ? "checkmark" : "person.crop.square")
+            }
+            Button { choosingFolder = true } label: {
+                Label(t("選擇其他資料夾…（在任務副本裡修改）", "Choose another folder… (edited in a task copy)"), systemImage: "folder.badge.plus")
+            }
+            Divider()
+            Button {
+                if let url = model.deskFolderURL(for: agent) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+            } label: { Label(t("在 Finder 顯示目前工作資料夾", "Show working folder in Finder"), systemImage: "folder") }
+        } label: {
+            Label(folder.isEmpty ? t("個人資料夾", "Personal folder") : (folder as NSString).lastPathComponent,
+                  systemImage: folder.isEmpty ? "person.crop.square" : "folder")
+                .lineLimit(1).frame(maxWidth: 170)
+        }
+        .disabled(busy)
+        .help(folder.isEmpty ? t("成員的私人空間，改動直接保存", "The member's own space; edits are saved directly")
+                             : t("成員在任務副本裡修改，原資料夾在你套用前不會變動：", "Edits happen in a task copy; the original stays untouched until you apply: ") + folder)
+    }
+
+    /// Task-copy changes and round actions, shown above the composer.
+    @ViewBuilder private var deskStrip: some View {
+        if let topic {
+            let changes = model.deskChanges[topic.id] ?? []
+            let undoable = model.deskUndoable.contains(topic.id)
+            if !changes.isEmpty || undoable {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: topic.workFolder.isEmpty ? "person.crop.square" : "doc.on.doc")
+                        .foregroundStyle(agent.studioColor)
+                    VStack(alignment: .leading, spacing: 4) {
+                        if topic.workFolder.isEmpty {
+                            Text(t("個人資料夾的改動已直接保存。", "Changes in the personal folder are saved directly."))
+                                .font(.caption)
+                        } else if changes.isEmpty {
+                            Text(t("任務副本與原資料夾一致。", "The task copy matches the original folder.")).font(.caption)
+                        } else {
+                            DisclosureGroup {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    ForEach(changes.prefix(40)) { change in
+                                        Label(change.path, systemImage: change.kind == .added ? "plus.circle"
+                                              : change.kind == .deleted ? "minus.circle" : "pencil.circle")
+                                            .font(.caption.monospaced()).lineLimit(1)
+                                    }
+                                    if changes.count > 40 { Text("… +\(changes.count - 40)").font(.caption2) }
+                                }
+                            } label: {
+                                Text(t("任務副本有 \(changes.count) 個檔案變更，尚未寫回原資料夾", "\(changes.count) changed files in the task copy, not yet applied"))
+                                    .font(.caption.weight(.semibold))
+                            }
+                        }
+                    }
+                    Spacer()
+                    if !topic.workFolder.isEmpty && !changes.isEmpty {
+                        Button(t("應用到原資料夾", "Apply to original")) { model.applyDeskChanges(agent) }
+                            .buttonStyle(.borderedProminent).controlSize(.small)
+                    }
+                    if undoable {
+                        Button(t("撤銷最近一輪", "Undo last round")) { model.undoDeskRound(agent) }
+                            .controlSize(.small)
+                            .help(t("恢復到這一輪開始前的樣子；已寫回的原檔案也一起恢復", "Restore the state before this round, including files already applied"))
+                    }
+                    if !topic.workFolder.isEmpty && !changes.isEmpty {
+                        Button(t("丟棄工作副本", "Discard copy"), role: .destructive) { confirmDiscard = true }
+                            .controlSize(.small)
+                    }
+                }
+                .disabled(busy)
+                .padding(10)
+                .background(agent.studioColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+            }
+        }
     }
 
     // MARK: Transcript
@@ -176,6 +264,7 @@ struct ChatView: View {
 
     private var composer: some View {
         VStack(spacing: 9) {
+            deskStrip
             if !pendingAttachments.isEmpty { attachmentStrip(pendingAttachments, removable: true) }
             TextEditor(text: draft)
                 .font(.body)
@@ -192,7 +281,8 @@ struct ChatView: View {
                 modelPickers
                 Spacer()
                 Image(systemName: "lock.shield").foregroundStyle(.secondary)
-                Text(t("唯讀 · 不自動重送", "Read-only · No auto-retry"))
+                Text(topic?.workFolder.isEmpty ?? true ? t("個人資料夾 · 不自動重送", "Personal folder · No auto-retry")
+                     : t("任務副本 · 不自動重送", "Task copy · No auto-retry"))
                     .font(.caption).foregroundStyle(.secondary)
                 if busy {
                     Button(t("停止", "Stop"), role: .destructive) { model.stop(agent: agent) }

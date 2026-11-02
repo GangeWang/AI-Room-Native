@@ -170,7 +170,12 @@ public enum CommandPlan {
             return ["exec", "--json", "--sandbox", access == .readOnly ? "read-only" : "workspace-write", "--skip-git-repo-check", "-"]
         case .claude:
             // Print mode via stdin; empty tools list disables tool execution for MVP.
-            var claude = ["--print", "--output-format", "stream-json", "--include-partial-messages", "--verbose", "--tools", ""]
+            // Read-only runs get no tools. Writing runs (member desk folders) get
+            // file tools only — no Bash or network — and edits are auto-accepted
+            // inside the working directory; anything outside it is denied.
+            var claude = ["--print", "--output-format", "stream-json", "--include-partial-messages", "--verbose"]
+                + (access == .readOnly ? ["--tools", ""]
+                   : ["--tools", "Read,Edit,Write,Glob,Grep", "--permission-mode", "acceptEdits"])
             if !options.model.isEmpty { claude += ["--model", options.model] }
             if !options.effort.isEmpty { claude += ["--effort", options.effort] }
             // Images and PDFs travel as content blocks in one stream-json user message.

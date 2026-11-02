@@ -221,6 +221,18 @@ public final class WorkspaceStaging {
         return changed
     }
 
+    /// After a write-back, the written state becomes the new baseline.
+    public func rebaseline(id: UUID) throws {
+        let baseline = baselineDirectory(id), work = workingDirectory(id)
+        try requireDirectory(work)
+        _ = try inventory(work) // refuse links / sensitive files before copying
+        let fresh = stageDirectory(id).appendingPathComponent("baseline-next", isDirectory: true)
+        if fm.fileExists(atPath: fresh.path) { try fm.removeItem(at: fresh) }
+        try fm.copyItem(at: work, to: fresh)
+        if fm.fileExists(atPath: baseline.path) { try fm.removeItem(at: baseline) }
+        try fm.moveItem(at: fresh, to: baseline)
+    }
+
     public func discard(id: UUID) throws {
         let directory = stageDirectory(id)
         guard directory.deletingLastPathComponent().standardizedFileURL == storage else { throw WorkspaceError.unsafeFile(directory.path) }

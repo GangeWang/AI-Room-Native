@@ -14,6 +14,9 @@ final class WorkbenchModel: ObservableObject {
     /// Live model catalogs reported by each official CLI (refreshed on launch).
     @Published var modelCatalogs: [AgentKind: [ModelChoice]] = [:]
     @Published var modelCatalogLoading: Set<AgentKind> = []
+    /// Pending task-copy changes and undo availability, per topic.
+    @Published var deskChanges: [UUID: [FileChange]] = [:]
+    @Published var deskUndoable: Set<UUID> = []
     @Published var busyAgents: Set<AgentKind> = []
     @Published var roundtablePrompt = ""
     @Published var roundtableResults: [RoundtableResult] = []
@@ -59,6 +62,9 @@ final class WorkbenchModel: ObservableObject {
     private var liveTask: Task<Void, Never>?
     private var scheduleTimer: Task<Void, Never>?
     private var draftSaveTask: Task<Void, Never>?
+    private lazy var desk: DeskWorkspace? = persistence.flatMap {
+        try? DeskWorkspace(root: $0.root.appendingPathComponent("desk", isDirectory: true))
+    }
 
     init() {
         // Load into local variables first. Swift requires `workspace` to be
@@ -323,7 +329,19 @@ final class WorkbenchModel: ObservableObject {
         }
         let question = [prompt.isEmpty ? t("請看附件。") : prompt, AttachmentPolicy.inline(texts)]
             .filter { !$0.isEmpty }.joined(separator: "\n\n")
-        let fullPrompt = PromptBuilder.build(history: history, newQuestion: question, language: archive.settings.language)
+        let fullPrompt = PromptBuilder.build(history: history, newQuestion: question,
+                                             language: archive.settings.language, canWrite: true)
+        // Rounds may edit the topic's folder: snapshot first so the round can be undone.
+        let folder: URL
+        do {
+            guard let desk else { throw WorkspaceError.missing("desk") }
+            try desk.beginRound(topic: topic.id, agent: agent, original: topic.workFolder)
+            folder = try desk.workingFolder(topic: topic.id, agent: agent, original: topic.workFolder)
+            deskUndoable.insert(topic.id)
+        } catch {
+            statusMessage = "\(t("無法準備工作資料夾")): \(error.localizedDescription)"
+            return
+        }
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("airoom-attachments-\(UUID().uuidString)", isDirectory: true)
         var prepared: [PreparedAttachment] = []
@@ -359,13 +377,16 @@ final class WorkbenchModel: ObservableObject {
         busyAgents.insert(agent)
         activeRuns[agent] = runID
         persist()
-        let settings = archive.settings
+        var settings = archive.settings
+        settings.workspacePath = folder.path
+        let topicID = topic.id
         Task {
             defer { try? FileManager.default.removeItem(at: scratch) }
+            defer { refreshDesk(topicID) }
             do {
                 let result = try await runner.runDetailed(id: runID, agent: agent, prompt: fullPrompt,
                                                           settings: settings, fallbackWorkspace: workspace,
-                                                          options: options) { [weak self] text in
+                                                          access: .stagedWrite, options: options) { [weak self] text in
                     Task { @MainActor [weak self] in
                         self?.updateReply(agent: agent, replyID: replyID, text: text)
                     }
@@ -380,6 +401,63 @@ final class WorkbenchModel: ObservableObject {
             busyAgents.remove(agent)
             persist()
         }
+    }
+
+    // MARK: Member desk folders
+    func deskFolderURL(for agent: AgentKind) -> URL? {
+        guard let topic = activeTopic(for: agent), let desk else { return nil }
+        return topic.workFolder.isEmpty ? try? desk.personalFolder(agent)
+            : (desk.hasCopy(topic: topic.id) ? desk.staging.workingDirectory(topic.id) : URL(fileURLWithPath: topic.workFolder))
+    }
+
+    func refreshDesk(_ topicID: UUID) {
+        guard let desk else { return }
+        deskChanges[topicID] = (try? desk.changes(topic: topicID)) ?? []
+        if desk.canUndo(topic: topicID) { deskUndoable.insert(topicID) } else { deskUndoable.remove(topicID) }
+    }
+
+    /// nil = personal folder. A topic with unapplied copy changes must apply or discard first.
+    func setTopicFolder(_ agent: AgentKind, to url: URL?) {
+        guard !busyAgents.contains(agent), let index = index(of: agent), let desk else { return }
+        let topic = archive.conversations[index]
+        if !(deskChanges[topic.id] ?? []).isEmpty {
+            statusMessage = t("工作副本還有未套用的變更，請先「應用到原資料夾」或「丟棄工作副本」。")
+            return
+        }
+        do { try desk.discard(topic: topic.id) }
+        catch { statusMessage = error.localizedDescription; return }
+        archive.conversations[index].workFolder = url?.standardizedFileURL.path ?? ""
+        refreshDesk(topic.id)
+        persist()
+    }
+
+    func applyDeskChanges(_ agent: AgentKind) {
+        guard !busyAgents.contains(agent), let topic = activeTopic(for: agent), !topic.workFolder.isEmpty, let desk else { return }
+        do {
+            let applied = try desk.apply(topic: topic.id, original: topic.workFolder)
+            statusMessage = "\(t("已應用到原資料夾")): \(applied.count) \(t("個檔案"))"
+        } catch { statusMessage = "\(t("拒絕寫入，請檢查差異及衝突")): \(error.localizedDescription)" }
+        refreshDesk(topic.id)
+    }
+
+    func undoDeskRound(_ agent: AgentKind) {
+        guard !busyAgents.contains(agent), let index = index(of: agent), let desk else { return }
+        let topic = archive.conversations[index]
+        do {
+            try desk.undoRound(topic: topic.id, agent: agent, original: topic.workFolder)
+            if let last = archive.conversations[index].messages.lastIndex(where: { $0.role == .assistant }) {
+                archive.conversations[index].messages[last].body += "\n\n— " + t("已撤銷這一輪的檔案變更") + " —"
+            }
+            statusMessage = t("已恢復到這一輪開始前的樣子。")
+            persist()
+        } catch { statusMessage = "\(t("無法撤銷")): \(error.localizedDescription)" }
+        refreshDesk(topic.id)
+    }
+
+    func discardDeskCopy(_ agent: AgentKind) {
+        guard !busyAgents.contains(agent), let topic = activeTopic(for: agent), let desk else { return }
+        do { try desk.discard(topic: topic.id) } catch { statusMessage = error.localizedDescription }
+        refreshDesk(topic.id)
     }
 
     private func setReplyModel(agent: AgentKind, replyID: UUID, model: String?) {

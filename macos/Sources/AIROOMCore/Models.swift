@@ -58,11 +58,14 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
     public var effort: String
     public var draft: String
     public var draftAttachments: [ChatAttachment]
+    /// Folder this topic works on. Empty = the member's personal folder
+    /// (edited in place); otherwise a task copy of this folder is edited.
+    public var workFolder: String
 
     public init(id: UUID = UUID(), agent: AgentKind, title: String = TopicNaming.defaultTitle,
                 messages: [ChatMessage] = [], updatedAt: Date = .now, archived: Bool = false,
                 titleLocked: Bool = false, model: String = "", effort: String = "",
-                draft: String = "", draftAttachments: [ChatAttachment] = []) {
+                draft: String = "", draftAttachments: [ChatAttachment] = [], workFolder: String = "") {
         self.id = id
         self.agent = agent
         self.title = title
@@ -74,10 +77,11 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
         self.effort = effort
         self.draft = draft
         self.draftAttachments = draftAttachments
+        self.workFolder = workFolder
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, agent, title, messages, updatedAt, archived, titleLocked, model, effort, draft, draftAttachments
+        case id, agent, title, messages, updatedAt, archived, titleLocked, model, effort, draft, draftAttachments, workFolder
     }
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
@@ -92,6 +96,7 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
         effort = try box.decodeIfPresent(String.self, forKey: .effort) ?? ""
         draft = try box.decodeIfPresent(String.self, forKey: .draft) ?? ""
         draftAttachments = try box.decodeIfPresent([ChatAttachment].self, forKey: .draftAttachments) ?? []
+        workFolder = try box.decodeIfPresent(String.self, forKey: .workFolder) ?? ""
     }
 }
 
@@ -112,11 +117,18 @@ public struct RoundtableResult: Identifiable, Codable, Equatable, Sendable {
 public enum PromptBuilder {
     /// MVP uses fresh read-only CLI executions, so explicit prior turns preserve conversational context.
     /// This is not a native CLI session resume and can consume more tokens.
-    public static func build(history: [ChatMessage], newQuestion: String, maxTurns: Int = 8, language: InterfaceLanguage = .zhTW) -> String {
+    public static func build(history: [ChatMessage], newQuestion: String, maxTurns: Int = 8,
+                             language: InterfaceLanguage = .zhTW, canWrite: Bool = false) -> String {
         let tail = Array(history.suffix(max(0, maxTurns * 2)))
+        let access = canWrite
+            ? (language == .english
+               ? "You may read and edit files in the current working folder when the request calls for it. Only change files inside this folder; never touch other paths. Summarise what you changed."
+               : "需要時可以讀取並修改目前工作資料夾裡的檔案。只修改這個資料夾內的檔案，絕對不要動其他路徑。完成後簡述改了什麼。")
+            : (language == .english ? "This is a read-only conversation. Do not modify files or execute changes."
+               : "本次是唯讀對話，不要修改檔案或執行變更。")
         var lines = language == .english
-            ? ["You are the selected AI assistant. Here is recent conversation history. Reply in English unless the user asks otherwise.", "This is a read-only conversation. Do not modify files or execute changes."]
-            : ["你是使用者選擇的 AI 助手。以下是本工作台保存的近期對話。請使用繁體中文回覆，除非使用者另有要求。", "本次是唯讀對話，不要修改檔案或執行變更。"]
+            ? ["You are the selected AI assistant. Here is recent conversation history. Reply in English unless the user asks otherwise.", access]
+            : ["你是使用者選擇的 AI 助手。以下是本工作台保存的近期對話。請使用繁體中文回覆，除非使用者另有要求。", access]
         for message in tail where !message.body.isEmpty {
             let name = language == .english
                 ? (message.role == .user ? "User" : "Assistant")
