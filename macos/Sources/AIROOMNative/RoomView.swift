@@ -5,6 +5,8 @@ struct RoomView: View {
     @EnvironmentObject private var model: WorkbenchModel
     @Environment(\.colorScheme) private var scheme
     @State private var confirmClear = false
+    /// An open image request: its text and reference pictures.
+    @State private var imageRequest: ImageRequestDraft?
     private var lang: InterfaceLanguage { model.archive.settings.language }
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, lang) }
     private var context: SharedContextSnapshot {
@@ -202,6 +204,11 @@ struct RoomView: View {
                                         RichText(entry.body)
                                             .textSelection(.enabled)
                                             .frame(maxWidth: .infinity, alignment: .leading)
+                                        if !entry.images.isEmpty {
+                                            RoomImagesStrip(images: entry.images) { image in
+                                                imageRequest = ImageRequestDraft(text: "", references: [image])
+                                            }
+                                        }
                                         if !item.reactions.isEmpty { reactionChips(item.reactions) }
                                     }
                                     .padding(14)
@@ -249,6 +256,12 @@ struct RoomView: View {
                             ProgressView().controlSize(.small)
                             Button(t("停止", "Stop"), role: .destructive) { model.stopRoom() }
                         }
+                        Button { imageRequest = ImageRequestDraft(text: model.roomDraft, references: []) } label: {
+                            Label(t("畫圖", "Draw"), systemImage: "paintbrush.pointed")
+                        }
+                        .disabled(!model.canGenerateImage)
+                        .help(model.canGenerateImage ? t("請 Codex 生成或修改一張圖片", "Ask Codex to create or edit a picture")
+                              : t("需要 Codex 在場，且目前沒有成員正在發言", "Needs Codex in the room and nobody speaking"))
                         Button { model.sendToRoom() } label: {
                             Label(model.answeringQuestionID != nil ? t("回答", "Answer") : t("送出", "Send"), systemImage: "arrow.up")
                         }
@@ -262,6 +275,9 @@ struct RoomView: View {
                 .padding(.horizontal, 21).padding(.vertical, 13)
                 .background(StudioTheme.secondary(scheme).opacity(0.95))
             }
+        }
+        .sheet(item: $imageRequest) { draft in
+            ImageRequestSheet(text: draft.text, references: draft.references).environmentObject(model)
         }
         .confirmationDialog(t("清空這個話題的所有訊息？", "Clear every message in this topic?"), isPresented: $confirmClear) {
             Button(t("清空當前話題", "Clear this topic"), role: .destructive) { model.clearRoom() }
@@ -417,4 +433,10 @@ struct RoomView: View {
         do { try model.roomMarkdown().write(to: url, atomically: true, encoding: .utf8) }
         catch { model.statusMessage = error.localizedDescription }
     }
+}
+
+private struct ImageRequestDraft: Identifiable {
+    let id = UUID()
+    var text: String
+    var references: [RoomImage]
 }

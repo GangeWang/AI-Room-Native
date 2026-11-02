@@ -168,11 +168,15 @@ public struct CLIRunOptions: Sendable {
     /// Images and PDFs only; text files are inlined into the prompt by the caller.
     public var attachments: [PreparedAttachment]
     public var session: SessionPlan?
-    public init(model: String = "", effort: String = "", attachments: [PreparedAttachment] = [], session: SessionPlan? = nil) {
+    /// Codex only: turn on its hosted image tool for this run (everything else stays off).
+    public var imageGeneration: Bool
+    public init(model: String = "", effort: String = "", attachments: [PreparedAttachment] = [], session: SessionPlan? = nil,
+                imageGeneration: Bool = false) {
         self.model = ModelCatalog.sanitize(model)
         self.effort = ModelCatalog.sanitize(effort)
         self.attachments = attachments.filter { $0.attachment.kind != .text }
         self.session = session
+        self.imageGeneration = imageGeneration
     }
 }
 
@@ -184,8 +188,11 @@ public struct CLIRunResult: Sendable {
     public var sessionID: String?
     /// True when an earlier conversation was continued (false: started or restarted).
     public var resumed: Bool
-    public init(text: String, model: String? = nil, sessionID: String? = nil, resumed: Bool = false) {
-        self.text = text; self.model = model; self.sessionID = sessionID; self.resumed = resumed
+    /// Images Codex generated in this run (image requests only).
+    public var images: [GeneratedImagePayload]
+    public init(text: String, model: String? = nil, sessionID: String? = nil, resumed: Bool = false,
+                images: [GeneratedImagePayload] = []) {
+        self.text = text; self.model = model; self.sessionID = sessionID; self.resumed = resumed; self.images = images
     }
 }
 

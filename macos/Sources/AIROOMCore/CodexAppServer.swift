@@ -19,6 +19,8 @@ public struct CodexServerWire {
     public private(set) var model: String?
     /// thread/resume was refused (the thread is gone); the model was not reached.
     public private(set) var resumeRefused = false
+    /// Images from completed `imageGeneration` items, in order.
+    public private(set) var images: [GeneratedImagePayload] = []
 
     public enum Stage: Equatable { case initialize, startThread, startTurn, waiting, finished }
 
@@ -88,6 +90,14 @@ public struct CodexServerWire {
             return reply
         }
         if method == "item/completed", let item = params["item"] as? [String: Any],
+           let image = GeneratedImagePayload.parse(item) {
+            switch image {
+            case .success(let payload): if !images.contains(where: { $0.itemID == payload.itemID }) { images.append(payload) }
+            case .failure(let error): failure = error.localizedDescription
+            }
+            return nil
+        }
+        if method == "item/completed", let item = params["item"] as? [String: Any],
            item["type"] as? String == "agentMessage", let final = item["text"] as? String {
             reply = final
             return reply
@@ -98,7 +108,9 @@ public struct CodexServerWire {
             if status == "completed" { completed = true }
             else {
                 let error = turn["error"] as? [String: Any]
-                failure = error?["message"] as? String ?? "Codex turn ended: \(status)"
+                failure = error?["codexErrorInfo"] as? String == "usageLimitExceeded"
+                    ? (error?["message"] as? String).map { "Codex 額度已用完：\($0)" } ?? ImageGenerationError.quota.localizedDescription
+                    : error?["message"] as? String ?? "Codex turn ended: \(status)"
             }
             stage = .finished
             return nil
@@ -247,8 +259,9 @@ public final class CodexAppServerRunner {
                 throw NativeCLIError.processFailed("Codex App Server stdout read failed")
             }
             buffer.append(contentsOf: chunk.prefix(bytesRead))
-            if buffer.count > 4_194_304 {
-                throw NativeCLIError.processFailed("Codex App Server event exceeds 4 MB")
+            // An image item carries the picture inline (base64), so allow for a 20 MB image.
+            if buffer.count > (options.imageGeneration ? 32 * 1_048_576 : 4_194_304) {
+                throw NativeCLIError.processFailed("Codex App Server event exceeds \(options.imageGeneration ? 32 : 4) MB")
             }
             while let boundary = buffer.firstIndex(of: 0x0a) {
                 let line = String(decoding: buffer[..<boundary], as: UTF8.self)
@@ -269,10 +282,13 @@ public final class CodexAppServerRunner {
                     throw NativeCLIError.processFailed(PrivacyGuard.redact(failure))
                 }
                 if wire.completed {
-                    guard !wire.reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    if options.imageGeneration {
+                        guard !wire.images.isEmpty else { throw ImageGenerationError.empty }
+                    } else if wire.reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         throw NativeCLIError.noResponse("Codex App Server")
                     }
-                    return CLIRunResult(text: PrivacyGuard.redact(wire.reply), model: wire.model, sessionID: wire.threadID)
+                    return CLIRunResult(text: PrivacyGuard.redact(wire.reply), model: wire.model, sessionID: wire.threadID,
+                                        images: wire.images)
                 }
                 if wire.stage == .startThread && !sentThread {
                     sentThread = true
@@ -285,6 +301,13 @@ public final class CodexAppServerRunner {
                     // A session plan keeps the thread so the next run can continue it.
                     if let resume = options.session?.resumeID { thread["threadId"] = resume }
                     else { thread["ephemeral"] = options.session == nil }
+                    // An image request turns on only the hosted image tool; commands and web stay off.
+                    if options.imageGeneration {
+                        thread["config"] = ["features.image_generation": true, "features.shell_tool": false,
+                                            "features.unified_exec": false, "features.multi_agent": false,
+                                            "features.apps": false, "features.browser_use": false,
+                                            "features.in_app_browser": false, "web_search": "disabled"] as [String: Any]
+                    }
                     try input.fileHandleForWriting.write(contentsOf: CodexServerWire.request(
                         id: 2, method: options.session?.resumeID != nil ? "thread/resume" : "thread/start", params: thread))
                 }

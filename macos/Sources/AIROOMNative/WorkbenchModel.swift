@@ -2667,3 +2667,97 @@ extension WorkbenchModel {
         startLounge(roomID)
     }
 }
+
+// MARK: Codex image generation in the lounge
+extension WorkbenchModel {
+    /// Codex can draw here: a visible lounge room, Codex enabled and present, nothing else running.
+    var canGenerateImage: Bool {
+        guard storageAvailable, !roomRunning, !liveActive, let index = activeRoomIndex, archive.rooms[index].isLounge else { return false }
+        return presentMembers(in: index).contains { $0.agent == .codex }
+    }
+
+    /// Stores a picked picture as a reference for an image request (PNG, JPG or WebP, up to 5 MB).
+    func storeImageReference(_ url: URL) -> RoomImage? {
+        guard let persistence else { return nil }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url), data.count <= 5 * 1_048_576 else {
+            statusMessage = t("參考圖片需在 5 MB 以內。"); return nil
+        }
+        guard let type = GeneratedImages.imageType(data) else {
+            statusMessage = t("參考圖片只支援 PNG、JPG 或 WebP。"); return nil
+        }
+        let attachment = ChatAttachment(fileName: url.lastPathComponent, kind: .image, mediaType: type.mediaType, byteCount: data.count)
+        do { try persistence.storeAttachment(data, id: attachment.id) }
+        catch { statusMessage = error.localizedDescription; return nil }
+        return RoomImage(attachment: attachment)
+    }
+
+    func imageData(_ image: RoomImage) -> Data? { try? persistence?.loadAttachment(id: image.attachment.id) }
+
+    /// Asks the Codex member for one picture. A failed or stopped request is never re-sent.
+    func generateImage(request: String, references: [RoomImage]) {
+        let request = request.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard canGenerateImage, let index = activeRoomIndex, !request.isEmpty, request.count <= 4_000,
+              let member = presentMembers(in: index).first(where: { $0.agent == .codex }) else { return }
+        do { try PrivacyGuard.validatePrompt(request) }
+        catch { statusMessage = error.localizedDescription; return }
+        let roomID = archive.rooms[index].id, entryID = UUID(), runID = UUID()
+        archive.rooms[index].entries.append(RoomEntry(speaker: .user, displayName: t("你"), body: request,
+                                                      isImageRequest: true, images: references))
+        archive.rooms[index].entries.append(RoomEntry(id: entryID, speaker: .assistant, agent: .codex, displayName: member.name,
+                                                      body: t("正在畫圖……"), delivery: .inProgress, isImageRequest: true))
+        archive.rooms[index].updatedAt = .now
+        if archive.rooms[index].entries.count == 2 { archive.rooms[index].title = TopicNaming.title(from: request) }
+        roomDraft = ""
+        roomRunning = true
+        cancelRoomQueue = false
+        roomRunID = runID
+        loungePlaceholder = (roomID, entryID)
+        persist()
+        let prompt = GeneratedImages.prompt(request: request, member: member, team: archive.members,
+                                            ownerName: ownerName, references: references.count)
+        let settings = archive.settings
+        Task {
+            defer { roomRunID = nil; roomRunning = false; loungePlaceholder = nil; persist() }
+            var scratch: URL?
+            defer { if let scratch { try? FileManager.default.removeItem(at: scratch) } }
+            do {
+                let prepared = try prepareAttachments(references.map(\.attachment))
+                scratch = prepared.scratch
+                let result = try await runner.runDetailed(id: runID, agent: .codex, prompt: prompt, settings: settings,
+                    fallbackWorkspace: workspace, access: .readOnly,
+                    options: CLIRunOptions(attachments: prepared.files, imageGeneration: true), onUpdate: { _ in })
+                guard !cancelRoomQueue else { return } // Stop already settled the bubble.
+                let images = try saveGeneratedImages(result.images)
+                let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                finishRoomReply(roomID: roomID, entryID: entryID, text: text.isEmpty ? t("畫好了。") : String(text.prefix(4_000)),
+                                delivery: .completed)
+                if let room = archive.rooms.firstIndex(where: { $0.id == roomID }),
+                   let entry = archive.rooms[room].entries.firstIndex(where: { $0.id == entryID }) {
+                    archive.rooms[room].entries[entry].images = images
+                    // Codex's continued room conversation never sees its own lines; start it afresh.
+                    archive.rooms[room].sessions[AgentKind.codex.rawValue] = nil
+                }
+                Notifier.post(t("\(member.name) 畫好了"), text)
+            } catch {
+                guard !cancelRoomQueue else { return }
+                finishRoomReply(roomID: roomID, entryID: entryID,
+                                text: t("圖片沒有完成，沒有自動重送：") + error.localizedDescription, delivery: .failed)
+            }
+        }
+    }
+
+    private func saveGeneratedImages(_ payloads: [GeneratedImagePayload]) throws -> [RoomImage] {
+        guard let persistence else { throw StateProtectionError.encryptionUnavailable }
+        let home = ProcessInfo.processInfo.environment["CODEX_HOME"].map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
+        return try payloads.prefix(10).map { payload in
+            let image = try GeneratedImages.bytes(of: payload, codexHome: home)
+            let attachment = ChatAttachment(fileName: "AIROOM-圖片.\(image.fileExtension)", kind: .image,
+                                            mediaType: image.mediaType, byteCount: image.data.count)
+            try persistence.storeAttachment(image.data, id: attachment.id)
+            return RoomImage(attachment: attachment, revisedPrompt: payload.revisedPrompt)
+        }
+    }
+}

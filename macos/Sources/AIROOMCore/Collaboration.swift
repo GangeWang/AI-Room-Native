@@ -80,18 +80,24 @@ public struct RoomEntry: Identifiable, Codable, Equatable, Sendable {
     public var isReaction: Bool
     /// Meeting minutes written at the end of a meeting.
     public var isMinutes: Bool
+    /// An image request to Codex (the owner's message) or its reply.
+    public var isImageRequest: Bool
+    /// Pictures on this entry: generated images, or references the owner attached to a request.
+    public var images: [RoomImage]
 
     public init(id: UUID = UUID(), speaker: Speaker, agent: AgentKind? = nil,
                 displayName: String, body: String, createdAt: Date = .now,
-                delivery: RoomDelivery = .completed, isReaction: Bool = false, isMinutes: Bool = false) {
+                delivery: RoomDelivery = .completed, isReaction: Bool = false, isMinutes: Bool = false,
+                isImageRequest: Bool = false, images: [RoomImage] = []) {
         self.id = id; self.speaker = speaker; self.agent = agent
         self.displayName = displayName; self.body = body
         self.createdAt = createdAt; self.delivery = delivery
         self.isReaction = isReaction; self.isMinutes = isMinutes
+        self.isImageRequest = isImageRequest; self.images = images
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, speaker, agent, displayName, body, createdAt, delivery, isReaction, isMinutes
+        case id, speaker, agent, displayName, body, createdAt, delivery, isReaction, isMinutes, isImageRequest, images
     }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -103,6 +109,8 @@ public struct RoomEntry: Identifiable, Codable, Equatable, Sendable {
         createdAt = try values.decode(Date.self, forKey: .createdAt)
         isReaction = try values.decodeIfPresent(Bool.self, forKey: .isReaction) ?? false
         isMinutes = try values.decodeIfPresent(Bool.self, forKey: .isMinutes) ?? false
+        isImageRequest = try values.decodeIfPresent(Bool.self, forKey: .isImageRequest) ?? false
+        images = (try? values.decodeIfPresent([RoomImage].self, forKey: .images)) ?? []
         if let stored = try values.decodeIfPresent(RoomDelivery.self, forKey: .delivery) {
             delivery = stored
         } else {
@@ -264,7 +272,11 @@ public enum RoomPromptBuilder {
             // workbench) before spending the context budget on older turns.
             let size = entry.speaker == .user && chosen.isEmpty
                 ? min(limit, max(entryLimit, 8_000)) : entryLimit
-            let body = String(entry.body.prefix(size))
+            // Pictures themselves aren't sent; members only learn one was posted.
+            let pictures = entry.images.isEmpty ? "" : (entry.speaker == .user
+                ? "\n（附了 \(entry.images.count) 張參考圖片）"
+                : "\n（畫了 \(entry.images.count) 張圖片\(entry.images.compactMap(\.revisedPrompt).first.map { "，內容：\(String($0.prefix(300)))" } ?? "")）")
+            let body = String(entry.body.prefix(size)) + pictures
             let kind = entry.speaker == .user ? (language == .english ? "USER" : "使用者") : "AI"
             let label = entry.speaker == .user ? "\(kind) [\(entry.displayName.prefix(40))]" : "\(kind) [\(entry.agent?.rawValue ?? "unknown") / \(entry.displayName)]"
             let formatted = entry.isReaction ? "[\(label)]（用表情回應：\(body)）" : "[\(label)]\n\(body)"
