@@ -6,7 +6,9 @@ struct AIROOMNativeApp: App {
     @StateObject private var workbench = WorkbenchModel()
 
     var body: some Scene {
-        WindowGroup("AIROOM Native") {
+        // One workbench window: a single scene can always be reopened from the
+        // Window menu or the Dock, and never splits state across two windows.
+        Window("AIROOM Native", id: "main") {
             ContentView()
                 .environmentObject(workbench)
                 .environment(\.locale, Locale(identifier: workbench.archive.settings.language.rawValue))
