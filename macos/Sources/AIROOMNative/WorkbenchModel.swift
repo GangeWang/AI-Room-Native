@@ -28,6 +28,8 @@ final class WorkbenchModel: ObservableObject {
     @Published var selectedRoomID: UUID?
     @Published var roomTarget: AgentKind?
     @Published var roomRunning = false
+    /// Pending lounge question the human is answering with the next message.
+    @Published var answeringQuestionID: UUID?
     @Published var projectBusy = false
     // Live broadcast runs only after explicit Start; never auto-resumes after a crash/restart.
     @Published var liveActive = false
@@ -541,15 +543,37 @@ final class WorkbenchModel: ObservableObject {
 
     func roomEntries() -> [RoomEntry] { activeRoom?.entries ?? [] }
 
-    func createRoom() {
+    /// New topic. By default the previous topic's summary is carried over so
+    /// members need not start from scratch ("不再延續" opens it blank).
+    func createRoom(carryOver: Bool = true) {
         guard storageAvailable, !roomRunning else { return }
+        let previous = activeRoom
         let count = archive.rooms.count + 1
         let title = archive.settings.language == .english ? "Discussion \(count)" : "討論室 \(count)"
-        let room = TeamRoom(title: title, participants: activeRoom?.participants ?? AgentKind.allCases)
+        var room = TeamRoom(title: title, participants: previous?.participants ?? AgentKind.allCases,
+                            lounge: LoungeState(style: previous?.lounge.style ?? .chat))
+        room.lounge.handRaise = previous?.lounge.handRaise ?? true
+        room.lounge.hostPick = previous?.lounge.hostPick ?? false
         archive.rooms.insert(room, at: 0)
         selectedRoomID = room.id
         roomTarget = nil
         roomDraft = ""
+        answeringQuestionID = nil
+        persist()
+        guard carryOver, let previous, previous.entries.contains(where: { $0.speaker != .system && $0.delivery == .completed }) else { return }
+        let upToDate = previous.summaryThroughEntryID == previous.entries.last(where: { $0.delivery == .completed })?.id
+        if upToDate && !previous.summary.isEmpty {
+            setCarriedSummary(room.id, previous.summary)
+        } else {
+            summarizeRoom(previous.id, carryInto: room.id)
+        }
+    }
+
+    private func setCarriedSummary(_ roomID: UUID, _ summary: String) {
+        guard let index = archive.rooms.firstIndex(where: { $0.id == roomID }) else { return }
+        archive.rooms[index].carriedSummary = String(summary.prefix(5_000))
+        archive.rooms[index].entries.append(RoomEntry(speaker: .system, displayName: "AIROOM",
+            body: t("已帶入上一個話題的摘要，成員不用從頭了解。")))
         persist()
     }
 
@@ -558,10 +582,15 @@ final class WorkbenchModel: ObservableObject {
         selectedRoomID = id
         roomTarget = nil
         roomDraft = ""
+        answeringQuestionID = nil
     }
 
     func sendToRoom() {
-        guard storageAvailable, !roomRunning, !liveActive, let room = activeRoom else { return }
+        guard storageAvailable, !liveActive, let room = activeRoom else { return }
+        // A chat accepts interjections at any time; a meeting round must finish first.
+        guard !roomRunning || room.lounge.style == .chat else {
+            statusMessage = t("會議正在進行，請等這一輪結束或按停止。"); return
+        }
         let question = roomDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty, question.count <= 8_000 else {
             statusMessage = "共用對話室每則訊息需介於 1 至 8,000 字。"; return
@@ -569,61 +598,328 @@ final class WorkbenchModel: ObservableObject {
         do { try PrivacyGuard.validatePrompt(question) }
         catch { statusMessage = error.localizedDescription; return }
         roomDraft = ""
-        dispatchRoomMessage(roomID: room.id, question: question, target: roomTarget, displayName: t("你"))
+        let answering = answeringQuestionID
+        answeringQuestionID = nil
+        dispatchRoomMessage(roomID: room.id, question: question, target: roomTarget, displayName: t("你"),
+                            answering: answering)
     }
 
-    private func dispatchRoomMessage(roomID: UUID, question: String,
-                                     target: AgentKind?, displayName: String) {
-        guard storageAvailable, !roomRunning, !liveActive,
+    private func presentMembers(in roomIndex: Int) -> [MemberCard] {
+        let participants = archive.rooms[roomIndex].participants
+        return archive.members.filter { $0.enabled && participants.contains($0.agent) }
+            .sorted { participants.firstIndex(of: $0.agent)! < participants.firstIndex(of: $1.agent)! }
+    }
+
+    private var ownerName: String { archive.settings.language == .english ? "the user" : "使用者" }
+
+    private func dispatchRoomMessage(roomID: UUID, question: String, target: AgentKind?,
+                                     displayName: String, answering: UUID? = nil) {
+        guard storageAvailable, !liveActive,
               let roomIndex = archive.rooms.firstIndex(where: { $0.id == roomID }) else { return }
-        let members = archive.members.filter {
-            $0.enabled && archive.rooms[roomIndex].participants.contains($0.agent)
-                && (target == nil || $0.agent == target)
-        }
+        let members = presentMembers(in: roomIndex)
         guard !members.isEmpty else { statusMessage = "請先啟用至少一位成員"; return }
         do { try PrivacyGuard.validatePrompt(question) }
         catch { statusMessage = error.localizedDescription; return }
+        let entryID = UUID()
+        archive.rooms[roomIndex].entries.append(RoomEntry(id: entryID, speaker: .user, displayName: displayName, body: question))
+        archive.rooms[roomIndex].updatedAt = .now
+        let mentions = target.map { [$0] } ?? LoungeEngine.mentions(in: question, members: members)
+        LoungeEngine.humanSpoke(&archive.rooms[roomIndex].lounge, mentions: mentions,
+                                present: members.map(\.agent), entryID: entryID, answering: answering)
+        persist()
+        // A running chat picks the new message up on its next turn.
+        if !roomRunning { startLounge(roomID) }
+    }
+
+    private func startLounge(_ roomID: UUID) {
         roomRunning = true
         cancelRoomQueue = false
-        archive.rooms[roomIndex].entries.append(RoomEntry(speaker: .user, displayName: displayName, body: question))
-        archive.rooms[roomIndex].updatedAt = .now
-        persist()
+        Task { await runLounge(roomID) }
+    }
+
+    /// One member at a time until the chat winds down, the meeting round (and
+    /// hand raising) ends, the human stops it, or a reply cannot be confirmed.
+    private func runLounge(_ roomID: UUID) async {
+        defer { roomRunID = nil; roomRunning = false; persist() }
         let settings = archive.settings
-        Task {
-            for member in members {
-                if cancelRoomQueue { break }
-                guard let index = archive.rooms.firstIndex(where: { $0.id == roomID }) else { break }
-                let runID = UUID(), entryID = UUID()
-                roomRunID = runID
-                archive.rooms[index].entries.append(RoomEntry(
-                    id: entryID, speaker: .assistant, agent: member.agent,
-                    displayName: member.name, body: t("執行中……"), delivery: .inProgress))
-                persist()
-                let prompt = RoomPromptBuilder.build(room: archive.rooms[index], member: member,
-                    question: question, language: settings.language)
-                do {
-                    let response = try await runner.run(id: runID, agent: member.agent,
-                        prompt: prompt, settings: settings, fallbackWorkspace: workspace) { [weak self] output in
-                        Task { @MainActor [weak self] in
-                            self?.updateRoomReply(roomID: roomID, entryID: entryID, text: output)
-                        }
-                    }
-                    finishRoomReply(roomID: roomID, entryID: entryID, text: response,
-                                    delivery: cancelRoomQueue ? .interrupted : .completed)
-                } catch {
-                    finishRoomReply(roomID: roomID, entryID: entryID,
-                        text: "結果待核對: \(error.localizedDescription)",
-                        delivery: cancelRoomQueue ? .interrupted : .failed)
-                    // Unconfirmed delivery ends this automatic sequence.
+        while !cancelRoomQueue, let index = archive.rooms.firstIndex(where: { $0.id == roomID }) {
+            let members = presentMembers(in: index)
+            let present = members.map(\.agent)
+            let state = archive.rooms[index].lounge
+            guard state.phase == .talking || state.phase == .closing else { break }
+            if state.style == .chat && state.phase == .talking && state.calls >= LoungeEngine.chatBudget {
+                archive.rooms[index].lounge.phase = .paused
+                archive.rooms[index].lounge.reason = t("這段聊天已經聊了一陣子，先停下來等你。說句話或按「繼續聊」就會接著聊。")
+                break
+            }
+            guard let speaker = LoungeEngine.nextSpeaker(state, present: present),
+                  let member = members.first(where: { $0.agent == speaker }) else {
+                if state.style == .meeting && state.phase == .talking {
+                    if await raiseHands(roomID) { continue }
+                } else {
+                    archive.rooms[index].lounge.phase = .idle
+                }
+                break
+            }
+            let runID = UUID(), entryID = UUID()
+            roomRunID = runID
+            archive.rooms[index].entries.append(RoomEntry(id: entryID, speaker: .assistant, agent: speaker,
+                displayName: member.name, body: t("正在想……"), delivery: .inProgress))
+            persist()
+            let prompt = LoungeEngine.turnPrompt(room: archive.rooms[index], member: member, present: members,
+                                                 state: state, ownerName: ownerName, language: settings.language)
+            do {
+                let text = try await runner.run(id: runID, agent: speaker, prompt: prompt, settings: settings,
+                                                fallbackWorkspace: workspace, onUpdate: { _ in })
+                guard let current = archive.rooms.firstIndex(where: { $0.id == roomID }) else { break }
+                if cancelRoomQueue {
+                    finishRoomReply(roomID: roomID, entryID: entryID, text: t("已停止；這則回覆沒有轉交。"), delivery: .interrupted)
                     break
                 }
+                let reply = LoungeEngine.parseReply(text)
+                let outcome = LoungeEngine.apply(reply, from: speaker, present: present,
+                                                 state: &archive.rooms[current].lounge, entryID: entryID)
+                switch outcome {
+                case .show(let body):
+                    finishRoomReply(roomID: roomID, entryID: entryID, text: body, delivery: .completed)
+                case .reaction(let emoji):
+                    finishRoomReply(roomID: roomID, entryID: entryID, text: emoji, delivery: .completed)
+                    if let entry = archive.rooms[current].entries.firstIndex(where: { $0.id == entryID }) {
+                        archive.rooms[current].entries[entry].isReaction = true
+                    }
+                case .silent:
+                    archive.rooms[current].entries.removeAll { $0.id == entryID }
+                case .ended(let reason):
+                    if reply.body.isEmpty { archive.rooms[current].entries.removeAll { $0.id == entryID } }
+                    else { finishRoomReply(roomID: roomID, entryID: entryID, text: reply.body, delivery: .completed) }
+                    archive.rooms[current].entries.append(RoomEntry(speaker: .system, displayName: "AIROOM", body: t(reason)))
+                }
                 persist()
+            } catch {
+                finishRoomReply(roomID: roomID, entryID: entryID, text: "結果待核對: \(error.localizedDescription)",
+                                delivery: cancelRoomQueue ? .interrupted : .failed)
+                if let current = archive.rooms.firstIndex(where: { $0.id == roomID }) {
+                    archive.rooms[current].lounge.phase = .paused
+                    archive.rooms[current].lounge.reason = t("\(member.name) 這次沒有完成回覆，已暫停，沒有自動重送。檢查連線或額度後可按「繼續」。")
+                }
+                break
             }
-            roomRunID = nil
-            roomRunning = false
+        }
+        if cancelRoomQueue, let index = archive.rooms.firstIndex(where: { $0.id == roomID }),
+           [.talking, .closing, .raising].contains(archive.rooms[index].lounge.phase) {
+            archive.rooms[index].lounge.phase = .paused
+            archive.rooms[index].lounge.reason = t("你已停止討論。")
+        }
+    }
+
+    /// Meeting hand raising. Returns true when someone was chosen to add something.
+    private func raiseHands(_ roomID: UUID) async -> Bool {
+        guard let index = archive.rooms.firstIndex(where: { $0.id == roomID }) else { return false }
+        let state = archive.rooms[index].lounge
+        let members = presentMembers(in: index)
+        let candidates = members.filter { !state.supplemented.contains($0.agent) }
+        guard state.handRaise, !state.mentionedOnly, !candidates.isEmpty else {
+            archive.rooms[index].lounge.phase = .waitingUser
+            return false
+        }
+        archive.rooms[index].lounge.phase = .raising
+        archive.rooms[index].lounge.hands = [:]
+        persist()
+        let settings = archive.settings
+        var votes: [String: HandVote] = [:]
+        for member in candidates {
+            if cancelRoomQueue { return false }
+            guard let current = archive.rooms.firstIndex(where: { $0.id == roomID }) else { return false }
+            let runID = UUID()
+            roomRunID = runID
+            let prompt = LoungeEngine.handPrompt(room: archive.rooms[current], member: member,
+                                                 state: archive.rooms[current].lounge, language: settings.language)
+            // A failed or unreadable bid counts as "no hand", never as a guess.
+            let text = try? await runner.run(id: runID, agent: member.agent, prompt: prompt, settings: settings,
+                                             fallbackWorkspace: workspace, onUpdate: { _ in })
+            votes[member.agent.rawValue] = text.flatMap(LoungeEngine.parseHand) ?? HandVote(want: 0, why: t("沒有回覆"))
+            archive.rooms[current].lounge.hands = votes
+        }
+        guard let current = archive.rooms.firstIndex(where: { $0.id == roomID }), !cancelRoomQueue else { return false }
+        var lounge = archive.rooms[current].lounge
+        let raised = votes.contains { $0.value.want > 0 }
+        if !raised {
+            lounge.phase = .waitingUser
+            lounge.reason = t("這一輪大家都沒有要補充的，等你說話。")
+        } else if lounge.hostPick {
+            lounge.phase = .awaitingHost
+            lounge.reason = t("有人舉手了，請點名誰補充。")
+        } else if let chosen = LoungeEngine.chooseHand(votes, state: lounge, present: members.map(\.agent)) {
+            lounge.supplemented.append(chosen)
+            lounge.meetingPending = [chosen]
+            lounge.phase = .talking
+        } else {
+            lounge.phase = .waitingUser
+        }
+        archive.rooms[current].lounge = lounge
+        persist()
+        return lounge.phase == .talking
+    }
+
+    // MARK: Lounge controls
+    func setLoungeStyle(_ style: LoungeStyle) {
+        guard !roomRunning, let index = activeRoomIndex, archive.rooms[index].lounge.style != style else { return }
+        var lounge = LoungeState(style: style)
+        lounge.handRaise = archive.rooms[index].lounge.handRaise
+        lounge.hostPick = archive.rooms[index].lounge.hostPick
+        lounge.questions = archive.rooms[index].lounge.questions
+        archive.rooms[index].lounge = lounge
+        persist()
+    }
+
+    func setLoungeOption(handRaise: Bool? = nil, hostPick: Bool? = nil) {
+        guard let index = activeRoomIndex else { return }
+        if let handRaise { archive.rooms[index].lounge.handRaise = handRaise }
+        if let hostPick { archive.rooms[index].lounge.hostPick = hostPick }
+        persist()
+    }
+
+    /// Resume a paused chat or meeting without a new human message.
+    func continueLounge() {
+        guard !roomRunning, let index = activeRoomIndex else { return }
+        var lounge = archive.rooms[index].lounge
+        guard lounge.phase == .paused else { return }
+        lounge.phase = lounge.proposalFrom != nil ? .closing : .talking
+        lounge.calls = 0
+        lounge.reason = nil
+        if lounge.style == .meeting && lounge.meetingPending.isEmpty { lounge.phase = .waitingUser }
+        archive.rooms[index].lounge = lounge
+        persist()
+        if lounge.phase != .waitingUser { startLounge(archive.rooms[index].id) }
+    }
+
+    /// Host picks who adds something after hands went up (nil = nobody).
+    func pickHand(_ agent: AgentKind?) {
+        guard !roomRunning, let index = activeRoomIndex, archive.rooms[index].lounge.phase == .awaitingHost else { return }
+        if let agent {
+            archive.rooms[index].lounge.supplemented.append(agent)
+            archive.rooms[index].lounge.meetingPending = [agent]
+            archive.rooms[index].lounge.phase = .talking
+            archive.rooms[index].lounge.reason = nil
+            persist()
+            startLounge(archive.rooms[index].id)
+        } else {
+            archive.rooms[index].lounge.phase = .waitingUser
+            archive.rooms[index].lounge.reason = nil
             persist()
         }
     }
+
+    func answerQuestion(_ question: LoungeQuestion) {
+        answeringQuestionID = question.id
+        let name = archive.members.first(where: { $0.agent == question.from })?.name ?? question.from.rawValue
+        if !roomDraft.hasPrefix("@") { roomDraft = "@\(name) " + roomDraft }
+    }
+
+    func dismissQuestion(_ id: UUID) {
+        guard let index = activeRoomIndex,
+              let question = archive.rooms[index].lounge.questions.firstIndex(where: { $0.id == id }) else { return }
+        archive.rooms[index].lounge.questions[question].answered = true
+        if answeringQuestionID == id { answeringQuestionID = nil }
+        persist()
+    }
+
+    /// Ends the meeting: one member writes conclusions, disagreements and next steps.
+    func writeMinutes(by agent: AgentKind) {
+        guard storageAvailable, !roomRunning, let index = activeRoomIndex,
+              let member = presentMembers(in: index).first(where: { $0.agent == agent }) else { return }
+        let roomID = archive.rooms[index].id
+        let attendees = presentMembers(in: index)
+        let prompt = LoungeEngine.minutesPrompt(room: archive.rooms[index], state: archive.rooms[index].lounge,
+                                                attendees: attendees, ownerName: ownerName, language: archive.settings.language)
+        archive.rooms[index].lounge.phase = .summarizing
+        let entryID = UUID(), runID = UUID()
+        archive.rooms[index].entries.append(RoomEntry(id: entryID, speaker: .assistant, agent: agent,
+            displayName: member.name, body: t("正在整理會議紀要……"), delivery: .inProgress, isMinutes: true))
+        roomRunning = true
+        cancelRoomQueue = false
+        roomRunID = runID
+        persist()
+        let settings = archive.settings
+        Task {
+            defer { roomRunID = nil; roomRunning = false; persist() }
+            do {
+                let text = try await runner.run(id: runID, agent: agent, prompt: prompt, settings: settings,
+                                                fallbackWorkspace: workspace) { [weak self] output in
+                    Task { @MainActor [weak self] in self?.updateRoomReply(roomID: roomID, entryID: entryID, text: output) }
+                }
+                finishRoomReply(roomID: roomID, entryID: entryID, text: text, delivery: .completed)
+                if let current = archive.rooms.firstIndex(where: { $0.id == roomID }) {
+                    archive.rooms[current].lounge.phase = .idle
+                    archive.rooms[current].lounge.meetingStartEntryID = nil
+                    archive.rooms[current].lounge.reason = t("會議紀要已整理，會議結束。")
+                }
+            } catch {
+                finishRoomReply(roomID: roomID, entryID: entryID, text: "結果待核對: \(error.localizedDescription)",
+                                delivery: cancelRoomQueue ? .interrupted : .failed)
+                if let current = archive.rooms.firstIndex(where: { $0.id == roomID }) {
+                    archive.rooms[current].lounge.phase = .waitingUser
+                }
+            }
+        }
+    }
+
+    /// Compress context: a member summarises the topic; later prompts use the
+    /// summary plus newer messages. The original messages are kept.
+    func compressRoom() {
+        guard let room = activeRoom else { return }
+        summarizeRoom(room.id, carryInto: nil)
+    }
+
+    private func summarizeRoom(_ roomID: UUID, carryInto target: UUID?) {
+        guard storageAvailable, !roomRunning, let index = archive.rooms.firstIndex(where: { $0.id == roomID }),
+              let member = archive.members.first(where: { $0.enabled && archive.rooms[index].participants.contains($0.agent) })
+                ?? archive.members.first(where: \.enabled),
+              let last = archive.rooms[index].entries.last(where: { $0.delivery == .completed && $0.speaker != .system }) else { return }
+        let prompt = LoungeEngine.summaryPrompt(room: archive.rooms[index], language: archive.settings.language)
+        let runID = UUID()
+        roomRunning = true
+        cancelRoomQueue = false
+        roomRunID = runID
+        statusMessage = target == nil ? t("正在壓縮上下文……") : t("正在整理上一個話題的摘要……")
+        let settings = archive.settings
+        Task {
+            defer { roomRunID = nil; roomRunning = false; persist() }
+            do {
+                let summary = try await runner.run(id: runID, agent: member.agent, prompt: prompt, settings: settings,
+                                                   fallbackWorkspace: workspace, onUpdate: { _ in })
+                guard !cancelRoomQueue, let current = archive.rooms.firstIndex(where: { $0.id == roomID }) else { return }
+                archive.rooms[current].summary = String(summary.prefix(5_000))
+                archive.rooms[current].summaryThroughEntryID = last.id
+                if let target { setCarriedSummary(target, summary) }
+                else {
+                    archive.rooms[current].entries.append(RoomEntry(speaker: .system, displayName: "AIROOM",
+                        body: t("已壓縮上下文：之後成員會從摘要繼續，原本的訊息都保留。")))
+                }
+                statusMessage = nil
+            } catch {
+                statusMessage = "\(t("摘要沒有完成")): \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func clearRoom() {
+        guard !roomRunning, let index = activeRoomIndex else { return }
+        let old = archive.rooms[index].lounge
+        var lounge = LoungeState(style: old.style)
+        lounge.handRaise = old.handRaise
+        lounge.hostPick = old.hostPick
+        archive.rooms[index].entries = []
+        archive.rooms[index].lounge = lounge
+        archive.rooms[index].summary = ""
+        archive.rooms[index].summaryThroughEntryID = nil
+        archive.rooms[index].carriedSummary = ""
+        archive.rooms[index].updatedAt = .now
+        answeringQuestionID = nil
+        persist()
+    }
+
+    func roomMarkdown() -> String { activeRoom.map { LoungeEngine.markdown(room: $0) } ?? "" }
 
     // MARK: Local scheduling and low-frequency idle chat
     private func startAutomationTimer() {

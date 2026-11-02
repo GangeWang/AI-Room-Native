@@ -55,17 +55,22 @@ public struct RoomEntry: Identifiable, Codable, Equatable, Sendable {
     public var body: String
     public var createdAt: Date
     public var delivery: RoomDelivery
+    /// An emoji-only response (body is the emoji).
+    public var isReaction: Bool
+    /// Meeting minutes written at the end of a meeting.
+    public var isMinutes: Bool
 
     public init(id: UUID = UUID(), speaker: Speaker, agent: AgentKind? = nil,
                 displayName: String, body: String, createdAt: Date = .now,
-                delivery: RoomDelivery = .completed) {
+                delivery: RoomDelivery = .completed, isReaction: Bool = false, isMinutes: Bool = false) {
         self.id = id; self.speaker = speaker; self.agent = agent
         self.displayName = displayName; self.body = body
         self.createdAt = createdAt; self.delivery = delivery
+        self.isReaction = isReaction; self.isMinutes = isMinutes
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, speaker, agent, displayName, body, createdAt, delivery
+        case id, speaker, agent, displayName, body, createdAt, delivery, isReaction, isMinutes
     }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -75,6 +80,8 @@ public struct RoomEntry: Identifiable, Codable, Equatable, Sendable {
         displayName = try values.decode(String.self, forKey: .displayName)
         body = try values.decode(String.self, forKey: .body)
         createdAt = try values.decode(Date.self, forKey: .createdAt)
+        isReaction = try values.decodeIfPresent(Bool.self, forKey: .isReaction) ?? false
+        isMinutes = try values.decodeIfPresent(Bool.self, forKey: .isMinutes) ?? false
         if let stored = try values.decodeIfPresent(RoomDelivery.self, forKey: .delivery) {
             delivery = stored
         } else {
@@ -95,8 +102,35 @@ public struct TeamRoom: Identifiable, Codable, Equatable, Sendable {
     public var entries: [RoomEntry]
     public var participants: [AgentKind]
     public var updatedAt: Date
-    public init(id: UUID = UUID(), title: String = "茶歇室", entries: [RoomEntry] = [], participants: [AgentKind] = AgentKind.allCases, updatedAt: Date = .now) {
+    public var lounge: LoungeState
+    /// Compressed context: prompts use this summary plus entries after `summaryThroughEntryID`.
+    public var summary: String
+    public var summaryThroughEntryID: UUID?
+    /// Summary of the previous topic, carried into this one when it was opened.
+    public var carriedSummary: String
+
+    public init(id: UUID = UUID(), title: String = "茶歇室", entries: [RoomEntry] = [], participants: [AgentKind] = AgentKind.allCases,
+                updatedAt: Date = .now, lounge: LoungeState = LoungeState(), summary: String = "",
+                summaryThroughEntryID: UUID? = nil, carriedSummary: String = "") {
         self.id = id; self.title = title; self.entries = entries; self.participants = participants; self.updatedAt = updatedAt
+        self.lounge = lounge; self.summary = summary; self.summaryThroughEntryID = summaryThroughEntryID
+        self.carriedSummary = carriedSummary
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, entries, participants, updatedAt, lounge, summary, summaryThroughEntryID, carriedSummary
+    }
+    public init(from decoder: Decoder) throws {
+        let box = try decoder.container(keyedBy: CodingKeys.self)
+        id = try box.decode(UUID.self, forKey: .id)
+        title = try box.decode(String.self, forKey: .title)
+        entries = try box.decode([RoomEntry].self, forKey: .entries)
+        participants = try box.decode([AgentKind].self, forKey: .participants)
+        updatedAt = try box.decode(Date.self, forKey: .updatedAt)
+        lounge = try box.decodeIfPresent(LoungeState.self, forKey: .lounge) ?? LoungeState()
+        summary = try box.decodeIfPresent(String.self, forKey: .summary) ?? ""
+        summaryThroughEntryID = try box.decodeIfPresent(UUID.self, forKey: .summaryThroughEntryID)
+        carriedSummary = try box.decodeIfPresent(String.self, forKey: .carriedSummary) ?? ""
     }
 }
 
@@ -188,7 +222,7 @@ public enum RoomPromptBuilder {
             let body = String(entry.body.prefix(size))
             let kind = entry.speaker == .user ? (language == .english ? "USER" : "使用者") : "AI"
             let label = entry.speaker == .user ? "\(kind) [\(entry.displayName.prefix(40))]" : "\(kind) [\(entry.agent?.rawValue ?? "unknown") / \(entry.displayName)]"
-            let formatted = "[\(label)]\n\(body)"
+            let formatted = entry.isReaction ? "[\(label)]（用表情回應：\(body)）" : "[\(label)]\n\(body)"
             if used + formatted.count + 2 > limit {
                 // Preserve the newest messages rather than skipping them for
                 // older short messages, which would distort chronology.
