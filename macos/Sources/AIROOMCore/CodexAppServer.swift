@@ -130,14 +130,15 @@ public final class CodexAppServerRunner {
 
     public func runDetailed(id: UUID, binary: URL, cwd: URL, prompt: String,
                             access: ExecutionAccess, options: CLIRunOptions = CLIRunOptions(),
-                            timeoutSeconds: TimeInterval = 300,
+                            timeoutSeconds: TimeInterval = 300, delivered: @escaping @Sendable () -> Void = {},
                             onUpdate: @escaping (String) -> Void) async throws -> CLIRunResult {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let value = try self.runBlocking(id: id, binary: binary, cwd: cwd,
                                                      prompt: prompt, access: access, options: options,
-                                                     timeoutSeconds: timeoutSeconds, onUpdate: onUpdate)
+                                                     timeoutSeconds: timeoutSeconds, delivered: delivered,
+                                                     onUpdate: onUpdate)
                     continuation.resume(returning: value)
                 } catch { continuation.resume(throwing: error) }
             }
@@ -146,7 +147,7 @@ public final class CodexAppServerRunner {
 
     private func runBlocking(id: UUID, binary: URL, cwd: URL, prompt: String,
                              access: ExecutionAccess, options: CLIRunOptions, timeoutSeconds: TimeInterval,
-                             onUpdate: (String) -> Void) throws -> CLIRunResult {
+                             delivered: () -> Void, onUpdate: (String) -> Void) throws -> CLIRunResult {
         var actualCWD = cwd
         var scratch: URL?
         if access == .readOnly {
@@ -289,6 +290,7 @@ public final class CodexAppServerRunner {
                     if !options.effort.isEmpty { params["effort"] = options.effort }
                     try input.fileHandleForWriting.write(contentsOf: CodexServerWire.request(
                         id: 3, method: "turn/start", params: params))
+                    delivered()
                 }
             }
         }

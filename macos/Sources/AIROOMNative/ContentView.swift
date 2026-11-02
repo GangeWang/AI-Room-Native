@@ -31,7 +31,8 @@ struct ContentView: View {
                                         onProject: { route = .projects },
                                         onRoom: { route = .room },
                                         onMembers: { route = .members },
-                                        onMemberCard: { memberSheet = $0 })
+                                        onMemberCard: { memberSheet = $0 },
+                                        onSettings: { route = .settings })
                     case .chat(let agent): ChatView(agent: agent)
                     case .room: RoomView()
                     case .roundtable: RoundtableView()
@@ -40,7 +41,7 @@ struct ContentView: View {
                     case .quota: StudioQuotaView()
                     case .automation: AutomationView()
                     case .stage: LiveStageView(stage: model.stage)
-                    case .attention: StudioAttentionView(onProject: { route = .projects }, onChat: { route = .chat($0) })
+                    case .attention: StudioAttentionView(onOpen: openAttention)
                     case .settings: SettingsView()
                     }
                 }
@@ -154,8 +155,15 @@ struct ContentView: View {
         .background(StudioTheme.sidebar(scheme))
     }
 
-    private var attentionCount: Int {
-        model.archive.projects.filter { $0.phase == .reviewing || $0.phase == .failed }.count
+    private var attentionCount: Int { model.attentionItems.count }
+
+    private func openAttention(_ target: AttentionItem.Target) {
+        switch target {
+        case .room(let id): model.selectRoom(id); route = .room
+        case .project(let id): selectedProjectID = id; route = .projects
+        case .settings: route = .settings
+        case .member(let agent): route = .chat(agent)
+        }
     }
 
     private func groupHeading(_ title: String, action: @escaping () -> Void, icon: String) -> some View {

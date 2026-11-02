@@ -48,6 +48,12 @@ struct StudioQuotaView: View {
                                 .disabled(model.quotaRefreshing.contains(agent))
                                 if model.quotaRefreshing.contains(agent) { ProgressView().controlSize(.small) }
                             }
+                            VStack(alignment: .leading, spacing: 3) {
+                                Label(t("今天：", "Today: ") + model.archive.calls.usage(agent, day: LocalAutomation.dayKey(tick.date)).label(lang),
+                                      systemImage: "arrow.up.arrow.down.circle").font(.caption)
+                                Text(t("近 60 天：", "Last 60 days: ") + model.archive.calls.usage(agent).label(lang))
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
                             if let quota = model.accountQuotas[agent] {
                                 if !quota.isFresh(at: tick.date) {
                                     Label(t("上次資料已過期，請重新整理；過期不代表額度耗盡。", "Previous sample is stale; refresh it. Stale data does not mean exhausted quota."), systemImage: "clock")

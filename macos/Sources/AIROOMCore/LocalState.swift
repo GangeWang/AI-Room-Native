@@ -12,12 +12,13 @@ public struct SavedState: Codable, Equatable, Sendable {
     public var teamWorkflows: [TeamProjectWorkflow]
     public var liveShow: LiveShowSettings
     public var liveStage: LiveStageSettings
+    public var calls: CallLedger
     public init(settings: NativeSettings = NativeSettings(), conversations: [Conversation] = [],
                 members: [MemberCard] = MemberCard.defaults, rooms: [TeamRoom] = [TeamRoom()],
                 projects: [ProjectRecord] = [], roundtables: [StoredRoundtable] = [],
                 schedules: [ScheduledActivity] = [], autoChat: AutoChatSettings = AutoChatSettings(),
                 teamWorkflows: [TeamProjectWorkflow] = [], liveShow: LiveShowSettings = LiveShowSettings(),
-                liveStage: LiveStageSettings = LiveStageSettings()) {
+                liveStage: LiveStageSettings = LiveStageSettings(), calls: CallLedger = CallLedger()) {
         self.settings = settings
         self.conversations = conversations
         self.members = members
@@ -29,8 +30,9 @@ public struct SavedState: Codable, Equatable, Sendable {
         self.teamWorkflows = teamWorkflows
         self.liveShow = liveShow
         self.liveStage = liveStage
+        self.calls = calls
     }
-    private enum CodingKeys: String, CodingKey { case settings, conversations, members, rooms, projects, roundtables, schedules, autoChat, teamWorkflows, liveShow, liveStage }
+    private enum CodingKeys: String, CodingKey { case settings, conversations, members, rooms, projects, roundtables, schedules, autoChat, teamWorkflows, liveShow, liveStage, calls }
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         settings = try container.decodeIfPresent(NativeSettings.self, forKey: .settings) ?? NativeSettings()
@@ -44,6 +46,7 @@ public struct SavedState: Codable, Equatable, Sendable {
         teamWorkflows = try container.decodeIfPresent([TeamProjectWorkflow].self, forKey: .teamWorkflows) ?? []
         liveShow = try container.decodeIfPresent(LiveShowSettings.self, forKey: .liveShow) ?? LiveShowSettings()
         liveStage = try container.decodeIfPresent(LiveStageSettings.self, forKey: .liveStage) ?? LiveStageSettings()
+        calls = (try? container.decodeIfPresent(CallLedger.self, forKey: .calls)) ?? CallLedger()
     }
 }
 

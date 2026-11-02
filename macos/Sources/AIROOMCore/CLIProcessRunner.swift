@@ -9,10 +9,22 @@ private final class ProtectedBytes {
     func snapshot() -> Data { lock.lock(); defer { lock.unlock() }; return data }
 }
 
+/// Set once when a prompt actually reaches the CLI.
+final class DeliveryFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
+    /// Returns true only for the first call.
+    func set() -> Bool { lock.lock(); defer { lock.unlock() }; let first = !value; value = true; return first }
+}
+
 public final class CLIProcessRunner {
     private let lock = NSLock()
     private var active: [UUID: Process] = [:]
     private let codexServer = CodexAppServerRunner()
+    /// Receives one attempt, at most one delivered, then completed / notSent /
+    /// unknown for every request. Called from background threads.
+    public var observer: (@Sendable (AgentKind, CallEvent) -> Void)?
 
     public init() {}
 
@@ -35,6 +47,27 @@ public final class CLIProcessRunner {
             throw NativeCLIError.invalidPrompt
         }
         try PrivacyGuard.validatePrompt(prompt)
+        let observer = self.observer
+        let flag = DeliveryFlag()
+        observer?(agent, .attempt)
+        let delivered: @Sendable () -> Void = { if flag.set() { observer?(agent, .delivered) } }
+        do {
+            let result = try await perform(id: id, agent: agent, prompt: prompt, settings: settings,
+                                           fallbackWorkspace: fallbackWorkspace, access: access, options: options,
+                                           delivered: delivered, onUpdate: onUpdate)
+            observer?(agent, .completed)
+            return result
+        } catch {
+            // Sent but unconfirmed is "unknown": it may have been processed.
+            observer?(agent, flag.isSet ? .unknown : .notSent)
+            throw error
+        }
+    }
+
+    private func perform(id: UUID, agent: AgentKind, prompt: String, settings: NativeSettings,
+                         fallbackWorkspace: URL, access: ExecutionAccess, options: CLIRunOptions,
+                         delivered: @escaping @Sendable () -> Void,
+                         onUpdate: @escaping (String) -> Void) async throws -> CLIRunResult {
         let binary = try CommandPlan.resolveExecutable(agent: agent, settings: settings)
         let cwd = try CommandPlan.workingDirectory(settings: settings, fallback: fallbackWorkspace)
         if agent == .codex {
@@ -42,13 +75,15 @@ public final class CLIProcessRunner {
                 throw AttachmentError.pdfNotSupported(pdf.attachment.fileName)
             }
             return try await codexServer.runDetailed(id: id, binary: binary, cwd: cwd, prompt: prompt,
-                                                     access: access, options: options, onUpdate: onUpdate)
+                                                     access: access, options: options, delivered: delivered,
+                                                     onUpdate: onUpdate)
         }
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let result = try self.runBlocking(id: id, agent: agent, binary: binary, cwd: cwd, prompt: prompt,
-                                                      access: access, options: options, onUpdate: onUpdate)
+                                                      access: access, options: options, delivered: delivered,
+                                                      onUpdate: onUpdate)
                     continuation.resume(returning: result)
                 } catch {
                     continuation.resume(throwing: error)
@@ -58,7 +93,7 @@ public final class CLIProcessRunner {
     }
 
     private func runBlocking(id: UUID, agent: AgentKind, binary: URL, cwd: URL, prompt: String,
-                             access: ExecutionAccess, options: CLIRunOptions,
+                             access: ExecutionAccess, options: CLIRunOptions, delivered: () -> Void,
                              onUpdate: (String) -> Void) throws -> CLIRunResult {
         let process = Process()
         // Read-only prompts execute against a temporary sanitised work copy.
@@ -97,6 +132,7 @@ public final class CLIProcessRunner {
         }
         // Prompt is transmitted through stdin, not as an argument visible to other processes.
         stdin.fileHandleForWriting.write(input)
+        delivered()
         try? stdin.fileHandleForWriting.close()
 
         let errorGroup = DispatchGroup()

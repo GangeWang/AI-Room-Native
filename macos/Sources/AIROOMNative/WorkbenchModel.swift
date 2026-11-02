@@ -130,6 +130,14 @@ final class WorkbenchModel: ObservableObject {
         }
         if storageAvailable { persist(); startAutomationTimer() }
         refreshModelCatalogs()
+        // Every CLI request is counted for 用量與額度 (AIROOM's own receipts, not the bill).
+        runner.observer = { agent, event in
+            Task { @MainActor [weak self] in
+                self?.archive.calls.record(event, agent: agent, day: LocalAutomation.dayKey(.now))
+            }
+        }
+        // 開工前檢查: know up front who is ready, signed out or missing.
+        for agent in AgentKind.allCases { checkVendorCLIAccount(for: agent) }
     }
 
     func refreshQuota(for agent: AgentKind) {
@@ -336,7 +344,8 @@ final class WorkbenchModel: ObservableObject {
         let question = [prompt.isEmpty ? t("請看附件。") : prompt, AttachmentPolicy.inline(texts)]
             .filter { !$0.isEmpty }.joined(separator: "\n\n")
         let fullPrompt = PromptBuilder.build(history: history, newQuestion: question,
-                                             language: archive.settings.language, canWrite: true)
+                                             language: archive.settings.language, canWrite: true,
+                                             userName: archive.settings.userName)
         // Rounds may edit the topic's folder: snapshot first so the round can be undone.
         let folder: URL
         do {
@@ -400,8 +409,10 @@ final class WorkbenchModel: ObservableObject {
                 updateReply(agent: agent, replyID: replyID, text: result.text, force: true)
                 setReplyModel(agent: agent, replyID: replyID,
                               model: result.model ?? (options.model.isEmpty ? nil : options.model))
+                Notifier.post("\(memberName(agent)) \(t("回覆了"))", result.text)
             } catch {
                 updateReply(agent: agent, replyID: replyID, text: "\(t("執行失敗／結果尚待確認")): \(error.localizedDescription)", force: true)
+                Notifier.post("\(memberName(agent)) \(t("的回覆未完成"))", t("結果待核對，沒有自動重送。"))
             }
             activeRuns.removeValue(forKey: agent)
             busyAgents.remove(agent)
@@ -614,7 +625,43 @@ final class WorkbenchModel: ObservableObject {
             .sorted { participants.firstIndex(of: $0.agent)! < participants.firstIndex(of: $1.agent)! }
     }
 
-    private var ownerName: String { archive.settings.language == .english ? "the user" : "使用者" }
+    private var ownerName: String { archive.settings.ownerName }
+
+    func memberName(_ agent: AgentKind) -> String {
+        archive.members.first(where: { $0.agent == agent })?.name ?? agent.rawValue
+    }
+
+    // MARK: Workstation: login, stop-all, attention
+    var attentionItems: [AttentionItem] { AttentionBuilder.items(state: archive, cli: officialCLIStatuses) }
+
+    var anythingRunning: Bool {
+        !busyAgents.isEmpty || roomRunning || roundtableRunning || roundtableReviewRunning || projectBusy || liveActive
+    }
+
+    /// 全部中止: stops every member's current work. Nothing is resent.
+    func stopAll() {
+        for agent in busyAgents { stop(agent: agent) }
+        if roomRunning { stopRoom() }
+        if roundtableRunning || roundtableReviewRunning { stopRoundtable() }
+        if projectBusy { stopProject() }
+        if liveActive { stopLiveShow() }
+    }
+
+    /// Opens the official CLI's own login in Terminal; AIROOM never sees credentials.
+    func openOfficialLogin(for agent: AgentKind) {
+        do {
+            let binary = try CommandPlan.resolveExecutable(agent: agent, settings: archive.settings)
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("airoom-login", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
+                                                    attributes: [.posixPermissions: 0o700])
+            let script = folder.appendingPathComponent("\(agent.executableName)-login.command")
+            try LoginScript.contents(agent: agent, executable: binary).write(to: script, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
+            NSWorkspace.shared.open(script)
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
 
     private func dispatchRoomMessage(roomID: UUID, question: String, target: AgentKind?,
                                      displayName: String, answering: UUID? = nil) {
@@ -683,8 +730,12 @@ final class WorkbenchModel: ObservableObject {
                     break
                 }
                 let reply = LoungeEngine.parseReply(text)
+                let questionsBefore = archive.rooms[current].lounge.pendingQuestions.count
                 let outcome = LoungeEngine.apply(reply, from: speaker, present: present,
                                                  state: &archive.rooms[current].lounge, entryID: entryID)
+                if archive.rooms[current].lounge.pendingQuestions.count > questionsBefore {
+                    Notifier.post("\(member.name) \(t("問你"))", reply.body)
+                }
                 switch outcome {
                 case .show(let body):
                     finishRoomReply(roomID: roomID, entryID: entryID, text: body, delivery: .completed)
@@ -711,6 +762,10 @@ final class WorkbenchModel: ObservableObject {
                 }
                 break
             }
+        }
+        if !cancelRoomQueue, let index = archive.rooms.firstIndex(where: { $0.id == roomID }),
+           [.waitingUser, .awaitingHost, .paused].contains(archive.rooms[index].lounge.phase) {
+            Notifier.post(t("茶歇室在等你"), archive.rooms[index].lounge.reason ?? archive.rooms[index].title)
         }
         if cancelRoomQueue, let index = archive.rooms.firstIndex(where: { $0.id == roomID }),
            [.talking, .closing, .raising].contains(archive.rooms[index].lounge.phase) {
@@ -862,6 +917,7 @@ final class WorkbenchModel: ObservableObject {
                     archive.rooms[current].lounge.meetingStartEntryID = nil
                     archive.rooms[current].lounge.reason = t("會議紀要已整理，會議結束。")
                 }
+                Notifier.post(t("會議紀要已整理"), text)
             } catch {
                 finishRoomReply(roomID: roomID, entryID: entryID, text: "結果待核對: \(error.localizedDescription)",
                                 delivery: cancelRoomQueue ? .interrupted : .failed)
@@ -1538,7 +1594,10 @@ final class WorkbenchModel: ObservableObject {
                     Task { @MainActor [weak self] in self?.setProjectReport(id: id, text: text) }
                 }
                 setProjectReport(id: id, text: output)
-                if let idx = archive.projects.firstIndex(where: { $0.id == id }) { archive.projects[idx].phase = .reviewing }
+                if let idx = archive.projects.firstIndex(where: { $0.id == id }) {
+                    archive.projects[idx].phase = .reviewing
+                    Notifier.post(t("專案等你驗收"), archive.projects[idx].title)
+                }
                 if let wf = archive.teamWorkflows.firstIndex(where: { $0.id == id }),
                    archive.teamWorkflows[wf].step == .execution {
                     try? TeamProjectCoordinator.readyForReview(&archive.teamWorkflows[wf])

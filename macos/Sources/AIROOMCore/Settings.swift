@@ -12,15 +12,19 @@ public struct NativeSettings: Codable, Equatable, Sendable {
     public var codexPath: String
     public var workspacePath: String
     public var language: InterfaceLanguage
+    /// How members address the user (設定 → 個人資料). Empty = a neutral default.
+    public var userName: String
 
-    public init(claudePath: String = "", codexPath: String = "", workspacePath: String = "", language: InterfaceLanguage = .zhTW) {
+    public init(claudePath: String = "", codexPath: String = "", workspacePath: String = "",
+                language: InterfaceLanguage = .zhTW, userName: String = "") {
         self.claudePath = claudePath
         self.codexPath = codexPath
         self.workspacePath = workspacePath
         self.language = language
+        self.userName = String(userName.prefix(40))
     }
 
-    private enum CodingKeys: String, CodingKey { case claudePath, codexPath, workspacePath, language }
+    private enum CodingKeys: String, CodingKey { case claudePath, codexPath, workspacePath, language, userName }
 
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
@@ -28,6 +32,13 @@ public struct NativeSettings: Codable, Equatable, Sendable {
         codexPath = try box.decodeIfPresent(String.self, forKey: .codexPath) ?? ""
         workspacePath = try box.decodeIfPresent(String.self, forKey: .workspacePath) ?? ""
         language = try box.decodeIfPresent(InterfaceLanguage.self, forKey: .language) ?? .zhTW
+        userName = try box.decodeIfPresent(String.self, forKey: .userName) ?? ""
+    }
+
+    /// Name used in prompts for the human owner.
+    public var ownerName: String {
+        let name = userName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? (language == .english ? "the user" : "使用者") : name
     }
 
     public func configuredPath(for agent: AgentKind) -> String {

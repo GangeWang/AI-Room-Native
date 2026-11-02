@@ -9,6 +9,7 @@ struct StudioDashboard: View {
     let onRoom: () -> Void
     let onMembers: () -> Void
     let onMemberCard: (AgentKind) -> Void
+    var onSettings: () -> Void = {}
     private var lang: InterfaceLanguage { model.archive.settings.language }
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, lang) }
 
@@ -84,16 +85,8 @@ struct StudioDashboard: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Label(t("開工前檢查", "Preflight Checklist"), systemImage: "checklist")
                                 .font(.headline)
-                            ForEach(AgentKind.allCases) { agent in
-                                HStack {
-                                    StudioAvatar(agent: agent, size: 27, running: model.busyAgents.contains(agent))
-                                    Text(agent.rawValue).font(.subheadline)
-                                    Spacer()
-                                    Text(t("官方 CLI", "Official CLI"))
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                            StudioNotice(message: t("首次使用請到「設定與連接」指定官方 CLI 的路徑，並在終端機登入。", "First configure each official CLI in Settings, then sign in using the CLI itself."))
+                            ForEach(AgentKind.allCases) { agent in preflightRow(agent) }
+                            StudioNotice(message: t("「去登入」會在終端機打開官方程式自己的登入流程；AIROOM 不接觸帳號密碼或 Token。", "\"Sign in\" opens the official CLI's own login in Terminal; AIROOM never handles passwords or tokens."))
                         }
                     }
                     StudioPanel {
@@ -170,42 +163,77 @@ struct StudioMemberSheet: View {
     }
 }
 
+extension StudioDashboard {
+    @ViewBuilder func preflightRow(_ agent: AgentKind) -> some View {
+        let status = model.officialCLIStatuses[agent]
+        HStack(spacing: 8) {
+            StudioAvatar(agent: agent, size: 27, running: model.busyAgents.contains(agent))
+            Text(model.memberName(agent)).font(.subheadline)
+            Spacer()
+            switch status {
+            case .authenticated:
+                Label(t("已就緒", "Ready"), systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+            case .notLoggedIn:
+                Label(t("需要登入", "Sign-in needed"), systemImage: "person.crop.circle.badge.exclamationmark")
+                    .font(.caption).foregroundStyle(.orange)
+                Button(t("去登入", "Sign in")) { model.openOfficialLogin(for: agent) }.controlSize(.small)
+                Button { model.checkVendorCLIAccount(for: agent) } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.borderless).help(t("重新檢查", "Check again"))
+            case .missingExecutable:
+                Label(t("缺少程式", "CLI missing"), systemImage: "xmark.circle").font(.caption).foregroundStyle(.red)
+                Button(t("設定路徑", "Set path"), action: onSettings).controlSize(.small)
+            case .checking, nil:
+                ProgressView().controlSize(.mini)
+                Text(t("檢查中", "Checking")).font(.caption).foregroundStyle(.secondary)
+            case .notConfirmed, .timedOut:
+                Label(t("無法確認", "Unconfirmed"), systemImage: "questionmark.circle").font(.caption).foregroundStyle(.secondary)
+                Button { model.checkVendorCLIAccount(for: agent) } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.borderless).help(t("重新檢查", "Check again"))
+            }
+        }
+    }
+}
+
 struct StudioAttentionView: View {
     @EnvironmentObject private var model: WorkbenchModel
-    @Environment(\.colorScheme) private var scheme
-    let onProject: () -> Void
-    let onChat: (AgentKind) -> Void
+    let onOpen: (AttentionItem.Target) -> Void
     private func t(_ zh: String, _ en: String) -> String {
         StudioI18n.t(zh, en, model.archive.settings.language)
     }
-    private var projects: [ProjectRecord] {
-        model.archive.projects.filter { $0.phase == .reviewing || $0.phase == .failed }
+    private func icon(_ kind: AttentionKind) -> String {
+        switch kind {
+        case .question: return "questionmark.bubble"
+        case .decision: return "hand.raised"
+        case .unknown: return "exclamationmark.triangle"
+        case .login: return "person.crop.circle.badge.exclamationmark"
+        case .missing: return "xmark.circle"
+        case .acceptance: return "doc.text.magnifyingglass"
+        }
     }
     var body: some View {
+        let items = model.attentionItems
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 14) {
                 StudioPageHeading(eyebrow: "ATTENTION", title: t("待你處理", "Needs Attention"),
-                    subtitle: t("這裡列出尚待驗收或發生錯誤的專案。", "Projects that need approval or investigation."))
-                if projects.isEmpty {
+                    subtitle: t("成員在等你回答、需要你點名或登入、有結果要核對、有成品等你驗收，都會列在這裡。", "Questions for you, picks, sign-ins, results to check and work to accept."))
+                if items.isEmpty {
                     StudioEmptyState(icon: "checkmark.circle", title: t("目前沒有待辦", "All clear"),
-                                     detail: t("需要驗收的專案會出現在這裡。", "Projects awaiting your review will appear here."))
+                                     detail: t("需要你處理的事會出現在這裡。", "Anything that needs you will show up here."))
                 }
-                ForEach(projects) { project in
+                ForEach(items) { item in
                     StudioPanel {
                         HStack(spacing: 14) {
-                            Image(systemName: project.phase == .reviewing ? "doc.text.magnifyingglass" : "exclamationmark.triangle")
-                                .font(.title2).foregroundStyle(StudioTheme.orange)
+                            Image(systemName: icon(item.kind)).font(.title2).foregroundStyle(StudioTheme.orange)
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(project.title).font(.headline)
-                                Text(project.phase == .reviewing ? t("變更待驗收", "Review changes") : t("執行失敗，請檢查結果", "Execution failed; inspect result"))
-                                    .font(.caption).foregroundStyle(.secondary)
+                                Text(item.title).font(.headline)
+                                Text(item.detail).font(.caption).foregroundStyle(.secondary).lineLimit(3)
                             }
                             Spacer()
-                            Button(t("開啟專案", "Open Project"), action: onProject)
+                            Button(t("前往", "Open")) { onOpen(item.target) }
                         }
                     }
                 }
-                StudioNotice(message: t("這個頁面不會自動批准寫回或重送失敗的任務。", "Nothing here automatically approves writeback or retries an uncertain task."))
+                StudioNotice(message: t("這個頁面只負責帶你過去；不會自動回答、批准寫回或重送任何請求。", "This page only takes you there; it never answers, approves writeback or resends anything."))
             }.padding(26).frame(maxWidth: 900).frame(maxWidth: .infinity)
         }
     }
