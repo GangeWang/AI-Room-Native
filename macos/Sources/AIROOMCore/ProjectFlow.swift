@@ -240,8 +240,18 @@ public enum ProjectFlowEngine {
     public static func planPrompt(_ flow: ProjectFlow, discussion: String, names: [AgentKind: String], ownerName: String) -> String {
         let lead = flow.lead.map { names[$0] ?? $0.rawValue } ?? "負責人"
         let previous = flow.plan.map { plan -> String in
-            let data = (try? JSONEncoder().encode(PlanSketch(plan))).map { String(decoding: $0, as: UTF8.self) } ?? ""
-            return "目前的方案（第 \(plan.version) 版）：\(data)\n\(ownerName)要求修改：\(flow.planRequests.last ?? "")"
+            // Accepted rounds are finished work: the revision must cover only what remains.
+            let accepted = plan.rounds.filter { $0.status == .accepted }
+            var remaining = plan
+            remaining.rounds = plan.rounds.filter { $0.status != .accepted }
+            remaining.tasks = plan.tasks.filter { task in remaining.rounds.contains { $0.key == task.roundKey } }
+            let data = (try? JSONEncoder().encode(PlanSketch(remaining))).map { String(decoding: $0, as: UTF8.self) } ?? ""
+            let done = accepted.isEmpty ? "" : """
+            已完成並通過驗收的輪次（已寫進專案，不要再規劃、不要重複列出）：
+            \(accepted.map { "- \($0.title)：\(String($0.report.prefix(600)))" }.joined(separator: "\n"))
+
+            """
+            return "\(done)尚未完成部分的目前方案（第 \(plan.version) 版）：\(data)\n\(ownerName)要求修改：\(flow.planRequests.last ?? "")\n只輸出還沒完成的輪次與任務。"
         } ?? ""
         return """
         你是 \(lead)，被\(ownerName)選為 AIROOM 專案「\(flow.title)」的負責人。請寫出可執行的方案。

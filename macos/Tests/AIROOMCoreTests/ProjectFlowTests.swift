@@ -93,3 +93,20 @@ final class ProjectWorkspaceTests: XCTestCase {
         XCTAssertEqual(item.target, .project(flow.id))
     }
 }
+
+final class PlanRevisionTests: XCTestCase {
+    func testRevisionPromptMarksAcceptedRoundsAsDone() throws {
+        var flow = ProjectFlow(title: "網站", folder: "/tmp", members: [.claude, .codex])
+        flow.lead = .claude
+        var plan = try ProjectFlowEngine.parsePlan(#"{"rounds":[{"key":"r1","title":"建立頁面","goal":"g"},{"key":"r2","title":"加樣式","goal":"g"}],"tasks":[{"key":"t1","round":"r1","title":"寫頁面","member":"codex","goal":"g"},{"key":"t2","round":"r2","title":"寫CSS","member":"claude","goal":"g"}]}"#, members: flow.members)
+        plan.rounds[0].status = .accepted
+        plan.rounds[0].report = "page.html 已完成"
+        flow.plan = plan
+        flow.planRequests = ["加 footer"]
+        let prompt = ProjectFlowEngine.planPrompt(flow, discussion: "", names: [:], ownerName: "小明")
+        XCTAssertTrue(prompt.contains("已完成並通過驗收的輪次"))
+        XCTAssertTrue(prompt.contains("建立頁面：page.html 已完成"))
+        XCTAssertFalse(prompt.contains("\"寫頁面\""), "the accepted round's tasks are not offered for re-planning")
+        XCTAssertTrue(prompt.contains("寫CSS"))
+    }
+}

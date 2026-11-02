@@ -50,7 +50,8 @@ struct ProjectRoomView: View {
             .padding(14).frame(width: 250)
             .background(StudioTheme.surface(scheme).opacity(0.6))
             Divider()
-            if let flow = selected { FlowDetailView(flow: flow) }
+            // .id: each project gets fresh view state (e.g. its own review level).
+            if let flow = selected { FlowDetailView(flow: flow).id(flow.id) }
             else {
                 StudioEmptyState(icon: "folder.badge.person.crop", title: t("請大家一起來", "Bring the team in"),
                                  detail: t("新增一個專案資料夾、選至少兩位成員，就能進入會議室。", "Add a project folder and at least two members to open its room."))
