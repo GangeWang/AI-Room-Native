@@ -16,28 +16,82 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     public var role: MessageRole
     public var body: String
     public var createdAt: Date
+    public var attachments: [ChatAttachment]
+    /// The model the CLI actually reported for this reply.
+    public var modelUsed: String?
 
-    public init(id: UUID = UUID(), role: MessageRole, body: String, createdAt: Date = .now) {
+    public init(id: UUID = UUID(), role: MessageRole, body: String, createdAt: Date = .now,
+                attachments: [ChatAttachment] = [], modelUsed: String? = nil) {
         self.id = id
         self.role = role
         self.body = body
         self.createdAt = createdAt
+        self.attachments = attachments
+        self.modelUsed = modelUsed
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, role, body, createdAt, attachments, modelUsed }
+    public init(from decoder: Decoder) throws {
+        let box = try decoder.container(keyedBy: CodingKeys.self)
+        id = try box.decode(UUID.self, forKey: .id)
+        role = try box.decode(MessageRole.self, forKey: .role)
+        body = try box.decode(String.self, forKey: .body)
+        createdAt = try box.decode(Date.self, forKey: .createdAt)
+        attachments = try box.decodeIfPresent([ChatAttachment].self, forKey: .attachments) ?? []
+        modelUsed = try box.decodeIfPresent(String.self, forKey: .modelUsed)
     }
 }
 
+/// One member-desk topic. Each member has one open topic; "new topic"
+/// archives it, and any archived topic can be reopened later.
 public struct Conversation: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var agent: AgentKind
     public var title: String
     public var messages: [ChatMessage]
     public var updatedAt: Date
+    public var archived: Bool
+    /// True once the user typed a title; auto-naming then leaves it alone.
+    public var titleLocked: Bool
+    /// Empty means the CLI's default model / effort.
+    public var model: String
+    public var effort: String
+    public var draft: String
+    public var draftAttachments: [ChatAttachment]
 
-    public init(id: UUID = UUID(), agent: AgentKind, title: String = "新對話", messages: [ChatMessage] = [], updatedAt: Date = .now) {
+    public init(id: UUID = UUID(), agent: AgentKind, title: String = TopicNaming.defaultTitle,
+                messages: [ChatMessage] = [], updatedAt: Date = .now, archived: Bool = false,
+                titleLocked: Bool = false, model: String = "", effort: String = "",
+                draft: String = "", draftAttachments: [ChatAttachment] = []) {
         self.id = id
         self.agent = agent
         self.title = title
         self.messages = messages
         self.updatedAt = updatedAt
+        self.archived = archived
+        self.titleLocked = titleLocked
+        self.model = model
+        self.effort = effort
+        self.draft = draft
+        self.draftAttachments = draftAttachments
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, agent, title, messages, updatedAt, archived, titleLocked, model, effort, draft, draftAttachments
+    }
+    public init(from decoder: Decoder) throws {
+        let box = try decoder.container(keyedBy: CodingKeys.self)
+        id = try box.decode(UUID.self, forKey: .id)
+        agent = try box.decode(AgentKind.self, forKey: .agent)
+        title = try box.decode(String.self, forKey: .title)
+        messages = try box.decode([ChatMessage].self, forKey: .messages)
+        updatedAt = try box.decode(Date.self, forKey: .updatedAt)
+        archived = try box.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+        titleLocked = try box.decodeIfPresent(Bool.self, forKey: .titleLocked) ?? false
+        model = try box.decodeIfPresent(String.self, forKey: .model) ?? ""
+        effort = try box.decodeIfPresent(String.self, forKey: .effort) ?? ""
+        draft = try box.decodeIfPresent(String.self, forKey: .draft) ?? ""
+        draftAttachments = try box.decodeIfPresent([ChatAttachment].self, forKey: .draftAttachments) ?? []
     }
 }
 
@@ -67,7 +121,8 @@ public enum PromptBuilder {
             let name = language == .english
                 ? (message.role == .user ? "User" : "Assistant")
                 : (message.role == .user ? "使用者" : "助理")
-            lines.append("\(name): \(message.body)")
+            let files = message.attachments.isEmpty ? "" : " [附件：\(message.attachments.map(\.fileName).joined(separator: "、"))]"
+            lines.append("\(name): \(message.body)\(files)")
         }
         lines.append("\(language == .english ? "User" : "使用者")：\(newQuestion)")
         return lines.joined(separator: "\n\n")

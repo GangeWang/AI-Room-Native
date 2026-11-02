@@ -6,6 +6,8 @@ public struct CLIEventAccumulator {
     public let agent: AgentKind
     public private(set) var text = ""
     public private(set) var failure: String?
+    /// Model reported by the CLI itself (Claude's `system/init` event).
+    public private(set) var model: String?
     private var claudeDeltas = ""
 
     public init(agent: AgentKind) { self.agent = agent }
@@ -29,6 +31,10 @@ public struct CLIEventAccumulator {
                 failure = source ?? (value["message"] as? String) ?? "Codex 執行失敗"
             }
         case .claude:
+            if type == "system", value["subtype"] as? String == "init", let name = value["model"] as? String {
+                model = name
+                return nil
+            }
             if type == "stream_event", let event = value["event"] as? [String: Any],
                event["type"] as? String == "content_block_delta",
                let delta = event["delta"] as? [String: Any],

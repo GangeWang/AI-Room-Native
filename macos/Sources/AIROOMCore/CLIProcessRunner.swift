@@ -20,6 +20,17 @@ public final class CLIProcessRunner {
         id: UUID = UUID(), agent: AgentKind, prompt: String, settings: NativeSettings,
         fallbackWorkspace: URL, access: ExecutionAccess = .readOnly, onUpdate: @escaping (String) -> Void
     ) async throws -> String {
+        try await runDetailed(id: id, agent: agent, prompt: prompt, settings: settings,
+                              fallbackWorkspace: fallbackWorkspace, access: access, onUpdate: onUpdate).text
+    }
+
+    /// Like `run`, with per-topic model/effort, image/PDF attachments, and the
+    /// model the CLI reported back.
+    public func runDetailed(
+        id: UUID = UUID(), agent: AgentKind, prompt: String, settings: NativeSettings,
+        fallbackWorkspace: URL, access: ExecutionAccess = .readOnly, options: CLIRunOptions = CLIRunOptions(),
+        onUpdate: @escaping (String) -> Void
+    ) async throws -> CLIRunResult {
         guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, prompt.count <= 30_000 else {
             throw NativeCLIError.invalidPrompt
         }
@@ -31,13 +42,17 @@ public final class CLIProcessRunner {
         let binary = try CommandPlan.resolveExecutable(agent: agent, settings: settings)
         let cwd = try CommandPlan.workingDirectory(settings: settings, fallback: fallbackWorkspace)
         if agent == .codex {
-            return try await codexServer.run(id: id, binary: binary, cwd: cwd, prompt: prompt,
-                                             access: access, onUpdate: onUpdate)
+            if let pdf = options.attachments.first(where: { $0.attachment.kind == .pdf }) {
+                throw AttachmentError.pdfNotSupported(pdf.attachment.fileName)
+            }
+            return try await codexServer.runDetailed(id: id, binary: binary, cwd: cwd, prompt: prompt,
+                                                     access: access, options: options, onUpdate: onUpdate)
         }
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let result = try self.runBlocking(id: id, agent: agent, binary: binary, cwd: cwd, prompt: prompt, access: access, onUpdate: onUpdate)
+                    let result = try self.runBlocking(id: id, agent: agent, binary: binary, cwd: cwd, prompt: prompt,
+                                                      access: access, options: options, onUpdate: onUpdate)
                     continuation.resume(returning: result)
                 } catch {
                     continuation.resume(throwing: error)
@@ -46,8 +61,9 @@ public final class CLIProcessRunner {
         }
     }
 
-    private func runBlocking(id: UUID, agent: AgentKind, binary: URL, cwd: URL,
-                             prompt: String, access: ExecutionAccess, onUpdate: (String) -> Void) throws -> String {
+    private func runBlocking(id: UUID, agent: AgentKind, binary: URL, cwd: URL, prompt: String,
+                             access: ExecutionAccess, options: CLIRunOptions,
+                             onUpdate: (String) -> Void) throws -> CLIRunResult {
         let process = Process()
         // Read-only prompts execute against a temporary sanitised work copy.
         // This reduces accidental inclusion of .env/SSH/cloud files; it is
@@ -64,7 +80,9 @@ public final class CLIProcessRunner {
         }
         defer { if let scratch { try? FileManager.default.removeItem(at: scratch) } }
         process.executableURL = binary
-        process.arguments = CommandPlan.arguments(for: agent, access: access)
+        process.arguments = CommandPlan.arguments(for: agent, access: access, options: options)
+        let input = options.attachments.isEmpty ? Data(prompt.utf8)
+            : try ClaudeStreamInput.userMessage(prompt: prompt, attachments: options.attachments)
         process.currentDirectoryURL = actualCWD
         let environment = PrivacyGuard.cliEnvironment(
             from: ProcessInfo.processInfo.environment, executable: binary)
@@ -82,7 +100,7 @@ public final class CLIProcessRunner {
             try? stderr.fileHandleForReading.close()
         }
         // Prompt is transmitted through stdin, not as an argument visible to other processes.
-        if let data = prompt.data(using: .utf8) { stdin.fileHandleForWriting.write(data) }
+        stdin.fileHandleForWriting.write(input)
         try? stdin.fileHandleForWriting.close()
 
         let errorGroup = DispatchGroup()
@@ -131,7 +149,11 @@ public final class CLIProcessRunner {
         if parser.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw NativeCLIError.noResponse(agent.rawValue)
         }
-        return PrivacyGuard.redact(parser.text)
+        return CLIRunResult(text: PrivacyGuard.redact(parser.text), model: parser.model)
+    }
+
+    public func codexModels(settings: NativeSettings) async throws -> [ModelChoice] {
+        try await codexServer.listModels(binary: CommandPlan.resolveExecutable(agent: .codex, settings: settings))
     }
 
     /// Stops the direct CLI process. Descendant process cleanup is NOT yet guaranteed in this MVP.

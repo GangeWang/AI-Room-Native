@@ -15,6 +15,8 @@ public struct CodexServerWire {
     public private(set) var reply = ""
     public private(set) var completed = false
     public private(set) var failure: String?
+    /// Model reported in the thread/start response.
+    public private(set) var model: String?
 
     public enum Stage: Equatable { case initialize, startThread, startTurn, waiting, finished }
 
@@ -61,6 +63,7 @@ public struct CodexServerWire {
             switch (stage, id) {
             case (.initialize, 1): stage = .startThread
             case (.startThread, 2):
+                model = result["model"] as? String
                 guard let thread = result["thread"] as? [String: Any],
                       let value = thread["id"] as? String, !value.isEmpty else {
                     failure = "Codex App Server did not return a thread ID"
@@ -121,11 +124,19 @@ public final class CodexAppServerRunner {
     public func run(id: UUID, binary: URL, cwd: URL, prompt: String,
                     access: ExecutionAccess, timeoutSeconds: TimeInterval = 300,
                     onUpdate: @escaping (String) -> Void) async throws -> String {
+        try await runDetailed(id: id, binary: binary, cwd: cwd, prompt: prompt, access: access,
+                              timeoutSeconds: timeoutSeconds, onUpdate: onUpdate).text
+    }
+
+    public func runDetailed(id: UUID, binary: URL, cwd: URL, prompt: String,
+                            access: ExecutionAccess, options: CLIRunOptions = CLIRunOptions(),
+                            timeoutSeconds: TimeInterval = 300,
+                            onUpdate: @escaping (String) -> Void) async throws -> CLIRunResult {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let value = try self.runBlocking(id: id, binary: binary, cwd: cwd,
-                                                     prompt: prompt, access: access,
+                                                     prompt: prompt, access: access, options: options,
                                                      timeoutSeconds: timeoutSeconds, onUpdate: onUpdate)
                     continuation.resume(returning: value)
                 } catch { continuation.resume(throwing: error) }
@@ -134,8 +145,8 @@ public final class CodexAppServerRunner {
     }
 
     private func runBlocking(id: UUID, binary: URL, cwd: URL, prompt: String,
-                             access: ExecutionAccess, timeoutSeconds: TimeInterval,
-                             onUpdate: (String) -> Void) throws -> String {
+                             access: ExecutionAccess, options: CLIRunOptions, timeoutSeconds: TimeInterval,
+                             onUpdate: (String) -> Void) throws -> CLIRunResult {
         var actualCWD = cwd
         var scratch: URL?
         if access == .readOnly {
@@ -254,7 +265,7 @@ public final class CodexAppServerRunner {
                     guard !wire.reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                         throw NativeCLIError.noResponse("Codex App Server")
                     }
-                    return PrivacyGuard.redact(wire.reply)
+                    return CLIRunResult(text: PrivacyGuard.redact(wire.reply), model: wire.model)
                 }
                 if wire.stage == .startThread && !sentThread {
                     sentThread = true
@@ -269,16 +280,67 @@ public final class CodexAppServerRunner {
                 }
                 if wire.stage == .startTurn && !sentTurn, let threadID = wire.threadID {
                     sentTurn = true
+                    var params: [String: Any] = [
+                        "threadId": threadID,
+                        "input": [["type": "text", "text": prompt]]
+                            + options.attachments.map { ["type": "localImage", "path": $0.file.path] }
+                    ]
+                    if !options.model.isEmpty { params["model"] = options.model }
+                    if !options.effort.isEmpty { params["effort"] = options.effort }
                     try input.fileHandleForWriting.write(contentsOf: CodexServerWire.request(
-                        id: 3, method: "turn/start", params: [
-                            "threadId": threadID,
-                            "input": [["type": "text", "text": prompt]]
-                        ]))
+                        id: 3, method: "turn/start", params: params))
                 }
             }
         }
         let stderr = PrivacyGuard.redact(String(decoding: stderrData, as: UTF8.self))
         throw NativeCLIError.processFailed("Codex App Server ended without a confirmed turn. \(String(stderr.prefix(900)))")
+    }
+
+    /// Reads the official model catalog (`model/list`) for the topic picker.
+    public func listModels(binary: URL, timeoutSeconds: TimeInterval = 15) async throws -> [ModelChoice] {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                do { continuation.resume(returning: try self.listModelsBlocking(binary: binary, timeout: timeoutSeconds)) }
+                catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
+    private func listModelsBlocking(binary: URL, timeout: TimeInterval) throws -> [ModelChoice] {
+        let process = Process()
+        process.executableURL = binary
+        process.arguments = ["app-server", "--listen", "stdio://"]
+        process.currentDirectoryURL = FileManager.default.temporaryDirectory
+        process.environment = PrivacyGuard.cliEnvironment(from: ProcessInfo.processInfo.environment, executable: binary)
+        let input = Pipe(), output = Pipe()
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+            try? input.fileHandleForWriting.close()
+        }
+        let lines = LineCollector()
+        output.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty { handle.readabilityHandler = nil }
+            lines.append(chunk)
+        }
+        defer { output.fileHandleForReading.readabilityHandler = nil }
+        try input.fileHandleForWriting.write(contentsOf: CodexServerWire.request(id: 1, method: "initialize", params: [
+            "clientInfo": ["name": "airoom_native", "title": "AIROOM Native", "version": "0.2.0"]]))
+        _ = try lines.waitForResponse(id: 1, timeout: timeout)
+        try input.fileHandleForWriting.write(contentsOf: CodexServerWire.notification(method: "initialized"))
+        try input.fileHandleForWriting.write(contentsOf: CodexServerWire.request(id: 2, method: "model/list", params: [:]))
+        let result = try lines.waitForResponse(id: 2, timeout: timeout)
+        return (result["data"] as? [[String: Any]] ?? []).compactMap { item in
+            guard item["hidden"] as? Bool != true,
+                  let id = (item["model"] as? String) ?? (item["id"] as? String), !id.isEmpty else { return nil }
+            let efforts = (item["supportedReasoningEfforts"] as? [[String: Any]] ?? [])
+                .compactMap { $0["reasoningEffort"] as? String }
+            return ModelChoice(id: id, title: item["displayName"] as? String ?? id, efforts: efforts)
+        }
     }
 
     @discardableResult public func cancel(id: UUID) -> Bool {
@@ -289,3 +351,42 @@ public final class CodexAppServerRunner {
     }
 }
 
+
+/// Collects JSONL frames from a background reader and waits for one response.
+private final class LineCollector: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var buffer = Data()
+    private var frames: [[String: Any]] = []
+    private var closed = false
+
+    func append(_ chunk: Data) {
+        condition.lock()
+        if chunk.isEmpty { closed = true }
+        buffer.append(chunk)
+        while let boundary = buffer.firstIndex(of: 0x0a) {
+            let line = buffer[..<boundary]
+            buffer.removeSubrange(...boundary)
+            if let frame = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any] { frames.append(frame) }
+        }
+        if buffer.count > 4_194_304 { buffer.removeAll(); closed = true }
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    func waitForResponse(id: Int, timeout: TimeInterval) throws -> [String: Any] {
+        let deadline = Date().addingTimeInterval(timeout)
+        condition.lock()
+        defer { condition.unlock() }
+        while true {
+            if let index = frames.firstIndex(where: { $0["id"] as? Int == id }) {
+                let frame = frames.remove(at: index)
+                if let error = frame["error"] as? [String: Any] {
+                    throw NativeCLIError.processFailed("Codex App Server: \(error["message"] as? String ?? "error")")
+                }
+                return frame["result"] as? [String: Any] ?? [:]
+            }
+            if closed { throw NativeCLIError.processFailed("Codex App Server exited early") }
+            guard condition.wait(until: deadline) else { throw NativeCLIError.processFailed("Codex App Server timed out") }
+        }
+    }
+}

@@ -110,6 +110,26 @@ public final class LocalStateStore {
         try protectedWrite(try encode(state), to: protector == nil ? legacyState : protectedState)
     }
 
+    // MARK: Attachments — sealed like the state file, one file per attachment.
+    private var attachmentDirectory: URL { root.appendingPathComponent("attachments", isDirectory: true) }
+
+    public func storeAttachment(_ data: Data, id: UUID) throws {
+        try FileManager.default.createDirectory(at: attachmentDirectory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: attachmentDirectory.path)
+        let sealed = try protector.map { magic + (try $0.seal(data)) } ?? data
+        try protectedWrite(sealed, to: attachmentDirectory.appendingPathComponent("\(id.uuidString).aesgcm"))
+    }
+
+    public func loadAttachment(id: UUID) throws -> Data {
+        let data = try Data(contentsOf: attachmentDirectory.appendingPathComponent("\(id.uuidString).aesgcm"))
+        guard data.starts(with: magic) else {
+            guard protector == nil else { throw StateProtectionError.invalidCiphertext }
+            return data
+        }
+        guard let protector else { throw StateProtectionError.encryptionUnavailable }
+        return try protector.open(Data(data.dropFirst(magic.count)))
+    }
+
     /// Backups contain conversations and metadata, never official CLI credentials.
     /// On macOS they are encrypted with the device-bound Keychain key and cannot be
     /// restored on another Mac without an explicit export/rewrapping design.

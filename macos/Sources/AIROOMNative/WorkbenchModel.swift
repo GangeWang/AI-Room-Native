@@ -10,6 +10,8 @@ final class WorkbenchModel: ObservableObject {
     @Published var accountQuotas: [AgentKind: AccountQuota] = [:]
     @Published var quotaRefreshing: Set<AgentKind> = []
     @Published var chatDrafts: [AgentKind: String] = [:]
+    @Published var chatAttachments: [AgentKind: [ChatAttachment]] = [:]
+    @Published var codexModels: [ModelChoice] = []
     @Published var busyAgents: Set<AgentKind> = []
     @Published var roundtablePrompt = ""
     @Published var roundtableResults: [RoundtableResult] = []
@@ -54,6 +56,7 @@ final class WorkbenchModel: ObservableObject {
     private var liveStopRequested = false
     private var liveTask: Task<Void, Never>?
     private var scheduleTimer: Task<Void, Never>?
+    private var draftSaveTask: Task<Void, Never>?
 
     init() {
         // Load into local variables first. Swift requires `workspace` to be
@@ -102,8 +105,14 @@ final class WorkbenchModel: ObservableObject {
         if storageAvailable {
             try? FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         }
-        for agent in AgentKind.allCases where !archive.conversations.contains(where: { $0.agent == agent }) {
-            archive.conversations.append(Conversation(agent: agent))
+        for agent in AgentKind.allCases {
+            if !archive.conversations.contains(where: { $0.agent == agent && !$0.archived }) {
+                archive.conversations.append(Conversation(agent: agent))
+            }
+            if let open = archive.conversations.last(where: { $0.agent == agent && !$0.archived }) {
+                chatDrafts[agent] = open.draft
+                chatAttachments[agent] = open.draftAttachments
+            }
         }
         if storageAvailable { persist(); startAutomationTimer() }
     }
@@ -124,7 +133,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func messages(for agent: AgentKind) -> [ChatMessage] {
-        archive.conversations.first(where: { $0.agent == agent })?.messages ?? []
+        index(of: agent).map { archive.conversations[$0].messages } ?? []
     }
 
     func updateSettings(_ edit: (inout NativeSettings) -> Void) {
@@ -132,38 +141,221 @@ final class WorkbenchModel: ObservableObject {
         persist()
     }
 
-    func resetConversation(for agent: AgentKind) {
-        guard !busyAgents.contains(agent), let index = index(of: agent) else { return }
-        archive.conversations[index] = Conversation(agent: agent)
+    // MARK: Member desk topics
+    func activeTopic(for agent: AgentKind) -> Conversation? {
+        index(of: agent).map { archive.conversations[$0] }
+    }
+
+    /// Archived and open topics, newest first.
+    func topics(for agent: AgentKind) -> [Conversation] {
+        archive.conversations.filter { $0.agent == agent }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// Kept for the ⌘N menu command: opens a new topic and archives the current one.
+    func resetConversation(for agent: AgentKind) { newTopic(for: agent) }
+
+    func newTopic(for agent: AgentKind) {
+        guard !busyAgents.contains(agent) else { return }
+        flushDraft(agent)
+        if let index = index(of: agent) {
+            // An untouched empty topic is reused rather than archived.
+            if archive.conversations[index].messages.isEmpty { return }
+            archive.conversations[index].archived = true
+        }
+        archive.conversations.append(Conversation(agent: agent))
+        loadDraft(agent)
         persist()
     }
 
+    func openTopic(_ id: UUID) {
+        guard let target = archive.conversations.firstIndex(where: { $0.id == id }) else { return }
+        let agent = archive.conversations[target].agent
+        guard !busyAgents.contains(agent), archive.conversations[target].archived else { return }
+        flushDraft(agent)
+        if let current = index(of: agent) {
+            if archive.conversations[current].messages.isEmpty && archive.conversations[current].draft.isEmpty
+                && archive.conversations[current].draftAttachments.isEmpty {
+                archive.conversations.remove(at: current)
+            } else {
+                archive.conversations[current].archived = true
+            }
+        }
+        guard let reopened = archive.conversations.firstIndex(where: { $0.id == id }) else { return }
+        archive.conversations[reopened].archived = false
+        // Move to the end so index(of:) (last open topic) resolves to it.
+        archive.conversations.append(archive.conversations.remove(at: reopened))
+        loadDraft(agent)
+        persist()
+    }
+
+    func renameTopic(_ id: UUID, title: String) {
+        guard let index = archive.conversations.firstIndex(where: { $0.id == id }) else { return }
+        let value = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        archive.conversations[index].title = value.isEmpty ? TopicNaming.defaultTitle : String(value.prefix(60))
+        archive.conversations[index].titleLocked = !value.isEmpty
+        persist()
+    }
+
+    func setTopicModel(_ agent: AgentKind, model: String) {
+        guard let index = index(of: agent) else { return }
+        archive.conversations[index].model = ModelCatalog.sanitize(model)
+        let efforts = modelChoices(for: agent).first(where: { $0.id == model })?.efforts ?? []
+        if !archive.conversations[index].effort.isEmpty && !efforts.isEmpty
+            && !efforts.contains(archive.conversations[index].effort) {
+            archive.conversations[index].effort = ""
+        }
+        persist()
+    }
+
+    func setTopicEffort(_ agent: AgentKind, effort: String) {
+        guard let index = index(of: agent) else { return }
+        archive.conversations[index].effort = ModelCatalog.sanitize(effort)
+        persist()
+    }
+
+    func modelChoices(for agent: AgentKind) -> [ModelChoice] {
+        agent == .claude ? ModelCatalog.claude : codexModels
+    }
+
+    func loadCodexModels() {
+        guard codexModels.isEmpty else { return }
+        let settings = archive.settings
+        Task {
+            if let models = try? await runner.codexModels(settings: settings) { codexModels = models }
+        }
+    }
+
+    /// Drafts are saved shortly after typing stops (each save re-encrypts the state).
+    func draftChanged(_ agent: AgentKind) {
+        draftSaveTask?.cancel()
+        draftSaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.flushDraft(agent)
+            self.persist()
+        }
+    }
+
+    private func flushDraft(_ agent: AgentKind) {
+        guard let index = index(of: agent) else { return }
+        archive.conversations[index].draft = String((chatDrafts[agent] ?? "").prefix(30_000))
+        archive.conversations[index].draftAttachments = chatAttachments[agent] ?? []
+    }
+
+    private func loadDraft(_ agent: AgentKind) {
+        let open = index(of: agent).map { archive.conversations[$0] }
+        chatDrafts[agent] = open?.draft ?? ""
+        chatAttachments[agent] = open?.draftAttachments ?? []
+    }
+
+    // MARK: Attachments
+    func addAttachments(_ urls: [URL], to agent: AgentKind) {
+        guard storageAvailable, let persistence else { return }
+        var list = chatAttachments[agent] ?? []
+        for url in urls {
+            guard list.count < AttachmentPolicy.maxPerMessage else {
+                statusMessage = AttachmentError.tooMany.localizedDescription; break
+            }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+                guard values.isRegularFile == true, (values.fileSize ?? 0) <= AttachmentPolicy.maxPDFBytes else {
+                    throw AttachmentError.tooLarge(url.lastPathComponent)
+                }
+                let data = try Data(contentsOf: url)
+                let attachment = try AttachmentPolicy.classify(fileName: url.lastPathComponent, data: data)
+                if attachment.kind == .pdf && agent == .codex { throw AttachmentError.pdfNotSupported(attachment.fileName) }
+                try persistence.storeAttachment(data, id: attachment.id)
+                list.append(attachment)
+            } catch {
+                statusMessage = error.localizedDescription
+            }
+        }
+        chatAttachments[agent] = list
+        flushDraft(agent)
+        persist()
+    }
+
+    func removeDraftAttachment(_ id: UUID, from agent: AgentKind) {
+        chatAttachments[agent]?.removeAll { $0.id == id }
+        flushDraft(agent)
+        persist()
+    }
+
+    func attachmentData(_ id: UUID) -> Data? { try? persistence?.loadAttachment(id: id) }
+
     func submit(to agent: AgentKind) {
-        guard storageAvailable, !busyAgents.contains(agent), let index = index(of: agent) else { return }
+        guard storageAvailable, !busyAgents.contains(agent), let index = index(of: agent),
+              let persistence else { return }
         let prompt = (chatDrafts[agent] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty else { return }
+        let attachments = chatAttachments[agent] ?? []
+        guard !prompt.isEmpty || !attachments.isEmpty else { return }
         guard prompt.count <= 30_000 else { statusMessage = t("輸入文字不可超過 30,000 字。"); return }
-        chatDrafts[agent] = ""
-        let history = archive.conversations[index].messages.filter { !$0.body.isEmpty }
-        let fullPrompt = PromptBuilder.build(history: history, newQuestion: prompt, language: archive.settings.language)
+        let topic = archive.conversations[index]
+        let history = topic.messages.filter { !$0.body.isEmpty }
+        // Images from the last couple of user turns are re-sent so follow-up
+        // questions about them still work (each run is a fresh CLI request).
+        let recent = history.filter { $0.role == .user }.suffix(2).flatMap(\.attachments).filter { $0.kind != .text }
+        var files = Array((recent + attachments.filter { $0.kind != .text }).reduce(into: [ChatAttachment]()) { list, item in
+            if !list.contains(where: { $0.id == item.id }) { list.append(item) }
+        }.suffix(AttachmentPolicy.maxPerMessage))
+        if agent == .codex { files.removeAll { $0.kind == .pdf } }
+        let texts = attachments.filter { $0.kind == .text }.compactMap { item in
+            (try? persistence.loadAttachment(id: item.id)).map { (item, $0) }
+        }
+        let question = [prompt.isEmpty ? t("請看附件。") : prompt, AttachmentPolicy.inline(texts)]
+            .filter { !$0.isEmpty }.joined(separator: "\n\n")
+        let fullPrompt = PromptBuilder.build(history: history, newQuestion: question, language: archive.settings.language)
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("airoom-attachments-\(UUID().uuidString)", isDirectory: true)
+        var prepared: [PreparedAttachment] = []
+        do {
+            if !files.isEmpty {
+                try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true,
+                                                        attributes: [.posixPermissions: 0o700])
+            }
+            for item in files {
+                let ext = item.kind == .pdf ? "pdf" : (item.fileName as NSString).pathExtension.lowercased()
+                let file = scratch.appendingPathComponent("\(item.id.uuidString).\(ext)")
+                try persistence.loadAttachment(id: item.id).write(to: file, options: .atomic)
+                prepared.append(PreparedAttachment(attachment: item, file: file))
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: scratch)
+            statusMessage = error.localizedDescription
+            return
+        }
+        let options = CLIRunOptions(model: topic.model, effort: topic.effort, attachments: prepared)
         let replyID = UUID(), runID = UUID()
-        if archive.conversations[index].messages.isEmpty { archive.conversations[index].title = String(prompt.prefix(32)) }
-        archive.conversations[index].messages.append(ChatMessage(role: .user, body: prompt))
+        if topic.messages.isEmpty && !topic.titleLocked {
+            archive.conversations[index].title = prompt.isEmpty
+                ? (attachments.first?.fileName.prefix(20).description ?? TopicNaming.defaultTitle)
+                : TopicNaming.title(from: prompt)
+        }
+        archive.conversations[index].messages.append(ChatMessage(role: .user, body: prompt, attachments: attachments))
         archive.conversations[index].messages.append(ChatMessage(id: replyID, role: .assistant, body: t("執行中……若中斷，請自行確認是否已完成。")))
         archive.conversations[index].updatedAt = .now
+        chatDrafts[agent] = ""
+        chatAttachments[agent] = []
+        flushDraft(agent)
         busyAgents.insert(agent)
         activeRuns[agent] = runID
         persist()
         let settings = archive.settings
         Task {
+            defer { try? FileManager.default.removeItem(at: scratch) }
             do {
-                let text = try await runner.run(id: runID, agent: agent, prompt: fullPrompt,
-                                                settings: settings, fallbackWorkspace: workspace) { [weak self] text in
+                let result = try await runner.runDetailed(id: runID, agent: agent, prompt: fullPrompt,
+                                                          settings: settings, fallbackWorkspace: workspace,
+                                                          options: options) { [weak self] text in
                     Task { @MainActor [weak self] in
                         self?.updateReply(agent: agent, replyID: replyID, text: text)
                     }
                 }
-                updateReply(agent: agent, replyID: replyID, text: text, force: true)
+                updateReply(agent: agent, replyID: replyID, text: result.text, force: true)
+                setReplyModel(agent: agent, replyID: replyID,
+                              model: result.model ?? (options.model.isEmpty ? nil : options.model))
             } catch {
                 updateReply(agent: agent, replyID: replyID, text: "\(t("執行失敗／結果尚待確認")): \(error.localizedDescription)", force: true)
             }
@@ -171,6 +363,13 @@ final class WorkbenchModel: ObservableObject {
             busyAgents.remove(agent)
             persist()
         }
+    }
+
+    private func setReplyModel(agent: AgentKind, replyID: UUID, model: String?) {
+        guard let model, let conversation = archive.conversations.firstIndex(where: {
+            $0.agent == agent && $0.messages.contains(where: { $0.id == replyID })
+        }), let message = archive.conversations[conversation].messages.firstIndex(where: { $0.id == replyID }) else { return }
+        archive.conversations[conversation].messages[message].modelUsed = String(model.prefix(80))
     }
 
     func stop(agent: AgentKind) {
@@ -1081,7 +1280,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     private func index(of agent: AgentKind) -> Int? {
-        archive.conversations.firstIndex(where: { $0.agent == agent })
+        archive.conversations.lastIndex(where: { $0.agent == agent && !$0.archived })
     }
 
     private func persist() {

@@ -162,14 +162,20 @@ public enum CommandPlan {
         throw NativeCLIError.executableMissing(agent.executableName)
     }
 
-    public static func arguments(for agent: AgentKind, access: ExecutionAccess = .readOnly) -> [String] {
+    public static func arguments(for agent: AgentKind, access: ExecutionAccess = .readOnly,
+                                 options: CLIRunOptions = CLIRunOptions()) -> [String] {
         switch agent {
         case .codex:
             // Explicitly read-only. No --full-auto / --dangerously-bypass flags.
             return ["exec", "--json", "--sandbox", access == .readOnly ? "read-only" : "workspace-write", "--skip-git-repo-check", "-"]
         case .claude:
             // Print mode via stdin; empty tools list disables tool execution for MVP.
-            return ["--print", "--output-format", "stream-json", "--include-partial-messages", "--verbose", "--tools", ""]
+            var claude = ["--print", "--output-format", "stream-json", "--include-partial-messages", "--verbose", "--tools", ""]
+            if !options.model.isEmpty { claude += ["--model", options.model] }
+            if !options.effort.isEmpty { claude += ["--effort", options.effort] }
+            // Images and PDFs travel as content blocks in one stream-json user message.
+            if !options.attachments.isEmpty { claude += ["--input-format", "stream-json"] }
+            return claude
         }
     }
 
