@@ -40,6 +40,8 @@ fi
 # Build in a staging directory so a failed icon or signing step cannot leave
 # behind a broken .app or destroy the last good build.
 mkdir -p "$PWD/dist"
+# Keep build output out of Spotlight/Launchpad; the installed copy is the only app.
+touch "$PWD/dist/.metadata_never_index"
 STAGING_DIR="$(mktemp -d "$PWD/dist/.app-staging.XXXXXXXX")"
 trap 'rm -rf "$STAGING_DIR"' EXIT
 APP="$STAGING_DIR/AIROOMNative.app"

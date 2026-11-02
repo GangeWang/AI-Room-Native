@@ -37,7 +37,8 @@ if [[ -e "$TARGET" ]]; then
   echo "Moved previous version to Trash: $TRASHED"
 fi
 
-/usr/bin/ditto "$SOURCE" "$TARGET"
+# Move (not copy) so only one AIROOMNative.app exists for Spotlight/Launchpad.
+mv "$SOURCE" "$TARGET"
 /usr/bin/codesign --verify --deep --strict "$TARGET"
 echo "Installed: $TARGET ($(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$TARGET/Contents/Info.plist"))"
 
