@@ -281,13 +281,18 @@ struct RoundtableTopicView: View {
                         Button(t("下一步：比較並選擇候選", "Next: compare candidates")) { comparing = true }
                     }
                     if [.discussing].contains(topic.status) && !model.roomRunning {
-                        Menu(t("整理會議紀要", "Write minutes")) {
+                        // The lead (匯總成員) writes the minutes by default; others via the arrow.
+                        Menu {
                             ForEach(topic.members, id: \.self) { agent in
                                 Button(t("請 \(model.memberName(agent)) 整理", "Ask \(model.memberName(agent))")) {
                                     model.concludeRoundtable(topic.id, by: agent)
                                 }
                             }
-                        }.fixedSize()
+                        } label: {
+                            Text(t("整理會議紀要", "Write minutes"))
+                        } primaryAction: { model.concludeRoundtable(topic.id, by: topic.lead) }
+                        .fixedSize()
+                        .help(t("由匯總成員 \(model.memberName(topic.lead)) 整理；按箭頭可改請其他成員", "Written by the lead, \(model.memberName(topic.lead)); use the arrow to pick someone else"))
                     }
                 }
                 ForEach(room.entries.filter { $0.speaker != .system }) { entry in
