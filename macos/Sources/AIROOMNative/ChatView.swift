@@ -33,7 +33,6 @@ struct ChatView: View {
             Divider()
             composer
         }
-        .onAppear { if agent == .codex { model.loadCodexModels() } }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.image, .pdf, .text, .sourceCode, .json, .data],
                       allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { model.addAttachments(urls, to: agent) }
@@ -219,22 +218,31 @@ struct ChatView: View {
     private var modelPickers: some View {
         let choices = model.modelChoices(for: agent)
         let current = topic?.model ?? ""
-        let efforts = choices.first(where: { $0.id == current })?.efforts
-            ?? (agent == .claude ? ModelCatalog.claudeEfforts : Array(Set(choices.flatMap(\.efforts))).sorted())
+        // Efforts follow the chosen model (or the CLI default); some models report none.
+        let selected = current.isEmpty ? choices.first(where: \.isDefault) : choices.first(where: { $0.id == current })
+        let efforts = selected?.efforts ?? (agent == .claude ? ModelCatalog.claudeEfforts : [])
         return HStack(spacing: 6) {
             Picker(t("模型", "Model"), selection: Binding(get: { current },
                                                           set: { model.setTopicModel(agent, model: $0) })) {
-                Text(t("預設模型", "Default model")).tag("")
+                Text(t("預設模型", "Default model")
+                     + (choices.first(where: \.isDefault).map { "（\($0.title)）" } ?? "")).tag("")
                 ForEach(choices) { choice in Text(choice.title).tag(choice.id) }
                 if !current.isEmpty && !choices.contains(where: { $0.id == current }) { Text(current).tag(current) }
             }
-            .labelsHidden().frame(width: 140)
+            .labelsHidden().frame(width: 190)
+            Button { model.refreshModelCatalogs([agent]) } label: {
+                if model.modelCatalogLoading.contains(agent) { ProgressView().controlSize(.mini) }
+                else { Image(systemName: "arrow.clockwise") }
+            }
+            .buttonStyle(.borderless)
+            .help(t("重新向官方 CLI 讀取模型清單（CLI 更新後會出現新模型）", "Reload the model list from the official CLI (new models appear after a CLI update)"))
             Picker(t("思考程度", "Effort"), selection: Binding(get: { topic?.effort ?? "" },
                                                             set: { model.setTopicEffort(agent, effort: $0) })) {
                 Text(t("預設思考", "Default effort")).tag("")
                 ForEach(efforts, id: \.self) { Text($0).tag($0) }
             }
             .labelsHidden().frame(width: 115)
+            .disabled(efforts.isEmpty)
         }
         .disabled(busy)
         .help(t("只套用在這個話題", "Applies to this topic only"))

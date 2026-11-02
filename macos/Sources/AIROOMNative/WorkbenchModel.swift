@@ -11,7 +11,9 @@ final class WorkbenchModel: ObservableObject {
     @Published var quotaRefreshing: Set<AgentKind> = []
     @Published var chatDrafts: [AgentKind: String] = [:]
     @Published var chatAttachments: [AgentKind: [ChatAttachment]] = [:]
-    @Published var codexModels: [ModelChoice] = []
+    /// Live model catalogs reported by each official CLI (refreshed on launch).
+    @Published var modelCatalogs: [AgentKind: [ModelChoice]] = [:]
+    @Published var modelCatalogLoading: Set<AgentKind> = []
     @Published var busyAgents: Set<AgentKind> = []
     @Published var roundtablePrompt = ""
     @Published var roundtableResults: [RoundtableResult] = []
@@ -115,6 +117,7 @@ final class WorkbenchModel: ObservableObject {
             }
         }
         if storageAvailable { persist(); startAutomationTimer() }
+        refreshModelCatalogs()
     }
 
     func refreshQuota(for agent: AgentKind) {
@@ -213,15 +216,29 @@ final class WorkbenchModel: ObservableObject {
         persist()
     }
 
+    /// The CLI's live catalog; Claude falls back to its family aliases if the query failed.
     func modelChoices(for agent: AgentKind) -> [ModelChoice] {
-        agent == .claude ? ModelCatalog.claude : codexModels
+        let live = modelCatalogs[agent] ?? []
+        return live.isEmpty && agent == .claude ? ModelCatalog.claude : live
     }
 
-    func loadCodexModels() {
-        guard codexModels.isEmpty else { return }
+    /// New models appear without an app update: each CLI is asked again on
+    /// launch and whenever the user picks "Refresh model list".
+    func refreshModelCatalogs(_ agents: [AgentKind] = AgentKind.allCases) {
         let settings = archive.settings
-        Task {
-            if let models = try? await runner.codexModels(settings: settings) { codexModels = models }
+        for agent in agents where !modelCatalogLoading.contains(agent) {
+            modelCatalogLoading.insert(agent)
+            Task {
+                do {
+                    let models = agent == .claude
+                        ? try await runner.claudeModels(settings: settings)
+                        : try await runner.codexModels(settings: settings)
+                    if !models.isEmpty { modelCatalogs[agent] = models }
+                } catch {
+                    // Keep the previous list; the picker still offers the CLI default.
+                }
+                modelCatalogLoading.remove(agent)
+            }
         }
     }
 

@@ -89,13 +89,16 @@ public struct ModelChoice: Identifiable, Equatable, Sendable {
     public var id: String
     public var title: String
     public var efforts: [String]
-    public init(id: String, title: String, efforts: [String]) {
-        self.id = id; self.title = title; self.efforts = efforts
+    /// The CLI's own default (shown as "Default model (…)" rather than listed).
+    public var isDefault: Bool
+    public init(id: String, title: String, efforts: [String], isDefault: Bool = false) {
+        self.id = id; self.title = title; self.efforts = efforts; self.isDefault = isDefault
     }
 }
 
 public enum ModelCatalog {
     public static let claudeEfforts = ["low", "medium", "high", "xhigh", "max"]
+    /// Fallback only, used when the CLI cannot be asked for its live catalog.
     /// Claude Code accepts these aliases for the latest model of each family.
     public static let claude: [ModelChoice] = [
         ModelChoice(id: "fable", title: "Fable", efforts: claudeEfforts),
@@ -103,6 +106,23 @@ public enum ModelCatalog {
         ModelChoice(id: "sonnet", title: "Sonnet", efforts: claudeEfforts),
         ModelChoice(id: "haiku", title: "Haiku", efforts: ["low", "medium", "high"])
     ]
+    /// Parses the `models` array of Claude Code's SDK `initialize` response.
+    /// The `default` entry is folded into the first model it resolves to.
+    public static func claudeModels(from models: [[String: Any]]) -> [ModelChoice] {
+        let resolvedDefault = models.first(where: { $0["value"] as? String == "default" })?["resolvedModel"] as? String
+        var choices: [ModelChoice] = []
+        for item in models {
+            guard let value = item["value"] as? String, value != "default", !sanitize(value).isEmpty else { continue }
+            let efforts = item["supportsEffort"] as? Bool == true ? (item["supportedEffortLevels"] as? [String] ?? []) : []
+            // Only the first entry resolving to the default carries the flag.
+            let isDefault = resolvedDefault != nil && item["resolvedModel"] as? String == resolvedDefault
+                && !choices.contains(where: { $0.isDefault })
+            choices.append(ModelChoice(id: value, title: item["displayName"] as? String ?? value,
+                                       efforts: efforts, isDefault: isDefault))
+        }
+        return choices
+    }
+
     static let safeIdentifier = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._:[]"))
 
     /// Model and effort strings become CLI arguments / JSON-RPC values.

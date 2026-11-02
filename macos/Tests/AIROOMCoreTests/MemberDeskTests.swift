@@ -93,3 +93,22 @@ final class MemberDeskTests: XCTestCase {
         XCTAssertEqual(try store.loadAttachment(id: id), Data("秘密圖片".utf8))
     }
 }
+
+final class ModelCatalogTests: XCTestCase {
+    func testClaudeCatalogFoldsDefaultAndKeepsVersions() {
+        let models: [[String: Any]] = [
+            ["value": "default", "displayName": "Default (recommended)", "resolvedModel": "claude-opus-5-5",
+             "supportsEffort": true, "supportedEffortLevels": ["low", "max"]],
+            ["value": "opus", "displayName": "Opus 5.5", "resolvedModel": "claude-opus-5-5",
+             "supportsEffort": true, "supportedEffortLevels": ["low", "max"]],
+            ["value": "claude-opus-5", "displayName": "Opus 5", "resolvedModel": "claude-opus-5-5x"],
+            ["value": "claude-haiku-4-5-20251001", "displayName": "Haiku 4.5"],
+            ["value": "--evil", "displayName": "bad"]
+        ]
+        let choices = ModelCatalog.claudeModels(from: models)
+        XCTAssertEqual(choices.map(\.id), ["opus", "claude-opus-5", "claude-haiku-4-5-20251001"])
+        XCTAssertEqual(choices.map(\.title), ["Opus 5.5", "Opus 5", "Haiku 4.5"])
+        XCTAssertEqual(choices.filter(\.isDefault).map(\.id), ["opus"])
+        XCTAssertEqual(choices[2].efforts, [])
+    }
+}

@@ -339,7 +339,8 @@ public final class CodexAppServerRunner {
                   let id = (item["model"] as? String) ?? (item["id"] as? String), !id.isEmpty else { return nil }
             let efforts = (item["supportedReasoningEfforts"] as? [[String: Any]] ?? [])
                 .compactMap { $0["reasoningEffort"] as? String }
-            return ModelChoice(id: id, title: item["displayName"] as? String ?? id, efforts: efforts)
+            return ModelChoice(id: id, title: item["displayName"] as? String ?? id, efforts: efforts,
+                               isDefault: item["isDefault"] as? Bool == true)
         }
     }
 
@@ -353,7 +354,7 @@ public final class CodexAppServerRunner {
 
 
 /// Collects JSONL frames from a background reader and waits for one response.
-private final class LineCollector: @unchecked Sendable {
+final class LineCollector: @unchecked Sendable {
     private let condition = NSCondition()
     private var buffer = Data()
     private var frames: [[String: Any]] = []
@@ -374,19 +375,21 @@ private final class LineCollector: @unchecked Sendable {
     }
 
     func waitForResponse(id: Int, timeout: TimeInterval) throws -> [String: Any] {
+        let frame = try waitFor(timeout: timeout) { $0["id"] as? Int == id }
+        if let error = frame["error"] as? [String: Any] {
+            throw NativeCLIError.processFailed("Codex App Server: \(error["message"] as? String ?? "error")")
+        }
+        return frame["result"] as? [String: Any] ?? [:]
+    }
+
+    func waitFor(timeout: TimeInterval, _ matches: ([String: Any]) -> Bool) throws -> [String: Any] {
         let deadline = Date().addingTimeInterval(timeout)
         condition.lock()
         defer { condition.unlock() }
         while true {
-            if let index = frames.firstIndex(where: { $0["id"] as? Int == id }) {
-                let frame = frames.remove(at: index)
-                if let error = frame["error"] as? [String: Any] {
-                    throw NativeCLIError.processFailed("Codex App Server: \(error["message"] as? String ?? "error")")
-                }
-                return frame["result"] as? [String: Any] ?? [:]
-            }
-            if closed { throw NativeCLIError.processFailed("Codex App Server exited early") }
-            guard condition.wait(until: deadline) else { throw NativeCLIError.processFailed("Codex App Server timed out") }
+            if let index = frames.firstIndex(where: matches) { return frames.remove(at: index) }
+            if closed { throw NativeCLIError.processFailed("CLI exited before answering") }
+            guard condition.wait(until: deadline) else { throw NativeCLIError.processFailed("CLI timed out") }
         }
     }
 }

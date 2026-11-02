@@ -156,6 +156,54 @@ public final class CLIProcessRunner {
         try await codexServer.listModels(binary: CommandPlan.resolveExecutable(agent: .codex, settings: settings))
     }
 
+    /// Asks Claude Code for its model catalog through the SDK `initialize`
+    /// control request. No user message is sent and no tokens are spent.
+    public func claudeModels(settings: NativeSettings, timeout: TimeInterval = 10) async throws -> [ModelChoice] {
+        let binary = try CommandPlan.resolveExecutable(agent: .claude, settings: settings)
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                do { continuation.resume(returning: try Self.claudeModelsBlocking(binary: binary, timeout: timeout)) }
+                catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
+    private static func claudeModelsBlocking(binary: URL, timeout: TimeInterval) throws -> [ModelChoice] {
+        let process = Process()
+        process.executableURL = binary
+        process.arguments = ["-p", "--verbose", "--input-format", "stream-json", "--output-format", "stream-json",
+                             "--tools", "", "--strict-mcp-config", "--mcp-config", #"{"mcpServers":{}}"#]
+        process.currentDirectoryURL = FileManager.default.temporaryDirectory
+        process.environment = PrivacyGuard.cliEnvironment(from: ProcessInfo.processInfo.environment, executable: binary)
+        let input = Pipe(), output = Pipe()
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        defer {
+            try? input.fileHandleForWriting.close()
+            if process.isRunning { process.terminate() }
+            output.fileHandleForReading.readabilityHandler = nil
+        }
+        let lines = LineCollector()
+        output.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty { handle.readabilityHandler = nil }
+            lines.append(chunk)
+        }
+        let requestID = UUID().uuidString
+        let request: [String: Any] = ["type": "control_request", "request_id": requestID, "request": ["subtype": "initialize"]]
+        var line = try JSONSerialization.data(withJSONObject: request)
+        line.append(0x0a)
+        try input.fileHandleForWriting.write(contentsOf: line)
+        let frame = try lines.waitFor(timeout: timeout) {
+            $0["type"] as? String == "control_response"
+                && ($0["response"] as? [String: Any])?["request_id"] as? String == requestID
+        }
+        let response = (frame["response"] as? [String: Any])?["response"] as? [String: Any]
+        return ModelCatalog.claudeModels(from: response?["models"] as? [[String: Any]] ?? [])
+    }
+
     /// Stops the direct CLI process. Descendant process cleanup is NOT yet guaranteed in this MVP.
     @discardableResult public func cancel(id: UUID) -> Bool {
         if codexServer.cancel(id: id) { return true }
