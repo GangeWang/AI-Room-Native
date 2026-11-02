@@ -324,5 +324,7 @@ public struct RoomSession: Codable, Equatable, Sendable {
     public var id: String
     /// The newest room entry this member's CLI conversation already contains.
     public var through: UUID
-    public init(id: String, through: UUID) { self.id = id; self.through = through }
+    /// Fingerprint of the persona and memory that conversation was last given.
+    public var profile: String?
+    public init(id: String, through: UUID, profile: String? = nil) { self.id = id; self.through = through; self.profile = profile }
 }

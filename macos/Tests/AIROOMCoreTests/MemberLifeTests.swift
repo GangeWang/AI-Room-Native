@@ -165,6 +165,20 @@ final class MemberLifeTests: XCTestCase {
         XCTAssertTrue(reply.contains("今天好累") && reply.contains("自然收尾"))
     }
 
+    func testContinuedConversationsGetPersonaAndMemoryEdits() {
+        let seen = MemberLife.fingerprint(persona: "冷靜", profile: "【長期記憶】- A")
+        XCTAssertFalse(MemberLife.needsRefresh(seen: seen, persona: "冷靜", profile: "【長期記憶】- A"))
+        XCTAssertTrue(MemberLife.needsRefresh(seen: seen, persona: "冷靜", profile: "【長期記憶】- B"))
+        XCTAssertTrue(MemberLife.needsRefresh(seen: seen, persona: "熱情", profile: "【長期記憶】- A"))
+        XCTAssertTrue(MemberLife.needsRefresh(seen: nil, persona: "", profile: "【長期記憶】- A"), "older sessions never had it")
+        XCTAssertFalse(MemberLife.needsRefresh(seen: nil, persona: " ", profile: ""))
+        let note = MemberLife.refreshNote(persona: "", profile: "", ownerName: "小明")
+        XCTAssertTrue(note.contains("取代") && note.contains("（沒有）"))
+        let decoded = try? JSONDecoder().decode(RoomSession.self, from: Data(#"{"id":"s","through":"\#(UUID().uuidString)"}"#.utf8))
+        XCTAssertNil(decoded?.profile)
+        XCTAssertEqual(decoded?.id, "s")
+    }
+
     // MARK: Import
 
     private func fakeHome() throws -> URL {

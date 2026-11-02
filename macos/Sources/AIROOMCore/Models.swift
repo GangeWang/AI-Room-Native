@@ -66,6 +66,8 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
     public var sessionThrough: UUID?
     /// Things the CLI conversation must be told before the next message (e.g. an undone round).
     public var sessionNotes: [String]
+    /// Fingerprint of the persona and memory that conversation was last given.
+    public var sessionProfile: String?
 
     public init(id: UUID = UUID(), agent: AgentKind, title: String = TopicNaming.defaultTitle,
                 messages: [ChatMessage] = [], updatedAt: Date = .now, archived: Bool = false,
@@ -86,11 +88,12 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
         self.sessionID = nil
         self.sessionThrough = nil
         self.sessionNotes = []
+        self.sessionProfile = nil
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, agent, title, messages, updatedAt, archived, titleLocked, model, effort, draft, draftAttachments, workFolder,
-             sessionID, sessionThrough, sessionNotes
+             sessionID, sessionThrough, sessionNotes, sessionProfile
     }
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
@@ -109,6 +112,7 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
         sessionID = try box.decodeIfPresent(String.self, forKey: .sessionID)
         sessionThrough = try box.decodeIfPresent(UUID.self, forKey: .sessionThrough)
         sessionNotes = try box.decodeIfPresent([String].self, forKey: .sessionNotes) ?? []
+        sessionProfile = try box.decodeIfPresent(String.self, forKey: .sessionProfile)
     }
 
     /// Continue the CLI conversation only when nothing happened since its last reply.

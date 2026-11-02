@@ -236,10 +236,25 @@ private struct MemoryImportSheet: View {
             if sources.isEmpty {
                 Text(t("這台 Mac 上沒有找到可以匯入的記憶。", "No importable memory was found on this Mac.")).foregroundStyle(.secondary)
             } else {
-                Picker(t("來源", "Source"), selection: $source) {
-                    Text(t("選擇來源", "Choose a source")).tag(String?.none)
-                    ForEach(sources) { item in Text("\(item.label)（\(item.count)）").tag(Optional(item.id)) }
+                Text(t("來源", "Source")).font(.subheadline.weight(.semibold))
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(sources) { item in
+                            Button { source = item.id } label: {
+                                HStack {
+                                    Image(systemName: source == item.id ? "largecircle.fill.circle" : "circle")
+                                    Text(item.label).lineLimit(1).truncationMode(.middle)
+                                    Spacer()
+                                    Text(t("\(item.count) 條", "\(item.count)")).font(.caption).foregroundStyle(.secondary)
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.vertical, 3)
+                        }
+                    }
                 }
+                .frame(maxHeight: 150)
             }
             if let error { Text(error).font(.callout).foregroundStyle(.red) }
             if !candidates.isEmpty {

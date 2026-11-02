@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CryptoKit)
+import CryptoKit
+#endif
 
 // MARK: Member long-term memory and daily life, after upstream AIROOM:
 // memory entries (handwritten / imported / proposed, each can be off) are
@@ -197,6 +200,36 @@ public enum MemberLife {
         guard !member.quirks.isEmpty else { return nil }
         let hours = Int(date.timeIntervalSinceReferenceDate / 3_600)
         return member.quirks[abs(hours) % member.quirks.count]
+    }
+
+    // MARK: Continued CLI conversations
+
+    /// A short fingerprint of what a member is told about themself, so an edit
+    /// made while a CLI conversation continues can be passed on.
+    public static func fingerprint(persona: String, profile: String) -> String {
+        let text = persona.trimmingCharacters(in: .whitespacesAndNewlines) + "\u{1F}" + profile
+        #if canImport(CryptoKit)
+        return SHA256.hash(data: Data(text.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
+        #else
+        return String(text.count)
+        #endif
+    }
+
+    /// Whether a continued conversation needs the current persona and memory again.
+    /// Conversations from before fingerprints were kept had none of it.
+    public static func needsRefresh(seen: String?, persona: String, profile: String) -> Bool {
+        let current = fingerprint(persona: persona, profile: profile)
+        if seen == nil { return !(persona.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && profile.isEmpty) }
+        return seen != current
+    }
+
+    public static func refreshNote(persona: String, profile: String, ownerName: String) -> String {
+        let persona = persona.trimmingCharacters(in: .whitespacesAndNewlines)
+        return """
+        （系統說明：\(ownerName)更新了你的人物設定或長期記憶。以下是最新版本，取代這段對話裡先前的版本；先前有、這裡沒有的記憶就不要再用。）
+        \(persona.isEmpty ? "人物設定：（沒有設定）" : "你的人物設定：\(String(persona.prefix(1_500)))")
+        \(profile.isEmpty ? "長期記憶與日常設定：（沒有）" : profile)
+        """
     }
 
     // MARK: Proposals

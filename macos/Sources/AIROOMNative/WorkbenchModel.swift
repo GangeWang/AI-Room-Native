@@ -356,11 +356,12 @@ final class WorkbenchModel: ObservableObject {
         }
         let question = [prompt.isEmpty ? t("請看附件。") : prompt, AttachmentPolicy.inline(texts)]
             .filter { !$0.isEmpty }.joined(separator: "\n\n")
+        let persona = archive.members.first(where: { $0.agent == agent })?.persona ?? ""
+        let profile = memberProfile(agent)
         let fullPrompt = PromptBuilder.build(history: history, newQuestion: question,
                                              language: archive.settings.language, canWrite: true,
                                              userName: archive.settings.userName,
-                                             persona: archive.members.first(where: { $0.agent == agent })?.persona ?? "",
-                                             profile: memberProfile(agent))
+                                             persona: persona, profile: profile)
         // Rounds may edit the topic's folder: snapshot first so the round can be undone.
         let folder: URL
         do {
@@ -393,7 +394,10 @@ final class WorkbenchModel: ObservableObject {
         }
         // Continue the topic's CLI conversation with just the new message; the full
         // history is the fallback when that conversation can't be resumed.
-        let delta = (topic.sessionNotes + [question]).joined(separator: "\n\n")
+        let refresh = MemberLife.needsRefresh(seen: topic.sessionProfile, persona: persona, profile: profile)
+            ? [MemberLife.refreshNote(persona: persona, profile: profile, ownerName: ownerName)] : []
+        let delta = (topic.sessionNotes + refresh + [question]).joined(separator: "\n\n")
+        let fingerprint = MemberLife.fingerprint(persona: persona, profile: profile)
         let options = CLIRunOptions(model: topic.model, effort: topic.effort, attachments: prepared,
                                     session: SessionPlan(resumeID: resumeID, fallbackPrompt: fullPrompt))
         let sentPrompt = resumeID != nil ? delta : fullPrompt
@@ -429,7 +433,7 @@ final class WorkbenchModel: ObservableObject {
                 updateReply(agent: agent, replyID: replyID, text: result.text, force: true)
                 setReplyModel(agent: agent, replyID: replyID,
                               model: result.model ?? (options.model.isEmpty ? nil : options.model))
-                updateTopicSession(topicID, sessionID: result.sessionID, through: replyID)
+                updateTopicSession(topicID, sessionID: result.sessionID, through: replyID, profile: fingerprint)
                 Notifier.post("\(memberName(agent)) \(t("回覆了"))", result.text)
             } catch {
                 updateReply(agent: agent, replyID: replyID, text: "\(t("執行失敗／結果尚待確認")): \(error.localizedDescription)", force: true)
@@ -503,10 +507,11 @@ final class WorkbenchModel: ObservableObject {
         refreshDesk(topic.id)
     }
 
-    private func updateTopicSession(_ topicID: UUID, sessionID: String?, through: UUID?) {
+    private func updateTopicSession(_ topicID: UUID, sessionID: String?, through: UUID?, profile: String? = nil) {
         guard let index = archive.conversations.firstIndex(where: { $0.id == topicID }) else { return }
         archive.conversations[index].sessionID = sessionID
         archive.conversations[index].sessionThrough = sessionID == nil ? nil : through
+        archive.conversations[index].sessionProfile = sessionID == nil ? nil : profile
         archive.conversations[index].sessionNotes = []
     }
 
@@ -766,8 +771,14 @@ final class WorkbenchModel: ObservableObject {
                                                  state: state, ownerName: ownerName, language: settings.language)
             let session = archive.rooms[index].sessions[speaker.rawValue]
             let resumeID = session.flatMap { s in archive.rooms[index].entries.contains(where: { $0.id == s.through }) ? s.id : nil }
-            let sentPrompt = resumeID.map { _ in LoungeEngine.turnDelta(room: archive.rooms[index], member: member, state: state,
-                since: session!.through, ownerName: ownerName, language: settings.language) } ?? prompt
+            let profile = member.profile(team: members, ownerName: ownerName)
+            let fingerprint = MemberLife.fingerprint(persona: member.persona, profile: profile)
+            let sentPrompt = resumeID.map { _ in
+                let delta = LoungeEngine.turnDelta(room: archive.rooms[index], member: member, state: state,
+                                                   since: session!.through, ownerName: ownerName, language: settings.language)
+                return MemberLife.needsRefresh(seen: session?.profile, persona: member.persona, profile: profile)
+                    ? MemberLife.refreshNote(persona: member.persona, profile: profile, ownerName: ownerName) + "\n\n" + delta : delta
+            } ?? prompt
             // A project room may read a filtered copy of the project folder.
             var turnSettings = settings
             let readFolder = archive.rooms[index].readFolder
@@ -779,7 +790,7 @@ final class WorkbenchModel: ObservableObject {
                 let text = result.text
                 guard let current = archive.rooms.firstIndex(where: { $0.id == roomID }) else { break }
                 if let id = result.sessionID, let seenThrough {
-                    archive.rooms[current].sessions[speaker.rawValue] = RoomSession(id: id, through: seenThrough)
+                    archive.rooms[current].sessions[speaker.rawValue] = RoomSession(id: id, through: seenThrough, profile: fingerprint)
                 }
                 if cancelRoomQueue {
                     finishRoomReply(roomID: roomID, entryID: entryID, text: t("已停止；這則回覆沒有轉交。"), delivery: .interrupted)
