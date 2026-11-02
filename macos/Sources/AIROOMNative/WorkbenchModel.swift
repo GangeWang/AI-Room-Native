@@ -72,34 +72,41 @@ final class WorkbenchModel: ObservableObject {
         try? DeskWorkspace(root: $0.root.appendingPathComponent("desk", isDirectory: true))
     }
 
+    /// False until the encrypted state has been decrypted (which may wait for
+    /// a Keychain approval). Nothing is written before then.
+    @Published var stateLoaded = false
+
     init() {
-        // Load into local variables first. Swift requires `workspace` to be
-        // initialized before accessing @Published properties through `self`.
-        var loaded = SavedState()
-        var loadedStore: LocalStateStore?
-        var loadError: Error?
-        do {
-            let store = try LocalStateStore()
-            loaded = try store.load()
-            loadedStore = store
-        } catch {
-            loadError = error
-        }
-
-        let root = loadedStore?.root ?? FileManager.default.temporaryDirectory
+        let store = try? LocalStateStore()
+        let root = store?.root ?? FileManager.default.temporaryDirectory
         self.workspace = root.appendingPathComponent("workspace", isDirectory: true)
-        self.persistence = loadedStore
-        self.archive = loaded
-        self.selectedRoomID = loaded.rooms.first(where: { $0.roundtableID == nil })?.id
-        if archive.rooms.isEmpty {
-            archive.rooms = [TeamRoom()]
-            selectedRoomID = archive.rooms[0].id
+        self.persistence = store
+        self.archive = SavedState()
+        self.selectedRoomID = archive.rooms.first?.id
+        self.storageAvailable = false
+        // Decrypting can block on a Keychain prompt; keep the window responsive.
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let result: Result<SavedState, Error> = store.map { store in Result { try store.load() } }
+                ?? .failure(WorkspaceError.missing("Application Support/AIROOMNative"))
+            await self?.finishLoading(result)
         }
+    }
 
-        if let error = loadError {
+    private func finishLoading(_ result: Result<SavedState, Error>) {
+        defer { stateLoaded = true }
+        switch result {
+        case .success(let loaded):
+            archive = loaded
+            storageAvailable = true
+        case .failure(let error):
             // Never overwrite encrypted history with an empty default state.
             storageAvailable = false
             statusMessage = "無法解密本機資料，已停止寫入：\(error.localizedDescription) / Keychain unlock failed"
+        }
+        selectedRoomID = archive.rooms.first(where: { $0.roundtableID == nil })?.id
+        if archive.rooms.isEmpty {
+            archive.rooms = [TeamRoom()]
+            selectedRoomID = archive.rooms[0].id
         }
 
         // A previous process may have died while streaming. Never promote an

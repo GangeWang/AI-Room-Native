@@ -18,6 +18,23 @@ struct ContentView: View {
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, lang) }
 
     var body: some View {
+        if model.stateLoaded { workbench } else { unlocking }
+    }
+
+    /// Shown while the encrypted state is being decrypted (possibly waiting for Keychain).
+    private var unlocking: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+            Text(t("正在解鎖本機加密資料……", "Unlocking local encrypted data…")).font(.headline)
+            Text(t("如果 macOS 詢問 AIROOMNative 是否可以使用鑰匙圈中的資料，請選「永遠允許」。資料解鎖前不會寫入任何東西。",
+                   "If macOS asks whether AIROOMNative may use data in your keychain, choose \"Always Allow\". Nothing is written until it unlocks."))
+                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 420)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(StudioTheme.sidebar(scheme))
+    }
+
+    private var workbench: some View {
         HStack(spacing: 0) {
             sidebar.frame(width: 263)
             Rectangle().fill(StudioTheme.border(scheme)).frame(width: 1)

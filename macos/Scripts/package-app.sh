@@ -106,8 +106,18 @@ BUILD_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 0.2.$BUILD_NUMBER" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :AIROOMGitCommit string $BUILD_COMMIT" "$APP/Contents/Info.plist"
 /usr/bin/plutil -lint "$APP/Contents/Info.plist"
-# Development-only ad-hoc signing. Public distribution requires Developer ID and notarization.
-/usr/bin/codesign --force --sign - "$APP"
+# Sign with the local "AIROOM Local Signing" identity when present: a stable
+# identity keeps the Keychain approval valid across rebuilds (ad-hoc signing
+# changes identity every build, so macOS asks again and launch blocks until
+# someone clicks Allow). Override with AIROOM_SIGN_IDENTITY. Public
+# distribution still requires Developer ID and notarization.
+IDENTITY="${AIROOM_SIGN_IDENTITY:-$(/usr/bin/security find-identity -p codesigning 2>/dev/null | /usr/bin/awk '/"AIROOM Local Signing"/ {print $2; exit}')}"
+if [[ -n "$IDENTITY" ]]; then
+  /usr/bin/codesign --force --sign "$IDENTITY" "$APP"
+else
+  echo "WARNING: no 'AIROOM Local Signing' identity; using ad-hoc signing (Keychain will ask again after each update)." >&2
+  /usr/bin/codesign --force --sign - "$APP"
+fi
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP"
 if [[ ! -x "$APP/Contents/MacOS/AIROOMNative" ]]; then
   echo "ERROR: Packaged app has no executable; keeping previous build." >&2
