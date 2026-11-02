@@ -94,6 +94,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
+<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST
 /usr/bin/plutil -lint "$APP/Contents/Info.plist"

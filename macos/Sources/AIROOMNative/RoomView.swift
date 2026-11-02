@@ -125,8 +125,11 @@ struct RoomView: View {
                                     .textSelection(.enabled).foregroundStyle(.secondary)
                             }
                         }
-                        Text(t("目前只輸出文字事件，尚未串接 TTS、Live2D、OBS 或直播平台聊天室。AI 回覆會傳送給所選供應商。",
-                               "Text events only. TTS, Live2D, OBS and streaming chat ingestion are not connected yet. Messages go to the selected vendors."))
+                        Text(model.archive.liveStage.performs
+                             ? t("已啟用直播舞台：每句話會念出並驅動 VTube Studio，念完才輪到下一位。到左側「直播舞台」調整聲音與表情。直播平台聊天室尚未串接。",
+                                 "Live Stage is on: lines are spoken and drive VTube Studio; the next co-host waits until speech ends. Configure voices and expressions under Live Stage. Streaming chat ingestion is not connected yet.")
+                             : t("目前只輸出文字。到左側「直播舞台」開啟語音與 VTube Studio。直播平台聊天室尚未串接。AI 回覆會傳送給所選供應商。",
+                                 "Text only. Turn on voice and VTube Studio under Live Stage. Streaming chat ingestion is not connected yet. Messages go to the selected vendors."))
                             .font(.caption2).foregroundStyle(.secondary)
                     }.padding(.vertical, 8)
                 } label: {

@@ -30,6 +30,8 @@ final class WorkbenchModel: ObservableObject {
     @Published var liveAudienceName = "觀眾"
     @Published var liveLastSpeaker: AgentKind?
     @Published var liveStartedAt: Date?
+    /// TTS + VTube Studio performer for the live show (see LiveStageView).
+    let stage = LiveStageController()
     @Published var projectTitleDraft = ""
     @Published var projectTaskDraft = ""
     @Published var projectFolderDraft = ""
@@ -532,6 +534,7 @@ final class WorkbenchModel: ObservableObject {
         guard liveActive else { return }
         liveStopRequested = true
         if let id = liveRunID { _ = runner.cancel(id: id) }
+        stage.stop()
         liveTask?.cancel()
         // liveLoop does final state cleanup when its in-flight request exits.
     }
@@ -571,13 +574,16 @@ final class WorkbenchModel: ObservableObject {
                 agent: speaker, displayName: archive.members.first(where: { $0.agent == speaker })?.name ?? speaker.rawValue,
                 body: "準備發言……", delivery: .inProgress))
             persist()
+            let performs = archive.liveStage.performs
             let prompt = LiveShowPolicy.prompt(room: archive.rooms[index], speaker: speaker,
-                topic: config.topic, summary: archive.liveShow.summary, language: settings.language)
+                topic: config.topic, summary: archive.liveShow.summary, language: settings.language,
+                cues: performs)
             do {
                 let answer = try await runner.run(id: runID, agent: speaker, prompt: prompt,
                     settings: settings, fallbackWorkspace: workspace) { [weak self] output in
                     Task { @MainActor [weak self] in
-                        self?.updateRoomReply(roomID: roomID, entryID: entryID, text: output)
+                        self?.updateRoomReply(roomID: roomID, entryID: entryID,
+                                              text: performs ? LiveCueParser.parse(output).cleanText : output)
                     }
                 }
                 // Stop requested during a network reply: cannot promote it into
@@ -587,11 +593,21 @@ final class WorkbenchModel: ObservableObject {
                                     delivery: .interrupted)
                     break
                 }
-                finishRoomReply(roomID: roomID, entryID: entryID, text: answer, delivery: .completed)
+                // Emotion cues are stage directions: the shared transcript (and
+                // therefore the next co-host's context) only keeps spoken text.
+                let parsed = LiveCueParser.parse(answer)
+                let spoken = performs && !parsed.cleanText.isEmpty ? parsed.cleanText : answer
+                finishRoomReply(roomID: roomID, entryID: entryID, text: spoken, delivery: .completed)
                 liveLastSpeaker = speaker
-                liveSubtitle = answer
+                liveSubtitle = spoken
                 liveTurns += 1
                 persist()
+                if performs {
+                    // Waits for the voice to finish so co-hosts never overlap.
+                    await stage.perform(LiveCueParser.events(from: parsed, speaker: speaker, turnID: entryID),
+                                        stage: archive.liveStage, language: settings.language)
+                    if liveStopRequested || Task.isCancelled { break }
+                }
             } catch {
                 finishRoomReply(roomID: roomID, entryID: entryID,
                                 text: "直播回覆未確認：\(error.localizedDescription)",
@@ -608,6 +624,43 @@ final class WorkbenchModel: ObservableObject {
             do { try await Task.sleep(nanoseconds: UInt64(config.turnDelaySeconds) * 1_000_000_000) }
             catch { break }
         }
+        await stage.resetAvatar()
+    }
+
+    // MARK: Live stage (TTS + VTube Studio)
+    func updateLiveStage(_ change: (inout LiveStageSettings) -> Void) {
+        change(&archive.liveStage)
+        let edited = archive.liveStage
+        archive.liveStage = LiveStageSettings(speechEnabled: edited.speechEnabled, vtsEnabled: edited.vtsEnabled,
+            vtsPort: edited.vtsPort, vtsToken: edited.vtsToken, characters: edited.characters)
+        persist()
+    }
+
+    /// Sliders pass `persist: false` while dragging and save once on release.
+    func updateStageCharacter(_ agent: AgentKind, persist save: Bool = true,
+                              _ change: (inout LiveCharacterStage) -> Void) {
+        archive.liveStage.updateCharacter(agent, change)
+        if save { persist() }
+    }
+
+    func saveLiveStage() { persist() }
+
+    func connectVTubeStudio() {
+        guard storageAvailable else { return }
+        stage.connect(port: archive.liveStage.vtsPort, token: archive.liveStage.vtsToken) { [weak self] token in
+            self?.updateLiveStage { $0.vtsToken = token }
+        }
+    }
+
+    func forgetVTubeStudioToken() {
+        stage.disconnect()
+        updateLiveStage { $0.vtsToken = "" }
+    }
+
+    func rehearseStage(_ agent: AgentKind) {
+        guard !liveActive else { return }
+        let name = archive.members.first(where: { $0.agent == agent })?.name ?? agent.shortName
+        stage.rehearse(agent, name: name, stage: archive.liveStage, language: archive.settings.language)
     }
 
     private func summarizeLiveHistory(roomID: UUID, config: LiveShowSettings,

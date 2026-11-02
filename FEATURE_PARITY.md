@@ -24,7 +24,8 @@
 | 多話題、記憶、附件 | 完整會話與附件 | **部分** | 拖放附件、綜合記憶仍缺 |
 | 其他 AI（Gemini、Qwen、Kimi 等） | 多執行端 | **未完成** | 後續獨立整合 |
 | DMG、Apple 公證、自動更新 | Windows 發行包 | **未完成** | 只有本機 ad-hoc `.app` |
-| OBS、TTS、Live2D、直播聊天連接器 | 原版本身不提供完整整套直播工具 | **未完成** | 下一階段：文字事件→語音／動作→直播平台 |
+| TTS、Live2D（VTube Studio） | 原版本身不提供 | **新增** `LiveEvent`、macOS TTS、VTS 表情熱鍵與嘴型同步 | 單一 VTS 模型；VTS 實機待驗收；見 `LIVE_STAGE.md` |
+| OBS、直播聊天連接器 | 原版本身不提供 | **未完成** | 下一階段：YouTube／Bilibili 留言匯入、OBS + 直播姬雙端推流 |
 
 ## 建議的 macOS 人工驗收
 

@@ -2,7 +2,7 @@ import SwiftUI
 import AIROOMCore
 
 private enum StudioRoute: Hashable {
-    case home, chat(AgentKind), room, roundtable, projects, members, attention, quota, automation, settings
+    case home, chat(AgentKind), room, roundtable, projects, members, attention, quota, automation, stage, settings
 }
 
 struct ContentView: View {
@@ -39,6 +39,7 @@ struct ContentView: View {
                     case .members: MembersView()
                     case .quota: StudioQuotaView()
                     case .automation: AutomationView()
+                    case .stage: LiveStageView(stage: model.stage)
                     case .attention: StudioAttentionView(onProject: { route = .projects }, onChat: { route = .chat($0) })
                     case .settings: SettingsView()
                     }
@@ -117,6 +118,7 @@ struct ContentView: View {
                     navRow(.roundtable, title: t("圓桌", "Roundtable"), subtitle: t("獨立比稿與比較", "Independent proposals"), icon: "person.3")
                     navRow(.quota, title: t("用量與額度", "Usage & Quotas"), subtitle: t("官方訂閱配額", "Official subscription limits"), icon: "chart.bar.xaxis")
                     navRow(.automation, title: t("排程與直播", "Automation & Live"), subtitle: t("定時任務與連續對話", "Schedules and co-hosting"), icon: "calendar.badge.clock")
+                    navRow(.stage, title: t("直播舞台", "Live Stage"), subtitle: t("語音與 VTube Studio", "Voice & VTube Studio"), icon: "person.wave.2")
                     navRow(.attention, title: t("待你處理", "Needs Attention"), subtitle: attentionCount > 0 ? "\(attentionCount) \(t("項待確認", "items"))" : t("目前沒有待辦", "All clear"), icon: "checklist")
                     Divider().padding(.vertical, 9).padding(.horizontal, 9)
                     groupHeading(t("專案", "PROJECTS"), action: { route = .projects }, icon: "plus")
@@ -222,6 +224,7 @@ struct ContentView: View {
         case .quota: return t("用量與額度", "Usage & Quotas")
         case .attention: return t("待你處理", "Needs Attention")
         case .automation: return t("排程與直播", "Automation & Live")
+        case .stage: return t("直播舞台", "Live Stage")
         case .settings: return t("設定與連接", "Settings")
         }
     }
@@ -232,6 +235,7 @@ struct ContentView: View {
         else if key.contains("專案") || key.contains("project") { route = .projects }
         else if key.contains("茶") || key.contains("room") || key.contains("lounge") { route = .room }
         else if key.contains("圓") || key.contains("round") { route = .roundtable }
+        else if key.contains("舞台") || key.contains("vtube") || key.contains("stage") || key.contains("tts") { route = .stage }
         else if key.contains("排程") || key.contains("schedule") || key.contains("live") { route = .automation }
         else if key.contains("設定") || key.contains("setting") { route = .settings }
         else if key.contains("成員") || key.contains("member") { route = .members }

@@ -11,11 +11,13 @@ public struct SavedState: Codable, Equatable, Sendable {
     public var autoChat: AutoChatSettings
     public var teamWorkflows: [TeamProjectWorkflow]
     public var liveShow: LiveShowSettings
+    public var liveStage: LiveStageSettings
     public init(settings: NativeSettings = NativeSettings(), conversations: [Conversation] = [],
                 members: [MemberCard] = MemberCard.defaults, rooms: [TeamRoom] = [TeamRoom()],
                 projects: [ProjectRecord] = [], roundtables: [StoredRoundtable] = [],
                 schedules: [ScheduledActivity] = [], autoChat: AutoChatSettings = AutoChatSettings(),
-                teamWorkflows: [TeamProjectWorkflow] = [], liveShow: LiveShowSettings = LiveShowSettings()) {
+                teamWorkflows: [TeamProjectWorkflow] = [], liveShow: LiveShowSettings = LiveShowSettings(),
+                liveStage: LiveStageSettings = LiveStageSettings()) {
         self.settings = settings
         self.conversations = conversations
         self.members = members
@@ -26,8 +28,9 @@ public struct SavedState: Codable, Equatable, Sendable {
         self.autoChat = autoChat
         self.teamWorkflows = teamWorkflows
         self.liveShow = liveShow
+        self.liveStage = liveStage
     }
-    private enum CodingKeys: String, CodingKey { case settings, conversations, members, rooms, projects, roundtables, schedules, autoChat, teamWorkflows, liveShow }
+    private enum CodingKeys: String, CodingKey { case settings, conversations, members, rooms, projects, roundtables, schedules, autoChat, teamWorkflows, liveShow, liveStage }
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         settings = try container.decodeIfPresent(NativeSettings.self, forKey: .settings) ?? NativeSettings()
@@ -40,6 +43,7 @@ public struct SavedState: Codable, Equatable, Sendable {
         autoChat = try container.decodeIfPresent(AutoChatSettings.self, forKey: .autoChat) ?? AutoChatSettings()
         teamWorkflows = try container.decodeIfPresent([TeamProjectWorkflow].self, forKey: .teamWorkflows) ?? []
         liveShow = try container.decodeIfPresent(LiveShowSettings.self, forKey: .liveShow) ?? LiveShowSettings()
+        liveStage = try container.decodeIfPresent(LiveStageSettings.self, forKey: .liveStage) ?? LiveStageSettings()
     }
 }
 
