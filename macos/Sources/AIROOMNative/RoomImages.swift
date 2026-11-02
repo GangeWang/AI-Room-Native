@@ -60,7 +60,7 @@ private struct RoomImageViewer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            RoomImageView(image: image).frame(maxWidth: .infinity, maxHeight: 560)
+            RoomImageView(image: image).frame(width: 680, height: 500)
             if let prompt = image.revisedPrompt, !prompt.isEmpty {
                 // Long prompts wrap inside the sheet instead of widening it.
                 ScrollView {
