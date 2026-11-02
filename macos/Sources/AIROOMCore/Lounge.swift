@@ -329,6 +329,8 @@ public enum LoungeEngine {
         let names = present.map { "\($0.name)（\($0.agent.rawValue)）" }.joined(separator: "、")
         let pending = state.pendingQuestions.map { "- \($0.from.rawValue) 問：\($0.text)" }.joined(separator: "\n")
         let canPropose = state.style == .chat && state.calls >= proposeAfter
+        // Named with @ or handed the word: answer in words, not a pass or an emoji.
+        let mustSpeak = state.priority.first == member.agent
         let rules: String
         if state.style == .chat {
             rules = """
@@ -341,6 +343,7 @@ public enum LoungeEngine {
             \(canPropose ? "- propose：覺得話題自然告一段落，body 用一兩句自然收尾（不要寫成會議總結）。不要頻繁提議。" : "- 目前還不能 propose（聊得還不夠久）。")
             \(state.phase == .closing ? "- 有人提議先聊到這裡：同意就 accept（body 留空），還想聊就 reject 並在 body 接著說。" : "")
             被直接提問時要回答。可用 next 填某位成員的名字，把話題交給他。
+            \(mustSpeak ? "你剛被點名，這次一定要用 speak 以文字回答，不能 pass 或只回表情。" : "")
             """
         } else {
             rules = """

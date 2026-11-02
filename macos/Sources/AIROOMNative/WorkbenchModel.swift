@@ -30,6 +30,10 @@ final class WorkbenchModel: ObservableObject {
     @Published var roomRunning = false
     /// Pending lounge question the human is answering with the next message.
     @Published var answeringQuestionID: UUID?
+    /// Inline lounge progress (summaries etc.), shown without a modal alert.
+    @Published var loungeActivity: String?
+    /// The member bubble currently "thinking", so Stop can settle it at once.
+    private var loungePlaceholder: (room: UUID, entry: UUID)?
     @Published var projectBusy = false
     // Live broadcast runs only after explicit Start; never auto-resumes after a crash/restart.
     @Published var liveActive = false
@@ -665,7 +669,9 @@ final class WorkbenchModel: ObservableObject {
             roomRunID = runID
             archive.rooms[index].entries.append(RoomEntry(id: entryID, speaker: .assistant, agent: speaker,
                 displayName: member.name, body: t("正在想……"), delivery: .inProgress))
+            loungePlaceholder = (roomID, entryID)
             persist()
+            defer { loungePlaceholder = nil }
             let prompt = LoungeEngine.turnPrompt(room: archive.rooms[index], member: member, present: members,
                                                  state: state, ownerName: ownerName, language: settings.language)
             do {
@@ -696,8 +702,9 @@ final class WorkbenchModel: ObservableObject {
                 }
                 persist()
             } catch {
+                if cancelRoomQueue { break } // Stop already settled the bubble.
                 finishRoomReply(roomID: roomID, entryID: entryID, text: "結果待核對: \(error.localizedDescription)",
-                                delivery: cancelRoomQueue ? .interrupted : .failed)
+                                delivery: .failed)
                 if let current = archive.rooms.firstIndex(where: { $0.id == roomID }) {
                     archive.rooms[current].lounge.phase = .paused
                     archive.rooms[current].lounge.reason = t("\(member.name) 這次沒有完成回覆，已暫停，沒有自動重送。檢查連線或額度後可按「繼續」。")
@@ -881,10 +888,10 @@ final class WorkbenchModel: ObservableObject {
         roomRunning = true
         cancelRoomQueue = false
         roomRunID = runID
-        statusMessage = target == nil ? t("正在壓縮上下文……") : t("正在整理上一個話題的摘要……")
+        loungeActivity = target == nil ? t("正在壓縮上下文……") : t("正在整理上一個話題的摘要……")
         let settings = archive.settings
         Task {
-            defer { roomRunID = nil; roomRunning = false; persist() }
+            defer { roomRunID = nil; roomRunning = false; loungeActivity = nil; persist() }
             do {
                 let summary = try await runner.run(id: runID, agent: member.agent, prompt: prompt, settings: settings,
                                                    fallbackWorkspace: workspace, onUpdate: { _ in })
@@ -896,7 +903,6 @@ final class WorkbenchModel: ObservableObject {
                     archive.rooms[current].entries.append(RoomEntry(speaker: .system, displayName: "AIROOM",
                         body: t("已壓縮上下文：之後成員會從摘要繼續，原本的訊息都保留。")))
                 }
-                statusMessage = nil
             } catch {
                 statusMessage = "\(t("摘要沒有完成")): \(error.localizedDescription)"
             }
@@ -1022,6 +1028,12 @@ final class WorkbenchModel: ObservableObject {
     func stopRoom() {
         cancelRoomQueue = true
         if let id = roomRunID { _ = runner.cancel(id: id) }
+        // Don't leave a bubble spinning while the CLI winds down.
+        if let pending = loungePlaceholder {
+            finishRoomReply(roomID: pending.room, entryID: pending.entry, text: t("已停止，這則回覆沒有轉交。"), delivery: .interrupted)
+            loungePlaceholder = nil
+            persist()
+        }
     }
 
     func setRoomParticipant(_ agent: AgentKind, included: Bool) {

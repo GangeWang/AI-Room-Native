@@ -94,6 +94,16 @@ final class LoungeTests: XCTestCase {
         XCTAssertTrue(state.mentionedOnly)
     }
 
+    func testMentionedMemberIsToldToAnswerInWords() {
+        var state = LoungeState(style: .chat)
+        LoungeEngine.humanSpoke(&state, mentions: [.codex], present: both, entryID: UUID())
+        let room = TeamRoom(entries: [RoomEntry(speaker: .user, displayName: "你", body: "@GPT娘 你還好嗎")])
+        let asked = LoungeEngine.turnPrompt(room: room, member: cards[1], present: cards, state: state, ownerName: "使用者", language: .zhTW)
+        let other = LoungeEngine.turnPrompt(room: room, member: cards[0], present: cards, state: state, ownerName: "使用者", language: .zhTW)
+        XCTAssertTrue(asked.contains("你剛被點名"))
+        XCTAssertFalse(other.contains("你剛被點名"))
+    }
+
     func testParseReplyHandlesJSONFencesAndProse() {
         let json = LoungeEngine.parseReply(#"{"action":"speak","body":"哈哈","emoji":"😄","questions":[{"to":"user","text":"你呢？"}]}"#)
         XCTAssertEqual(json.action, .speak); XCTAssertEqual(json.emoji, "😄"); XCTAssertEqual(json.questions, ["你呢？"])

@@ -161,7 +161,8 @@ struct RoomView: View {
                                     detail: t("選擇在場成員，再提出第一個話題。", "Invite teammates and start the first conversation."))
                                     .padding(.top, 65)
                             }
-                            ForEach(model.roomEntries()) { entry in
+                            ForEach(groupedEntries(model.roomEntries()), id: \.entry.id) { item in
+                                let entry = item.entry
                                 if entry.speaker == .system {
                                     Text(entry.body).font(.caption).foregroundStyle(.secondary)
                                         .frame(maxWidth: .infinity).padding(.vertical, 2).id(entry.id)
@@ -201,6 +202,7 @@ struct RoomView: View {
                                         Text(entry.body).font(.system(size: 14))
                                             .textSelection(.enabled)
                                             .frame(maxWidth: .infinity, alignment: .leading)
+                                        if !item.reactions.isEmpty { reactionChips(item.reactions) }
                                     }
                                     .padding(14)
                                     .background(StudioTheme.surface(scheme).opacity(0.96),
@@ -266,6 +268,33 @@ struct RoomView: View {
         }
     }
 
+    /// Emoji-only replies attach to the message just before them, like reactions in a chat app.
+    private func groupedEntries(_ entries: [RoomEntry]) -> [(entry: RoomEntry, reactions: [RoomEntry])] {
+        var result: [(entry: RoomEntry, reactions: [RoomEntry])] = []
+        for entry in entries {
+            if entry.isReaction, let host = result.lastIndex(where: { $0.entry.speaker != .system }) {
+                result[host].reactions.append(entry)
+            } else {
+                result.append((entry, []))
+            }
+        }
+        return result
+    }
+
+    private func reactionChips(_ reactions: [RoomEntry]) -> some View {
+        HStack(spacing: 6) {
+            ForEach(reactions) { reaction in
+                HStack(spacing: 4) {
+                    Text(reaction.body)
+                    if let agent = reaction.agent { StudioAvatar(agent: agent, size: 16) }
+                }
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .background(.secondary.opacity(0.12), in: Capsule())
+                .help("\(reaction.displayName) " + t("回應了", "reacted") + " \(reaction.body)")
+            }
+        }
+    }
+
     // MARK: Lounge mode and status
 
     private var modeBar: some View {
@@ -309,6 +338,9 @@ struct RoomView: View {
     @ViewBuilder private func loungeStatus(_ room: TeamRoom) -> some View {
         let lounge = room.lounge
         let hasMeeting = lounge.style == .meeting && lounge.meetingStartEntryID != nil
+        if let activity = model.loungeActivity {
+            Label(activity, systemImage: "hourglass").font(.caption).foregroundStyle(.secondary)
+        }
         if lounge.phase != .idle || lounge.reason != nil || hasMeeting {
             HStack(spacing: 10) {
                 Label(phaseLabel(lounge.phase), systemImage: "bubble.left.and.bubble.right")
