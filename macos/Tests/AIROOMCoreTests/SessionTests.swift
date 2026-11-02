@@ -75,3 +75,38 @@ final class SessionTests: XCTestCase {
         XCTAssertNotNil(wire.failure)
     }
 }
+
+final class SessionPromptTests: XCTestCase {
+    func testLoungeDeltaHasOnlyNewEntriesFromOthers() {
+        let claude = MemberCard(agent: .claude, name: "克勞蒂亞")
+        let seen = RoomEntry(speaker: .user, displayName: "你", body: "OLD_MESSAGE")
+        let mine = RoomEntry(speaker: .assistant, agent: .claude, displayName: "克勞蒂亞", body: "MY_OWN_REPLY")
+        let theirs = RoomEntry(speaker: .assistant, agent: .codex, displayName: "GPT娘", body: "NEW_FROM_CODEX")
+        let room = TeamRoom(entries: [seen, mine, theirs])
+        var state = LoungeState(style: .chat)
+        state.priority = [.claude]
+        let delta = LoungeEngine.turnDelta(room: room, member: claude, state: state, since: seen.id, ownerName: "小明", language: .zhTW)
+        XCTAssertTrue(delta.contains("NEW_FROM_CODEX"))
+        XCTAssertFalse(delta.contains("OLD_MESSAGE"))
+        XCTAssertFalse(delta.contains("MY_OWN_REPLY"), "its own reply is already in its conversation")
+        XCTAssertTrue(delta.contains("你剛被點名"))
+    }
+
+    func testDeskContinuesOnlyRightAfterItsOwnReply() {
+        var topic = Conversation(agent: .claude)
+        let question = ChatMessage(role: .user, body: "q"), reply = ChatMessage(role: .assistant, body: "a")
+        topic.messages = [question, reply]
+        topic.sessionID = "s1"; topic.sessionThrough = reply.id
+        XCTAssertTrue(topic.canContinueSession)
+        topic.messages.append(ChatMessage(role: .user, body: "unanswered"))
+        XCTAssertFalse(topic.canContinueSession)
+    }
+
+    func testOlderTopicsAndRoomsDecodeWithoutSessions() throws {
+        let topic = try JSONDecoder().decode(Conversation.self, from: JSONEncoder().encode(Conversation(agent: .codex)))
+        XCTAssertNil(topic.sessionID)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(TeamRoom())) as? [String: Any])
+        json.removeValue(forKey: "sessions")
+        XCTAssertEqual(try JSONDecoder().decode(TeamRoom.self, from: JSONSerialization.data(withJSONObject: json)).sessions, [:])
+    }
+}

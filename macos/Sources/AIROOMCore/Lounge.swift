@@ -370,6 +370,36 @@ public enum LoungeEngine {
         """
     }
 
+    /// What a member's continued CLI conversation needs this turn: only the
+    /// entries since it last spoke, plus the current state. Earlier rules,
+    /// persona and transcript are already in that conversation.
+    public static func turnDelta(room: TeamRoom, member: MemberCard, state: LoungeState,
+                                 since through: UUID, ownerName: String, language: InterfaceLanguage) -> String {
+        var recent = room
+        if let index = room.entries.firstIndex(where: { $0.id == through }) {
+            recent.entries = Array(room.entries[(index + 1)...]).filter { !($0.speaker == .assistant && $0.agent == member.agent) }
+        }
+        let transcript = RoomPromptBuilder.snapshot(room: recent, maxCharacters: 18_000, language: language).transcript
+        let pending = state.pendingQuestions.map { "- \($0.from.rawValue) 問：\($0.text)" }.joined(separator: "\n")
+        var notes: [String] = [state.style == .chat ? "目前是閒聊。" : "目前是開會：每人回答一次，不能 pass、react 或空白。"]
+        if state.priority.first == member.agent { notes.append("你剛被點名，這次一定要用 speak 以文字回答。") }
+        if state.style == .chat {
+            notes.append(state.calls >= proposeAfter ? "聊得差不多時可以 propose。" : "目前還不能 propose。")
+            if state.phase == .closing { notes.append("有人提議先聊到這裡：同意就 accept（body 留空），還想聊就 reject 並接著說。") }
+        } else if !state.supplemented.isEmpty {
+            notes.append("你已舉手並被點名，直接說出補充內容。")
+        }
+        return """
+        （接續這段對話：先前的規則、人物設定與紀錄都仍然有效。以下只有你上次發言之後的新內容。）
+        === 新內容 ===
+        \(transcript.isEmpty ? "（沒有新的發言）" : transcript)
+        === 新內容結束 ===
+        \(notes.joined(separator: " "))
+        \(pending.isEmpty ? "" : "尚未回答的問題（留著即可）：\n\(pending)")
+        只回傳一個 JSON 物件（action、body，可選 emoji、next、questions），物件外不要有文字。
+        """
+    }
+
     public static func handPrompt(room: TeamRoom, member: MemberCard, state: LoungeState, language: InterfaceLanguage) -> String {
         let (_, transcript) = context(room: room, language: language)
         return """

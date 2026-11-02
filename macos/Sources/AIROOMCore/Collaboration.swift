@@ -115,6 +115,8 @@ public struct TeamRoom: Identifiable, Codable, Equatable, Sendable {
     /// Set for a project room: members may read (never edit) a copy of this folder.
     public var projectID: UUID?
     public var readFolder: String
+    /// Each member's own CLI conversation in this room, and the last entry it has seen.
+    public var sessions: [String: RoomSession]
 
     public init(id: UUID = UUID(), title: String = "茶歇室", entries: [RoomEntry] = [], participants: [AgentKind] = AgentKind.allCases,
                 updatedAt: Date = .now, lounge: LoungeState = LoungeState(), summary: String = "",
@@ -127,11 +129,12 @@ public struct TeamRoom: Identifiable, Codable, Equatable, Sendable {
         self.briefing = briefing
         self.projectID = projectID
         self.readFolder = readFolder
+        self.sessions = [:]
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, title, entries, participants, updatedAt, lounge, summary, summaryThroughEntryID, carriedSummary,
-             roundtableID, briefing, projectID, readFolder
+             roundtableID, briefing, projectID, readFolder, sessions
     }
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
@@ -148,6 +151,7 @@ public struct TeamRoom: Identifiable, Codable, Equatable, Sendable {
         briefing = try box.decodeIfPresent(String.self, forKey: .briefing) ?? ""
         projectID = try box.decodeIfPresent(UUID.self, forKey: .projectID)
         readFolder = try box.decodeIfPresent(String.self, forKey: .readFolder) ?? ""
+        sessions = (try? box.decodeIfPresent([String: RoomSession].self, forKey: .sessions)) ?? [:]
     }
 
     /// Hidden from the lounge: roundtable and project rooms live in their own pages.
@@ -293,4 +297,11 @@ public enum RoomPromptBuilder {
             "請以 \(member.name) 的身分接續這段共用討論，不要冒充其他參與者。")
         return sections.joined(separator: "\n\n")
     }
+}
+
+public struct RoomSession: Codable, Equatable, Sendable {
+    public var id: String
+    /// The newest room entry this member's CLI conversation already contains.
+    public var through: UUID
+    public init(id: String, through: UUID) { self.id = id; self.through = through }
 }

@@ -340,7 +340,9 @@ final class WorkbenchModel: ObservableObject {
         let history = topic.messages.filter { !$0.body.isEmpty }
         // Images from the last couple of user turns are re-sent so follow-up
         // questions about them still work (each run is a fresh CLI request).
-        let recent = history.filter { $0.role == .user }.suffix(2).flatMap(\.attachments).filter { $0.kind != .text }
+        // Continuing the CLI conversation: earlier images are already in it.
+        let resumeID = topic.canContinueSession ? topic.sessionID : nil
+        let recent = resumeID != nil ? [] : history.filter { $0.role == .user }.suffix(2).flatMap(\.attachments).filter { $0.kind != .text }
         var files = Array((recent + attachments.filter { $0.kind != .text }).reduce(into: [ChatAttachment]()) { list, item in
             if !list.contains(where: { $0.id == item.id }) { list.append(item) }
         }.suffix(AttachmentPolicy.maxPerMessage))
@@ -383,7 +385,12 @@ final class WorkbenchModel: ObservableObject {
             statusMessage = error.localizedDescription
             return
         }
-        let options = CLIRunOptions(model: topic.model, effort: topic.effort, attachments: prepared)
+        // Continue the topic's CLI conversation with just the new message; the full
+        // history is the fallback when that conversation can't be resumed.
+        let delta = (topic.sessionNotes + [question]).joined(separator: "\n\n")
+        let options = CLIRunOptions(model: topic.model, effort: topic.effort, attachments: prepared,
+                                    session: SessionPlan(resumeID: resumeID, fallbackPrompt: fullPrompt))
+        let sentPrompt = resumeID != nil ? delta : fullPrompt
         let replyID = UUID(), runID = UUID()
         if topic.messages.isEmpty && !topic.titleLocked {
             archive.conversations[index].title = prompt.isEmpty
@@ -406,7 +413,7 @@ final class WorkbenchModel: ObservableObject {
             defer { try? FileManager.default.removeItem(at: scratch) }
             defer { refreshDesk(topicID) }
             do {
-                let result = try await runner.runDetailed(id: runID, agent: agent, prompt: fullPrompt,
+                let result = try await runner.runDetailed(id: runID, agent: agent, prompt: sentPrompt,
                                                           settings: settings, fallbackWorkspace: workspace,
                                                           access: .stagedWrite, options: options) { [weak self] text in
                     Task { @MainActor [weak self] in
@@ -416,9 +423,12 @@ final class WorkbenchModel: ObservableObject {
                 updateReply(agent: agent, replyID: replyID, text: result.text, force: true)
                 setReplyModel(agent: agent, replyID: replyID,
                               model: result.model ?? (options.model.isEmpty ? nil : options.model))
+                updateTopicSession(topicID, sessionID: result.sessionID, through: replyID)
                 Notifier.post("\(memberName(agent)) \(t("回覆了"))", result.text)
             } catch {
                 updateReply(agent: agent, replyID: replyID, text: "\(t("執行失敗／結果尚待確認")): \(error.localizedDescription)", force: true)
+                // An unconfirmed exchange may or may not be in the CLI conversation: start fresh next time.
+                updateTopicSession(topicID, sessionID: nil, through: nil)
                 Notifier.post("\(memberName(agent)) \(t("的回覆未完成"))", t("結果待核對，沒有自動重送。"))
             }
             activeRuns.removeValue(forKey: agent)
@@ -451,6 +461,7 @@ final class WorkbenchModel: ObservableObject {
         do { try desk.discard(topic: topic.id) }
         catch { statusMessage = error.localizedDescription; return }
         archive.conversations[index].workFolder = url?.standardizedFileURL.path ?? ""
+        archive.conversations[index].sessionID = nil // a different folder starts a new CLI conversation
         refreshDesk(topic.id)
         persist()
     }
@@ -472,6 +483,8 @@ final class WorkbenchModel: ObservableObject {
             if let last = archive.conversations[index].messages.lastIndex(where: { $0.role == .assistant }) {
                 archive.conversations[index].messages[last].body += "\n\n— " + t("已撤銷這一輪的檔案變更") + " —"
             }
+            // The CLI conversation still remembers those edits; tell it before the next message.
+            archive.conversations[index].sessionNotes.append(t("（系統說明：你上一輪對檔案做的修改已被使用者撤銷，資料夾已恢復到那一輪之前的樣子。）"))
             statusMessage = t("已恢復到這一輪開始前的樣子。")
             persist()
         } catch { statusMessage = "\(t("無法撤銷")): \(error.localizedDescription)" }
@@ -482,6 +495,13 @@ final class WorkbenchModel: ObservableObject {
         guard !busyAgents.contains(agent), let topic = activeTopic(for: agent), let desk else { return }
         do { try desk.discard(topic: topic.id) } catch { statusMessage = error.localizedDescription }
         refreshDesk(topic.id)
+    }
+
+    private func updateTopicSession(_ topicID: UUID, sessionID: String?, through: UUID?) {
+        guard let index = archive.conversations.firstIndex(where: { $0.id == topicID }) else { return }
+        archive.conversations[index].sessionID = sessionID
+        archive.conversations[index].sessionThrough = sessionID == nil ? nil : through
+        archive.conversations[index].sessionNotes = []
     }
 
     private func setReplyModel(agent: AgentKind, replyID: UUID, model: String?) {
@@ -723,6 +743,8 @@ final class WorkbenchModel: ObservableObject {
             }
             let runID = UUID(), entryID = UUID()
             roomRunID = runID
+            // Everything up to here is what this member's CLI conversation will have seen.
+            let seenThrough = archive.rooms[index].entries.last?.id
             archive.rooms[index].entries.append(RoomEntry(id: entryID, speaker: .assistant, agent: speaker,
                 displayName: member.name, body: t("正在想……"), delivery: .inProgress))
             loungePlaceholder = (roomID, entryID)
@@ -730,15 +752,23 @@ final class WorkbenchModel: ObservableObject {
             defer { loungePlaceholder = nil }
             let prompt = LoungeEngine.turnPrompt(room: archive.rooms[index], member: member, present: members,
                                                  state: state, ownerName: ownerName, language: settings.language)
+            let session = archive.rooms[index].sessions[speaker.rawValue]
+            let resumeID = session.flatMap { s in archive.rooms[index].entries.contains(where: { $0.id == s.through }) ? s.id : nil }
+            let sentPrompt = resumeID.map { _ in LoungeEngine.turnDelta(room: archive.rooms[index], member: member, state: state,
+                since: session!.through, ownerName: ownerName, language: settings.language) } ?? prompt
             // A project room may read a filtered copy of the project folder.
             var turnSettings = settings
             let readFolder = archive.rooms[index].readFolder
             if !readFolder.isEmpty { turnSettings.workspacePath = readFolder }
             do {
-                let text = try await runner.run(id: runID, agent: speaker, prompt: prompt, settings: turnSettings,
-                                                fallbackWorkspace: workspace, access: readFolder.isEmpty ? .readOnly : .readFiles,
-                                                onUpdate: { _ in })
+                let result = try await runner.runDetailed(id: runID, agent: speaker, prompt: sentPrompt, settings: turnSettings,
+                    fallbackWorkspace: workspace, access: readFolder.isEmpty ? .readOnly : .readFiles,
+                    options: CLIRunOptions(session: SessionPlan(resumeID: resumeID, fallbackPrompt: prompt)), onUpdate: { _ in })
+                let text = result.text
                 guard let current = archive.rooms.firstIndex(where: { $0.id == roomID }) else { break }
+                if let id = result.sessionID, let seenThrough {
+                    archive.rooms[current].sessions[speaker.rawValue] = RoomSession(id: id, through: seenThrough)
+                }
                 if cancelRoomQueue {
                     finishRoomReply(roomID: roomID, entryID: entryID, text: t("已停止；這則回覆沒有轉交。"), delivery: .interrupted)
                     break
@@ -767,6 +797,9 @@ final class WorkbenchModel: ObservableObject {
                 }
                 persist()
             } catch {
+                if let current = archive.rooms.firstIndex(where: { $0.id == roomID }) {
+                    archive.rooms[current].sessions[speaker.rawValue] = nil // unconfirmed: start fresh next time
+                }
                 if cancelRoomQueue { break } // Stop already settled the bubble.
                 finishRoomReply(roomID: roomID, entryID: entryID, text: "結果待核對: \(error.localizedDescription)",
                                 delivery: .failed)
@@ -845,6 +878,7 @@ final class WorkbenchModel: ObservableObject {
         lounge.hostPick = archive.rooms[index].lounge.hostPick
         lounge.questions = archive.rooms[index].lounge.questions
         archive.rooms[index].lounge = lounge
+        archive.rooms[index].sessions = [:] // the rules changed: members start new CLI conversations
         persist()
     }
 
@@ -1001,6 +1035,7 @@ final class WorkbenchModel: ObservableObject {
         archive.rooms[index].summary = ""
         archive.rooms[index].summaryThroughEntryID = nil
         archive.rooms[index].carriedSummary = ""
+        archive.rooms[index].sessions = [:]
         archive.rooms[index].updatedAt = .now
         answeringQuestionID = nil
         persist()

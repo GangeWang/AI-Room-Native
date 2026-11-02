@@ -61,6 +61,11 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
     /// Folder this topic works on. Empty = the member's personal folder
     /// (edited in place); otherwise a task copy of this folder is edited.
     public var workFolder: String
+    /// The CLI conversation this topic continues, and the last reply it already contains.
+    public var sessionID: String?
+    public var sessionThrough: UUID?
+    /// Things the CLI conversation must be told before the next message (e.g. an undone round).
+    public var sessionNotes: [String]
 
     public init(id: UUID = UUID(), agent: AgentKind, title: String = TopicNaming.defaultTitle,
                 messages: [ChatMessage] = [], updatedAt: Date = .now, archived: Bool = false,
@@ -78,10 +83,14 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
         self.draft = draft
         self.draftAttachments = draftAttachments
         self.workFolder = workFolder
+        self.sessionID = nil
+        self.sessionThrough = nil
+        self.sessionNotes = []
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, agent, title, messages, updatedAt, archived, titleLocked, model, effort, draft, draftAttachments, workFolder
+        case id, agent, title, messages, updatedAt, archived, titleLocked, model, effort, draft, draftAttachments, workFolder,
+             sessionID, sessionThrough, sessionNotes
     }
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
@@ -97,6 +106,14 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
         draft = try box.decodeIfPresent(String.self, forKey: .draft) ?? ""
         draftAttachments = try box.decodeIfPresent([ChatAttachment].self, forKey: .draftAttachments) ?? []
         workFolder = try box.decodeIfPresent(String.self, forKey: .workFolder) ?? ""
+        sessionID = try box.decodeIfPresent(String.self, forKey: .sessionID)
+        sessionThrough = try box.decodeIfPresent(UUID.self, forKey: .sessionThrough)
+        sessionNotes = try box.decodeIfPresent([String].self, forKey: .sessionNotes) ?? []
+    }
+
+    /// Continue the CLI conversation only when nothing happened since its last reply.
+    public var canContinueSession: Bool {
+        sessionID != nil && sessionThrough != nil && messages.last?.id == sessionThrough
     }
 }
 

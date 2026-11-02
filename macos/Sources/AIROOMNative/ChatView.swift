@@ -280,8 +280,9 @@ struct ChatView: View {
                 modelPickers
                 Spacer()
                 Image(systemName: "lock.shield").foregroundStyle(.secondary)
-                Text(topic?.workFolder.isEmpty ?? true ? t("個人資料夾 · 不自動重送", "Personal folder · No auto-retry")
-                     : t("任務副本 · 不自動重送", "Task copy · No auto-retry"))
+                Text((topic?.workFolder.isEmpty ?? true ? t("個人資料夾", "Personal folder") : t("任務副本", "Task copy"))
+                     + (topic?.sessionID != nil ? t(" · 延續 CLI 對話", " · Continuing CLI session") : "")
+                     + t(" · 不自動重送", " · No auto-retry"))
                     .font(.caption).foregroundStyle(.secondary)
                 if busy {
                     Button(t("停止", "Stop"), role: .destructive) { model.stop(agent: agent) }
