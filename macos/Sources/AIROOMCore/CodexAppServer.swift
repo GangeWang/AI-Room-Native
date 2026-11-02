@@ -17,6 +17,8 @@ public struct CodexServerWire {
     public private(set) var failure: String?
     /// Model reported in the thread/start response.
     public private(set) var model: String?
+    /// thread/resume was refused (the thread is gone); the model was not reached.
+    public private(set) var resumeRefused = false
 
     public enum Stage: Equatable { case initialize, startThread, startTurn, waiting, finished }
 
@@ -57,6 +59,7 @@ public struct CodexServerWire {
         if let id = value["id"] as? Int, let error = value["error"] as? [String: Any] {
             let message = error["message"] as? String ?? "Unknown JSON-RPC error"
             if id >= 1 && id <= 3 { failure = "Codex App Server: \(message)" }
+            if id == 2 { resumeRefused = true }
             return nil
         }
         if let id = value["id"] as? Int, let result = value["result"] as? [String: Any] {
@@ -261,23 +264,29 @@ public final class CodexAppServerRunner {
                     continue
                 }
                 if let text = wire.receive(line) { onUpdate(PrivacyGuard.redact(text)) }
-                if let failure = wire.failure { throw NativeCLIError.processFailed(PrivacyGuard.redact(failure)) }
+                if let failure = wire.failure {
+                    if wire.resumeRefused && options.session?.resumeID != nil { throw SessionUnavailable() }
+                    throw NativeCLIError.processFailed(PrivacyGuard.redact(failure))
+                }
                 if wire.completed {
                     guard !wire.reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                         throw NativeCLIError.noResponse("Codex App Server")
                     }
-                    return CLIRunResult(text: PrivacyGuard.redact(wire.reply), model: wire.model)
+                    return CLIRunResult(text: PrivacyGuard.redact(wire.reply), model: wire.model, sessionID: wire.threadID)
                 }
                 if wire.stage == .startThread && !sentThread {
                     sentThread = true
                     try input.fileHandleForWriting.write(contentsOf: CodexServerWire.notification(method: "initialized"))
+                    var thread: [String: Any] = [
+                        "cwd": actualCWD.path,
+                        "approvalPolicy": "never",
+                        "sandbox": access == .stagedWrite ? "workspace-write" : "read-only"
+                    ]
+                    // A session plan keeps the thread so the next run can continue it.
+                    if let resume = options.session?.resumeID { thread["threadId"] = resume }
+                    else { thread["ephemeral"] = options.session == nil }
                     try input.fileHandleForWriting.write(contentsOf: CodexServerWire.request(
-                        id: 2, method: "thread/start", params: [
-                            "cwd": actualCWD.path,
-                            "approvalPolicy": "never",
-                            "sandbox": access == .stagedWrite ? "workspace-write" : "read-only",
-                            "ephemeral": true
-                        ]))
+                        id: 2, method: options.session?.resumeID != nil ? "thread/resume" : "thread/start", params: thread))
                 }
                 if wire.stage == .startTurn && !sentTurn, let threadID = wire.threadID {
                     sentTurn = true

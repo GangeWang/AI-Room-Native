@@ -3,7 +3,9 @@ import Foundation
 // MARK: Call usage — counted receipts, as upstream AIROOM shows them:
 // "累計嘗試 N 次 · 已發出 N 次 · 已完成 N 次", plus not-sent and unknown results.
 
-public enum CallEvent: Sendable { case attempt, delivered, completed, notSent, unknown }
+/// `notReached`: it was handed to the CLI, which refused it before reaching the model
+/// (e.g. a conversation that can no longer be continued) — counted as not sent.
+public enum CallEvent: Sendable { case attempt, delivered, completed, notSent, unknown, notReached }
 
 public struct CallUsage: Codable, Equatable, Sendable {
     public var total = 0
@@ -20,6 +22,7 @@ public struct CallUsage: Codable, Equatable, Sendable {
         case .completed: completed += 1
         case .notSent: notSent += 1
         case .unknown: unknown += 1
+        case .notReached: delivered = max(0, delivered - 1); notSent += 1
         }
     }
 

@@ -191,6 +191,7 @@ public enum CommandPlan {
                    : ["--tools", "Read,Edit,Write,Glob,Grep", "--permission-mode", "acceptEdits"])
             if !options.model.isEmpty { claude += ["--model", options.model] }
             if !options.effort.isEmpty { claude += ["--effort", options.effort] }
+            if let resume = options.session?.resumeID { claude += ["--resume", resume] }
             // Images and PDFs travel as content blocks in one stream-json user message.
             if !options.attachments.isEmpty { claude += ["--input-format", "stream-json"] }
             return claude

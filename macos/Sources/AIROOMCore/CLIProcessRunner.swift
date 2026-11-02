@@ -47,16 +47,37 @@ public final class CLIProcessRunner {
             throw NativeCLIError.invalidPrompt
         }
         try PrivacyGuard.validatePrompt(prompt)
+        do {
+            return try await runObserved(id: id, agent: agent, prompt: prompt, settings: settings,
+                                         fallbackWorkspace: fallbackWorkspace, access: access, options: options, onUpdate: onUpdate)
+        } catch is SessionUnavailable {
+            // The earlier conversation is gone and the model was never reached:
+            // start a new one with the full prompt. Any other error is not retried.
+            guard let plan = options.session else { throw SessionUnavailable() }
+            var fresh = options
+            fresh.session = SessionPlan(resumeID: nil, fallbackPrompt: plan.fallbackPrompt)
+            return try await runDetailed(id: id, agent: agent, prompt: plan.fallbackPrompt, settings: settings,
+                                         fallbackWorkspace: fallbackWorkspace, access: access, options: fresh, onUpdate: onUpdate)
+        }
+    }
+
+    private func runObserved(id: UUID, agent: AgentKind, prompt: String, settings: NativeSettings,
+                             fallbackWorkspace: URL, access: ExecutionAccess, options: CLIRunOptions,
+                             onUpdate: @escaping (String) -> Void) async throws -> CLIRunResult {
         let observer = self.observer
         let flag = DeliveryFlag()
         observer?(agent, .attempt)
         let delivered: @Sendable () -> Void = { if flag.set() { observer?(agent, .delivered) } }
         do {
-            let result = try await perform(id: id, agent: agent, prompt: prompt, settings: settings,
+            var result = try await perform(id: id, agent: agent, prompt: prompt, settings: settings,
                                            fallbackWorkspace: fallbackWorkspace, access: access, options: options,
                                            delivered: delivered, onUpdate: onUpdate)
+            result.resumed = options.session?.resumeID != nil
             observer?(agent, .completed)
             return result
+        } catch is SessionUnavailable {
+            observer?(agent, flag.isSet ? .notReached : .notSent) // the model was not reached
+            throw SessionUnavailable()
         } catch {
             // Sent but unconfirmed is "unknown": it may have been processed.
             observer?(agent, flag.isSet ? .unknown : .notSent)
@@ -175,13 +196,17 @@ public final class CLIProcessRunner {
         if let stdoutReadError { throw stdoutReadError }
         if process.terminationStatus != 0 || parser.failure != nil {
             let stderrText = String(decoding: errorOutput.snapshot(), as: UTF8.self)
+            if options.session?.resumeID != nil
+                && (stderrText.contains("No conversation found") || parser.endedBeforeModel && parser.text.isEmpty) {
+                throw SessionUnavailable()
+            }
             let message = parser.failure ?? stderrText.trimmingCharacters(in: .whitespacesAndNewlines)
             throw NativeCLIError.processFailed("\(agent.rawValue) 執行失敗（exit \(process.terminationStatus)）：\(String(PrivacyGuard.redact(message).prefix(2_000)))")
         }
         if parser.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw NativeCLIError.noResponse(agent.rawValue)
         }
-        return CLIRunResult(text: PrivacyGuard.redact(parser.text), model: parser.model)
+        return CLIRunResult(text: PrivacyGuard.redact(parser.text), model: parser.model, sessionID: parser.sessionID)
     }
 
     public func codexModels(settings: NativeSettings) async throws -> [ModelChoice] {

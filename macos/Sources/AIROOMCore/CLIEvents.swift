@@ -8,6 +8,10 @@ public struct CLIEventAccumulator {
     public private(set) var failure: String?
     /// Model reported by the CLI itself (Claude's `system/init` event).
     public private(set) var model: String?
+    /// Claude's session ID for this run (continue it with --resume).
+    public private(set) var sessionID: String?
+    /// The run ended in error without a single model turn (e.g. a missing session).
+    public private(set) var endedBeforeModel = false
     private var claudeDeltas = ""
 
     public init(agent: AgentKind) { self.agent = agent }
@@ -31,6 +35,7 @@ public struct CLIEventAccumulator {
                 failure = source ?? (value["message"] as? String) ?? "Codex 執行失敗"
             }
         case .claude:
+            if let session = value["session_id"] as? String, !session.isEmpty { sessionID = session }
             if type == "system", value["subtype"] as? String == "init", let name = value["model"] as? String {
                 model = name
                 return nil
@@ -56,6 +61,7 @@ public struct CLIEventAccumulator {
                 // An error result carries its reason (e.g. a usage limit) in
                 // `result`; it must never be mistaken for an answer.
                 if value["is_error"] as? Bool == true {
+                    endedBeforeModel = (value["num_turns"] as? Int) == 0 && (value["duration_api_ms"] as? Int) == 0
                     let reason = (value["result"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                     failure = reason ?? (value["subtype"] as? String).map { "Claude 執行失敗：\($0)" } ?? "Claude 執行失敗"
                     return nil

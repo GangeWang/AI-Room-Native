@@ -142,15 +142,37 @@ public struct PreparedAttachment: Sendable {
     public init(attachment: ChatAttachment, file: URL) { self.attachment = attachment; self.file = file }
 }
 
+/// Continue the CLI's own earlier conversation instead of resending history.
+public struct SessionPlan: Sendable, Equatable {
+    /// Claude session ID / Codex thread ID to continue; nil starts a new, persistent one.
+    public var resumeID: String?
+    /// The full prompt, used instead when the earlier conversation can't be resumed.
+    public var fallbackPrompt: String
+    public init(resumeID: String?, fallbackPrompt: String) {
+        // IDs become CLI arguments: letters, digits and dashes only, never a leading dash.
+        self.resumeID = resumeID.flatMap { id in
+            id.count <= 80 && !id.hasPrefix("-") && id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }) ? id : nil
+        }
+        self.fallbackPrompt = fallbackPrompt
+    }
+}
+
+/// The earlier conversation is gone, and the model was not reached: safe to start over.
+public struct SessionUnavailable: Error, LocalizedError {
+    public var errorDescription: String? { "先前的 CLI 對話已無法延續" }
+}
+
 public struct CLIRunOptions: Sendable {
     public var model: String
     public var effort: String
     /// Images and PDFs only; text files are inlined into the prompt by the caller.
     public var attachments: [PreparedAttachment]
-    public init(model: String = "", effort: String = "", attachments: [PreparedAttachment] = []) {
+    public var session: SessionPlan?
+    public init(model: String = "", effort: String = "", attachments: [PreparedAttachment] = [], session: SessionPlan? = nil) {
         self.model = ModelCatalog.sanitize(model)
         self.effort = ModelCatalog.sanitize(effort)
         self.attachments = attachments.filter { $0.attachment.kind != .text }
+        self.session = session
     }
 }
 
@@ -158,6 +180,13 @@ public struct CLIRunResult: Sendable {
     public var text: String
     /// The model the CLI reported for this run, when it reported one.
     public var model: String?
+    /// The CLI conversation this run belongs to (continue it next time).
+    public var sessionID: String?
+    /// True when an earlier conversation was continued (false: started or restarted).
+    public var resumed: Bool
+    public init(text: String, model: String? = nil, sessionID: String? = nil, resumed: Bool = false) {
+        self.text = text; self.model = model; self.sessionID = sessionID; self.resumed = resumed
+    }
 }
 
 public enum ClaudeStreamInput {
