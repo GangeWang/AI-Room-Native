@@ -108,7 +108,20 @@ public enum CommandPlan {
         }
         return ordered.flatMap { name, _ in
             let base = (parent as NSString).appendingPathComponent(name)
-            return ["\(base)/claude.app/Contents/MacOS/claude", "\(base)/claude"]
+            // Newer desktop builds add a content-hash level:
+            // <version>/<hash>/claude.app. Prefer hashes the updater marked `.verified`.
+            let hashes = ((try? fileManager.contentsOfDirectory(atPath: base)) ?? []).filter { hash in
+                var isDirectory: ObjCBool = false
+                return !hash.isEmpty && hash.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) })
+                    && fileManager.fileExists(atPath: (base as NSString).appendingPathComponent(hash),
+                                              isDirectory: &isDirectory) && isDirectory.boolValue
+            }.sorted { a, b in
+                let verifiedA = fileManager.fileExists(atPath: "\(base)/\(a)/.verified")
+                let verifiedB = fileManager.fileExists(atPath: "\(base)/\(b)/.verified")
+                return verifiedA != verifiedB ? verifiedA : a < b
+            }
+            return hashes.map { "\(base)/\($0)/claude.app/Contents/MacOS/claude" }
+                + ["\(base)/claude.app/Contents/MacOS/claude", "\(base)/claude"]
         }
     }
 

@@ -39,7 +39,7 @@ public enum DesktopAppHandoff {
 }
 
 public enum OfficialCLIStatus: String, Equatable, Sendable {
-    case checking, authenticated, notConfirmed, missingExecutable, timedOut
+    case checking, authenticated, notLoggedIn, notConfirmed, missingExecutable, timedOut
 }
 
 /// Read-only status probes use the vendor's own public CLI commands. The app
@@ -60,7 +60,9 @@ public enum OfficialCLIProbe {
         child.arguments = agent == .codex ? ["login", "status"] : ["auth", "status"]
         child.environment = PrivacyGuard.cliEnvironment(from: environment, executable: executable, home: home)
         child.standardInput = FileHandle.nullDevice
-        child.standardOutput = FileHandle.nullDevice
+        // `claude auth status` prints a small JSON report (no token values).
+        let output = Pipe()
+        child.standardOutput = output
         child.standardError = FileHandle.nullDevice
         let finished = DispatchSemaphore(value: 0)
         child.terminationHandler = { _ in finished.signal() }
@@ -70,6 +72,20 @@ public enum OfficialCLIProbe {
             if child.isRunning { child.terminate() }
             return .timedOut
         }
-        return child.terminationStatus == 0 ? .authenticated : .notConfirmed
+        let report = output.fileHandleForReading.readDataToEndOfFile()
+        return interpret(exitCode: child.terminationStatus, output: report)
+    }
+
+    /// Claude Desktop authenticates its own Code tab by passing credentials to
+    /// the child it launches; a standalone invocation of the same executable
+    /// reports `"loggedIn": false` until `claude auth login` has been run once.
+    public static func interpret(exitCode: Int32, output: Data) -> OfficialCLIStatus {
+        if let report = try? JSONSerialization.jsonObject(with: output.prefix(64_000)) as? [String: Any],
+           let loggedIn = report["loggedIn"] as? Bool {
+            return loggedIn ? .authenticated : .notLoggedIn
+        }
+        let text = String(decoding: output.prefix(4_000), as: UTF8.self).lowercased()
+        if text.contains("not logged in") { return .notLoggedIn }
+        return exitCode == 0 ? .authenticated : .notConfirmed
     }
 }

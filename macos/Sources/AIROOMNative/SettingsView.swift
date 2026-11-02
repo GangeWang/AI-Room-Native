@@ -114,6 +114,7 @@ struct SettingsView: View {
     private func cliLoginDescription(_ result: OfficialCLIStatus) -> String {
         switch result {
         case .authenticated: return t("官方 CLI 已登入（不代表桌面 App 的對話可讀取）", "Official CLI signed in (desktop conversations are not imported)")
+        case .notLoggedIn: return t("官方 CLI 尚未登入：Claude Desktop 的登入不會分享給其他 App。請在終端機執行一次 claude auth login（Codex 為 codex login）。", "Official CLI is not signed in: Claude Desktop does not share its sign-in with other apps. Run `claude auth login` (or `codex login`) once in Terminal.")
         case .notConfirmed: return t("CLI 登入尚未確認；請在終端機使用官方登入流程", "CLI sign-in not confirmed; sign in using the official terminal flow")
         case .missingExecutable: return t("找不到 CLI；桌面 App 仍可獨立使用", "CLI not found; the desktop app can still work separately")
         case .timedOut: return t("CLI 登入檢查逾時，未變更任何登入資料", "CLI login check timed out; no credentials were changed")

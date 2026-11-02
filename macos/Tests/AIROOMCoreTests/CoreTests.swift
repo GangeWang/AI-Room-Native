@@ -669,3 +669,30 @@ final class QuotaProcessTests: XCTestCase {
         XCTAssertTrue(result.windows.isEmpty)
     }
 }
+
+final class ClaudeDesktopLayoutTests: XCTestCase {
+    func testHashedDesktopLayoutIsPreferred() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let version = home.appendingPathComponent("Library/Application Support/Claude/claude-code/2.1.309")
+        for hash in ["0000stale", "5af865b9901c"] {
+            let executable = version.appendingPathComponent("\(hash)/claude.app/Contents/MacOS/claude")
+            try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("#!/bin/sh\nexit 0\n".utf8).write(to: executable)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        }
+        try Data().write(to: version.appendingPathComponent("5af865b9901c/.verified"))
+        let selected = try CommandPlan.resolveExecutable(agent: .claude,
+            settings: NativeSettings(), environment: ["PATH": "/nonexistent"], home: home.path)
+        XCTAssertTrue(selected.path.hasSuffix("2.1.309/5af865b9901c/claude.app/Contents/MacOS/claude"))
+    }
+
+    func testAuthStatusReportDistinguishesSignedOut() {
+        let signedOut = Data(#"{"loggedIn": false, "authMethod": "none"}"#.utf8)
+        XCTAssertEqual(OfficialCLIProbe.interpret(exitCode: 1, output: signedOut), .notLoggedIn)
+        let signedIn = Data(#"{"loggedIn": true, "authMethod": "claude.ai"}"#.utf8)
+        XCTAssertEqual(OfficialCLIProbe.interpret(exitCode: 0, output: signedIn), .authenticated)
+        XCTAssertEqual(OfficialCLIProbe.interpret(exitCode: 1, output: Data("Not logged in\n".utf8)), .notLoggedIn)
+        XCTAssertEqual(OfficialCLIProbe.interpret(exitCode: 2, output: Data()), .notConfirmed)
+    }
+}
