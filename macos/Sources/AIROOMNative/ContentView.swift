@@ -53,7 +53,7 @@ struct ContentView: View {
                     case .chat(let agent): ChatView(agent: agent)
                     case .room: RoomView()
                     case .roundtable: RoundtableView()
-                    case .projects: ProjectsView(initialProjectID: selectedProjectID)
+                    case .projects: ProjectRoomView(initialProjectID: selectedProjectID)
                     case .members: MembersView()
                     case .quota: StudioQuotaView()
                     case .automation: AutomationView()
@@ -141,13 +141,15 @@ struct ContentView: View {
                     Divider().padding(.vertical, 9).padding(.horizontal, 9)
                     groupHeading(t("專案", "PROJECTS"), action: { route = .projects }, icon: "plus")
                     navRow(.projects, title: t("專案工作區", "Project Workspace"), subtitle: t("查看全部專案", "All projects"), icon: "folder")
-                    ForEach(model.archive.projects.prefix(8)) { project in
-                        Button { selectedProjectID = project.id; route = .projects } label: {
+                    ForEach(model.archive.projectFlows.prefix(8)) { project in
+                        Button { model.selectedFlowID = project.id; selectedProjectID = project.id; route = .projects } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: "folder.fill").foregroundStyle(StudioTheme.amber).font(.caption)
                                 Text(project.title).font(.subheadline).lineLimit(1)
                                 Spacer()
-                                Circle().fill(project.phase == .reviewing ? StudioTheme.orange : .clear).frame(width: 6, height: 6)
+                                // Orange dot: the project is waiting for you (plan, next round or acceptance).
+                                Circle().fill(model.attentionItems.contains { $0.target == .project(project.id) } ? StudioTheme.orange : .clear)
+                                    .frame(width: 6, height: 6)
                             }.padding(.horizontal, 12).padding(.vertical, 7)
                                 .studioSidebarHitTarget()
                         }.buttonStyle(.plain)
@@ -178,7 +180,9 @@ struct ContentView: View {
         switch target {
         case .room(let id): model.selectRoom(id); route = .room
         case .roundtable(let id): model.selectedRoundtableID = id; route = .roundtable
-        case .project(let id): selectedProjectID = id; route = .projects
+        case .project(let id):
+            if model.archive.projectFlows.contains(where: { $0.id == id }) { model.selectedFlowID = id }
+            selectedProjectID = id; route = .projects
         case .settings: route = .settings
         case .member(let agent): route = .chat(agent)
         }

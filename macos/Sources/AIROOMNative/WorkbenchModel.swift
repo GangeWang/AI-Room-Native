@@ -103,7 +103,7 @@ final class WorkbenchModel: ObservableObject {
             storageAvailable = false
             statusMessage = "無法解密本機資料，已停止寫入：\(error.localizedDescription) / Keychain unlock failed"
         }
-        selectedRoomID = archive.rooms.first(where: { $0.roundtableID == nil })?.id
+        selectedRoomID = archive.rooms.first(where: \.isLounge)?.id
         if archive.rooms.isEmpty {
             archive.rooms = [TeamRoom()]
             selectedRoomID = archive.rooms[0].id
@@ -557,11 +557,11 @@ final class WorkbenchModel: ObservableObject {
         if let selectedRoomID {
             return archive.rooms.firstIndex(where: { $0.id == selectedRoomID })
         }
-        return archive.rooms.firstIndex(where: { $0.roundtableID == nil })
+        return archive.rooms.firstIndex(where: \.isLounge)
     }
 
     /// Lounge topics only; roundtable deliberation rooms live under the roundtable.
-    var loungeRooms: [TeamRoom] { archive.rooms.filter { $0.roundtableID == nil } }
+    var loungeRooms: [TeamRoom] { archive.rooms.filter(\.isLounge) }
 
     var activeRoom: TeamRoom? { activeRoomIndex.map { archive.rooms[$0] } }
 
@@ -730,9 +730,14 @@ final class WorkbenchModel: ObservableObject {
             defer { loungePlaceholder = nil }
             let prompt = LoungeEngine.turnPrompt(room: archive.rooms[index], member: member, present: members,
                                                  state: state, ownerName: ownerName, language: settings.language)
+            // A project room may read a filtered copy of the project folder.
+            var turnSettings = settings
+            let readFolder = archive.rooms[index].readFolder
+            if !readFolder.isEmpty { turnSettings.workspacePath = readFolder }
             do {
-                let text = try await runner.run(id: runID, agent: speaker, prompt: prompt, settings: settings,
-                                                fallbackWorkspace: workspace, onUpdate: { _ in })
+                let text = try await runner.run(id: runID, agent: speaker, prompt: prompt, settings: turnSettings,
+                                                fallbackWorkspace: workspace, access: readFolder.isEmpty ? .readOnly : .readFiles,
+                                                onUpdate: { _ in })
                 guard let current = archive.rooms.firstIndex(where: { $0.id == roomID }) else { break }
                 if cancelRoomQueue {
                     finishRoomReply(roomID: roomID, entryID: entryID, text: t("已停止；這則回覆沒有轉交。"), delivery: .interrupted)
@@ -1368,6 +1373,13 @@ final class WorkbenchModel: ObservableObject {
 
     // MARK: Roundtable (new-style topics)
     @Published var selectedRoundtableID: UUID?
+    // Project room (new-style flows)
+    @Published var selectedFlowID: UUID?
+    @Published var flowRunning = false
+    /// What the project room is doing right now, shown inline.
+    @Published var flowActivity: String?
+    private var flowRunID: UUID?
+    private var cancelFlow = false
     var roundtableNames: [AgentKind: String] {
         Dictionary(uniqueKeysWithValues: AgentKind.allCases.map { ($0, memberName($0)) })
     }
@@ -1539,6 +1551,16 @@ final class WorkbenchModel: ObservableObject {
         }
         archive.projects[project].task += addition
         archive.roundtableTopics[index].handoffProjectID = projectID
+        persist()
+    }
+
+    /// 帶回專案 (new-style): the conclusion becomes material for that project's next plan, once.
+    func handoffTopicToFlow(_ id: UUID, flowID: UUID) {
+        guard let index = topicIndex(id), archive.roundtableTopics[index].status == .confirmed,
+              archive.roundtableTopics[index].handoffProjectID == nil,
+              let flow = archive.projectFlows.firstIndex(where: { $0.id == flowID }) else { return }
+        archive.projectFlows[flow].materials.append(RoundtableFlow.handoff(archive.roundtableTopics[index], names: roundtableNames))
+        archive.roundtableTopics[index].handoffProjectID = flowID
         persist()
     }
 
@@ -2005,5 +2027,386 @@ final class WorkbenchModel: ObservableObject {
         guard storageAvailable, let persistence else { return }
         do { try persistence.save(archive) }
         catch { statusMessage = "\(t("無法儲存本機對話紀錄")): \(error.localizedDescription)" }
+    }
+}
+
+
+// MARK: - Project room (項目會議室)
+extension WorkbenchModel {
+    private func flowIndex(_ id: UUID) -> Int? { archive.projectFlows.firstIndex { $0.id == id } }
+    private func flowWorkspace(_ id: UUID) -> ProjectWorkspace? {
+        persistence.flatMap { try? ProjectWorkspace(root: $0.root, flowID: id) }
+    }
+    var memberNames: [AgentKind: String] { roundtableNames }
+
+    func createFlow(title: String, folder: String, members: [AgentKind], reviewLevel: ReviewLevel) {
+        guard storageAvailable else { return }
+        let path = (folder as NSString).expandingTildeInPath
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            statusMessage = t("請選擇存在的專案資料夾。"); return
+        }
+        let chosen = AgentKind.allCases.filter { agent in
+            members.contains(agent) && archive.members.contains(where: { $0.agent == agent && $0.enabled })
+        }
+        guard chosen.count >= 2 else { statusMessage = t("專案至少需要兩位已啟用的成員。"); return }
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        var flow = ProjectFlow(title: name.isEmpty ? (path as NSString).lastPathComponent : name,
+                               folder: path, members: chosen, reviewLevel: reviewLevel)
+        var lounge = LoungeState(style: .meeting)
+        lounge.handRaise = false
+        let room = TeamRoom(title: "專案：\(flow.title)", participants: chosen, lounge: lounge,
+                            projectID: flow.id, readFolder: path)
+        flow.roomID = room.id
+        archive.rooms.append(room)
+        archive.projectFlows.insert(flow, at: 0)
+        selectedFlowID = flow.id
+        persist()
+    }
+
+    /// Step 1: talk it through. Members may read the project files but not change them.
+    func sayInProject(_ id: UUID, text: String) {
+        guard let index = flowIndex(id), let roomID = archive.projectFlows[index].roomID, !roomRunning, !flowRunning else { return }
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value.count <= 8_000 else { return }
+        dispatchRoomMessage(roomID: roomID, question: value, target: nil, displayName: t("你"))
+    }
+
+    /// Step 2 → 3: the chosen lead drafts the plan.
+    func chooseFlowLead(_ id: UUID, agent: AgentKind) {
+        guard let index = flowIndex(id), !flowRunning, archive.projectFlows[index].members.contains(agent) else { return }
+        archive.projectFlows[index].lead = agent
+        archive.projectFlows[index].step = .leader
+        persist()
+        draftPlan(id)
+    }
+
+    func requestPlanChange(_ id: UUID, note: String) {
+        guard let index = flowIndex(id), !flowRunning else { return }
+        let value = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return }
+        archive.projectFlows[index].planRequests.append(String(value.prefix(4_000)))
+        persist()
+        draftPlan(id)
+    }
+
+    private func draftPlan(_ id: UUID) {
+        guard let index = flowIndex(id), let lead = archive.projectFlows[index].lead else { return }
+        let flow = archive.projectFlows[index]
+        let discussion = flow.roomID.flatMap { roomID in archive.rooms.first { $0.id == roomID } }
+            .map { RoomPromptBuilder.snapshot(room: $0, maxEntries: 60, maxCharacters: 14_000, language: archive.settings.language).transcript } ?? ""
+        let prompt = ProjectFlowEngine.planPrompt(flow, discussion: discussion, names: memberNames, ownerName: archive.settings.ownerName)
+        flowTask(id, activity: t("\(memberName(lead)) 正在寫方案……")) { [self] in
+            let text = try await flowCall(id, agent: lead, prompt: prompt, folder: flow.folder, access: .readFiles)
+            guard let current = flowIndex(id) else { return }
+            let version = (archive.projectFlows[current].plan?.version ?? 0) + 1
+            var plan = try ProjectFlowEngine.parsePlan(text, members: flow.members, version: version)
+            // A revision keeps accepted rounds; the new plan replaces what is left.
+            if let old = archive.projectFlows[current].plan {
+                let done = old.rounds.filter { $0.status == .accepted }
+                let doneKeys = Set(done.map(\.key))
+                let prefix = "v\(version)-"
+                plan.rounds = done + plan.rounds.map { var r = $0; r.key = prefix + r.key; return r }
+                plan.tasks = old.tasks.filter { doneKeys.contains($0.roundKey) } + plan.tasks.map { task in
+                    var t = task; t.key = prefix + t.key; t.roundKey = prefix + t.roundKey
+                    t.dependencies = t.dependencies.map { prefix + $0 }; return t
+                }
+                archive.projectFlows[current].currentRound = done.count
+            }
+            archive.projectFlows[current].plan = plan
+            archive.projectFlows[current].step = .plan
+            Notifier.post(t("方案寫好了"), flow.title)
+        }
+    }
+
+    /// Step 3 → 4: the user confirms the plan and starts work.
+    func confirmPlan(_ id: UUID, reviewLevel: ReviewLevel, note: String = "") {
+        guard let index = flowIndex(id), !flowRunning, archive.projectFlows[index].plan != nil,
+              archive.projectFlows[index].step == .plan else { return }
+        archive.projectFlows[index].reviewLevel = reviewLevel
+        startRound(id, note: note)
+    }
+
+    /// 按原計劃開始 (with an optional 附言 for this round).
+    func startRound(_ id: UUID, note: String) {
+        guard let index = flowIndex(id), !flowRunning, var plan = archive.projectFlows[index].plan else { return }
+        let roundIndex = archive.projectFlows[index].currentRound
+        guard plan.rounds.indices.contains(roundIndex) else { return }
+        plan.rounds[roundIndex].startNote = String(note.trimmingCharacters(in: .whitespacesAndNewlines).prefix(4_000))
+        plan.rounds[roundIndex].status = .executing
+        archive.projectFlows[index].plan = plan
+        archive.projectFlows[index].step = .executing
+        archive.projectFlows[index].paused = false
+        persist()
+        runRound(id)
+    }
+
+    func pauseFlow(_ id: UUID) {
+        guard let index = flowIndex(id) else { return }
+        archive.projectFlows[index].paused = true
+        flowActivity = t("目前的任務做完後就暫停，不再派新任務。")
+        persist()
+    }
+
+    func resumeFlow(_ id: UUID) {
+        guard let index = flowIndex(id), !flowRunning else { return }
+        archive.projectFlows[index].paused = false
+        // A failed task is retried only because the user pressed Continue.
+        if let round = archive.projectFlows[index].activeRound, var plan = archive.projectFlows[index].plan {
+            for t in plan.tasks.indices where plan.tasks[t].roundKey == round.key && plan.tasks[t].status != .done {
+                plan.tasks[t].status = .pending
+            }
+            archive.projectFlows[index].plan = plan
+        }
+        persist()
+        if archive.projectFlows[index].activeRound?.status == .executing { runRound(id) }
+    }
+
+    func stopFlow() {
+        cancelFlow = true
+        if let id = flowRunID { _ = runner.cancel(id: id) }
+    }
+
+    /// Step 4: tasks run one at a time in dependency order, each in its own copy.
+    private func runRound(_ id: UUID) {
+        guard let index = flowIndex(id), let round = archive.projectFlows[index].activeRound,
+              let workspace = flowWorkspace(id) else { return }
+        flowTask(id, activity: t("第 \(archive.projectFlows[index].currentRound + 1) 輪執行中……")) { [self] in
+            _ = try workspace.roundFolder(round.id, original: archive.projectFlows[index].folder)
+            while let current = flowIndex(id), let plan = archive.projectFlows[current].plan,
+                  let task = ProjectFlowEngine.nextTask(in: round, plan: plan) {
+                if archive.projectFlows[current].paused || cancelFlow { return }
+                try await runTask(id, taskID: task.id, round: round, workspace: workspace)
+            }
+            guard let current = flowIndex(id), let plan = archive.projectFlows[current].plan else { return }
+            if plan.tasks(in: round).contains(where: { $0.status != .done }) { return } // a task failed; waits for the user
+            try await checkRound(id, round: round, workspace: workspace)
+        }
+    }
+
+    private func updateTask(_ id: UUID, _ taskID: UUID, _ change: (inout FlowTask) -> Void) {
+        guard let index = flowIndex(id), let task = archive.projectFlows[index].plan?.tasks.firstIndex(where: { $0.id == taskID }) else { return }
+        change(&archive.projectFlows[index].plan!.tasks[task])
+        persist()
+    }
+
+    private func task(_ id: UUID, _ taskID: UUID) -> FlowTask? {
+        flowIndex(id).flatMap { archive.projectFlows[$0].plan?.tasks.first { $0.id == taskID } }
+    }
+
+    private func runTask(_ id: UUID, taskID: UUID, round: FlowRound, workspace: ProjectWorkspace) async throws {
+        guard let index = flowIndex(id), let lead = archive.projectFlows[index].lead else { return }
+        let members = archive.projectFlows[index].members
+        let level = archive.projectFlows[index].reviewLevel
+        updateTask(id, taskID) { $0.status = .running; $0.error = nil }
+        let folder = try workspace.taskFolder(taskID, round: round.id)
+        while true {
+            guard let current = task(id, taskID), let flow = flowIndex(id).map({ archive.projectFlows[$0] }) else { return }
+            flowActivity = t("\(memberName(current.member)) 正在做「\(current.title)」……")
+            do {
+                let summary = try await flowCall(id, agent: current.member,
+                    prompt: ProjectFlowEngine.taskPrompt(current, flow: flow, round: round, names: memberNames, ownerName: archive.settings.ownerName),
+                    folder: folder.path, access: .stagedWrite, inPlace: true)
+                updateTask(id, taskID) { $0.summary = summary; $0.changes = workspace.taskChanges(taskID) }
+            } catch {
+                updateTask(id, taskID) { $0.status = .failed; $0.error = error.localizedDescription }
+                throw error
+            }
+            // 深入複核: another member checks each task; up to two returns.
+            guard level == .deep, let checked = task(id, taskID) else { break }
+            let reviewer = ProjectFlowEngine.reviewer(for: checked, lead: lead, members: members)
+            updateTask(id, taskID) { $0.status = .reviewing; $0.reviewer = reviewer }
+            flowActivity = t("\(memberName(reviewer)) 正在複核「\(checked.title)」……")
+            let verdict = ProjectFlowEngine.parseVerdict(try await flowCall(id, agent: reviewer,
+                prompt: ProjectFlowEngine.taskReviewPrompt(checked, reviewer: reviewer, names: memberNames),
+                folder: folder.path, access: .readFiles, inPlace: true))
+            if verdict.pass || checked.returns >= ProjectFlowEngine.maxReturns {
+                updateTask(id, taskID) { $0.findings = verdict.pass ? "" : verdict.findings }
+                break
+            }
+            updateTask(id, taskID) { $0.status = .fixing; $0.findings = verdict.findings; $0.returns += 1 }
+        }
+        try workspace.mergeTask(taskID, round: round.id)
+        updateTask(id, taskID) { $0.status = .done }
+    }
+
+    /// Round report (checked against the files unless 快速推進), then the user's acceptance.
+    private func checkRound(_ id: UUID, round: FlowRound, workspace: ProjectWorkspace) async throws {
+        guard let index = flowIndex(id), let lead = archive.projectFlows[index].lead,
+              var plan = archive.projectFlows[index].plan,
+              let r = plan.rounds.firstIndex(where: { $0.id == round.id }) else { return }
+        plan.rounds[r].status = .checking
+        plan.rounds[r].changes = workspace.roundChanges(round.id)
+        archive.projectFlows[index].plan = plan
+        persist()
+        let flow = archive.projectFlows[index]
+        let verify = flow.reviewLevel != .fast
+        flowActivity = t("\(memberName(lead)) 正在整理本輪報告……")
+        let report = try await flowCall(id, agent: lead,
+            prompt: ProjectFlowEngine.roundCheckPrompt(plan.rounds[r], flow: flow, tasks: plan.tasks(in: round),
+                                                       checker: lead, names: memberNames, verify: verify),
+            folder: workspace.rounds.workingDirectory(round.id).path, access: .readFiles, inPlace: false)
+        guard let current = flowIndex(id) else { return }
+        archive.projectFlows[current].plan?.rounds[r].report = report
+        archive.projectFlows[current].plan?.rounds[r].status = .awaitingAcceptance
+        archive.projectFlows[current].step = .acceptance
+        Notifier.post(t("專案等你驗收"), "\(flow.title)：\(round.title)")
+    }
+
+    func flowRoundChanges(_ id: UUID) -> [FileChange] {
+        guard let flow = flowIndex(id).map({ archive.projectFlows[$0] }), let round = flow.activeRound else { return [] }
+        return flowWorkspace(id)?.roundChanges(round.id) ?? []
+    }
+
+    func flowPreview(_ id: UUID, path: String) -> (before: String, after: String)? {
+        guard let flow = flowIndex(id).map({ archive.projectFlows[$0] }), let round = flow.activeRound else { return nil }
+        return try? flowWorkspace(id)?.preview(round: round.id, path: path)
+    }
+
+    /// Step 5: 通過 writes the round into the project folder (conflict-checked).
+    func acceptRound(_ id: UUID) {
+        guard !flowRunning, let index = flowIndex(id), let round = archive.projectFlows[index].activeRound,
+              round.status == .awaitingAcceptance, let workspace = flowWorkspace(id) else { return }
+        do {
+            try workspace.acceptRound(round.id, original: archive.projectFlows[index].folder)
+        } catch {
+            statusMessage = "\(t("拒絕寫入，請檢查差異及衝突")): \(error.localizedDescription)"; return
+        }
+        let r = archive.projectFlows[index].currentRound
+        archive.projectFlows[index].plan?.rounds[r].status = .accepted
+        let rounds = archive.projectFlows[index].plan?.rounds.count ?? 0
+        if r + 1 < rounds {
+            archive.projectFlows[index].currentRound = r + 1
+            archive.projectFlows[index].step = .executing // waits for 按原計劃開始 / 要求修改方案
+            persist()
+        } else {
+            persist()
+            writeCompletion(id)
+        }
+    }
+
+    /// 駁回: the round goes back with the user's opinion; each member gets a fix task on the same copy.
+    func returnRound(_ id: UUID, opinion: String) {
+        guard !flowRunning, let index = flowIndex(id), var plan = archive.projectFlows[index].plan,
+              let round = archive.projectFlows[index].activeRound, round.status == .awaitingAcceptance else { return }
+        let text = opinion.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { statusMessage = t("請寫下要修改什麼。"); return }
+        let r = archive.projectFlows[index].currentRound
+        plan.rounds[r].userOpinion = String(text.prefix(4_000))
+        plan.rounds[r].status = .executing
+        let owners = Array(Set(plan.tasks(in: round).map(\.member))).sorted { $0.rawValue < $1.rawValue }
+        for (n, member) in owners.enumerated() {
+            plan.tasks.append(FlowTask(key: "\(round.key)-fix\(plan.tasks.count + n)", roundKey: round.key,
+                                       title: t("依驗收意見修正"), member: member, goal: text,
+                                       criteria: [t("驗收意見中提到的問題都已處理")]))
+        }
+        archive.projectFlows[index].plan = plan
+        archive.projectFlows[index].step = .executing
+        persist()
+        runRound(id)
+    }
+
+    /// Step 6: the lead writes the whole-work summary.
+    private func writeCompletion(_ id: UUID) {
+        guard let index = flowIndex(id), let lead = archive.projectFlows[index].lead else { return }
+        let flow = archive.projectFlows[index]
+        flowTask(id, activity: t("\(memberName(lead)) 正在寫整段工作總結……")) { [self] in
+            let summary = try await flowCall(id, agent: lead, prompt: ProjectFlowEngine.completionPrompt(flow, names: memberNames),
+                                             folder: flow.folder, access: .readOnly, inPlace: false)
+            guard let current = flowIndex(id) else { return }
+            archive.projectFlows[current].completionReport = summary
+            archive.projectFlows[current].step = .completed
+            Notifier.post(t("專案完成"), flow.title)
+        }
+    }
+
+    /// 開始新的一段工作: keeps the room and carries this segment's summary forward.
+    func startNewSegment(_ id: UUID) {
+        guard let index = flowIndex(id), !flowRunning, archive.projectFlows[index].step == .completed else { return }
+        archive.projectFlows[index].previousSummary = archive.projectFlows[index].completionReport
+        archive.projectFlows[index].completionReport = ""
+        archive.projectFlows[index].plan = nil
+        archive.projectFlows[index].planRequests = []
+        archive.projectFlows[index].currentRound = 0
+        archive.projectFlows[index].lead = nil
+        archive.projectFlows[index].segment += 1
+        archive.projectFlows[index].step = .discussion
+        persist()
+    }
+
+    /// @ a member at work: 只是問問 / 安排新任務 / 補充到他目前的任務.
+    func addFlowTask(_ id: UUID, member: AgentKind, goal: String) {
+        guard let index = flowIndex(id), var plan = archive.projectFlows[index].plan,
+              let round = archive.projectFlows[index].activeRound, round.status != .accepted else { return }
+        let text = goal.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        plan.tasks.append(FlowTask(key: "\(round.key)-add\(plan.tasks.count)", roundKey: round.key,
+                                   title: String(text.prefix(40)), member: member, goal: text))
+        archive.projectFlows[index].plan = plan
+        persist()
+    }
+
+    func supplementFlowTask(_ id: UUID, member: AgentKind, text: String) {
+        guard let index = flowIndex(id), let plan = archive.projectFlows[index].plan,
+              let target = plan.tasks.first(where: { $0.member == member && [.running, .fixing, .reviewing].contains($0.status) })
+                ?? plan.tasks.first(where: { $0.member == member && $0.status == .pending }) else {
+            statusMessage = t("這位成員目前沒有進行中或待開始的任務。"); return
+        }
+        updateTask(id, target.id) { $0.supplements.append(String(text.prefix(2_000))) }
+    }
+
+    /// 成員匯報: ask a member about their work (read-only, no task changes).
+    func askFlowMember(_ id: UUID, member: AgentKind, question: String, answer: @escaping (String) -> Void) {
+        guard let flow = flowIndex(id).map({ archive.projectFlows[$0] }), !flowRunning else { return }
+        flowTask(id, activity: t("\(memberName(member)) 正在回答……")) { [self] in
+            answer(try await flowCall(id, agent: member, prompt: ProjectFlowEngine.askMemberPrompt(question, member: member, flow: flow, names: memberNames),
+                                      folder: flow.folder, access: .readFiles, inPlace: false))
+        }
+    }
+
+    func deleteFlow(_ id: UUID) {
+        guard !flowRunning, let index = flowIndex(id) else { return }
+        if let roomID = archive.projectFlows[index].roomID { archive.rooms.removeAll { $0.id == roomID } }
+        if let root = persistence?.root {
+            try? FileManager.default.removeItem(at: root.appendingPathComponent("flows/\(id.uuidString)"))
+        }
+        archive.projectFlows.remove(at: index)
+        if selectedFlowID == id { selectedFlowID = archive.projectFlows.first?.id }
+        persist()
+    }
+
+    // MARK: plumbing
+
+    /// Runs one flow job; errors stop the job and are shown, never retried automatically.
+    private func flowTask(_ id: UUID, activity: String, _ body: @escaping () async throws -> Void) {
+        guard !flowRunning else { return }
+        flowRunning = true
+        cancelFlow = false
+        flowActivity = activity
+        Task {
+            do { try await body() }
+            catch {
+                if let index = flowIndex(id) { archive.projectFlows[index].paused = true }
+                statusMessage = cancelFlow ? nil : "\(t("專案工作暫停")): \(error.localizedDescription)"
+            }
+            flowRunning = false
+            flowRunID = nil
+            flowActivity = nil
+            persist()
+        }
+    }
+
+    private func flowCall(_ id: UUID, agent: AgentKind, prompt: String, folder: String,
+                          access: ExecutionAccess, inPlace: Bool = false) async throws -> String {
+        if cancelFlow { throw NativeCLIError.processFailed(t("已停止")) }
+        let runID = UUID()
+        flowRunID = runID
+        if let index = flowIndex(id) { archive.projectFlows[index].calls += 1 }
+        var settings = archive.settings
+        settings.workspacePath = folder
+        // .stagedWrite edits `folder` in place (always an AIROOM-owned copy);
+        // read modes work on a filtered temporary copy of it.
+        return try await runner.run(id: runID, agent: agent, prompt: String(prompt.prefix(30_000)), settings: settings,
+                                    fallbackWorkspace: workspace, access: access, onUpdate: { _ in })
     }
 }

@@ -345,3 +345,54 @@ public enum ProjectFlowEngine {
         }
     }
 }
+
+// MARK: Copies — the project folder only changes when the user accepts a round.
+
+public final class ProjectWorkspace {
+    public let rounds: WorkspaceStaging
+    public let tasks: WorkspaceStaging
+
+    public init(root: URL, flowID: UUID) throws {
+        let base = root.appendingPathComponent("flows/\(flowID.uuidString)", isDirectory: true)
+        rounds = try WorkspaceStaging(storage: base.appendingPathComponent("rounds", isDirectory: true))
+        tasks = try WorkspaceStaging(storage: base.appendingPathComponent("tasks", isDirectory: true))
+    }
+
+    private func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath: url.path) }
+
+    /// The round's integration copy, taken from the project folder when the round starts.
+    public func roundFolder(_ round: UUID, original: String) throws -> URL {
+        let work = rounds.workingDirectory(round)
+        return exists(work) ? work : try rounds.prepare(id: round, source: URL(fileURLWithPath: original))
+    }
+
+    /// A fresh copy of the round's current state for one task attempt.
+    public func taskFolder(_ task: UUID, round: UUID) throws -> URL {
+        if exists(tasks.stageDirectory(task)) { try tasks.discard(id: task) }
+        return try tasks.prepare(id: task, source: rounds.workingDirectory(round))
+    }
+
+    public func taskChanges(_ task: UUID) -> [FileChange] { (try? tasks.changes(id: task)) ?? [] }
+
+    /// Merges a finished task into the round copy (conflict-checked), then drops the task copy.
+    @discardableResult
+    public func mergeTask(_ task: UUID, round: UUID) throws -> [FileChange] {
+        let merged = try tasks.apply(id: task, original: rounds.workingDirectory(round))
+        try tasks.discard(id: task)
+        return merged
+    }
+
+    public func roundChanges(_ round: UUID) -> [FileChange] { (try? rounds.changes(id: round)) ?? [] }
+
+    public func preview(round: UUID, path: String) throws -> (before: String, after: String) {
+        try rounds.preview(id: round, file: path)
+    }
+
+    /// Writes an accepted round into the project folder; refuses on conflicts.
+    @discardableResult
+    public func acceptRound(_ round: UUID, original: String) throws -> [FileChange] {
+        let applied = try rounds.apply(id: round, original: URL(fileURLWithPath: original))
+        try rounds.discard(id: round)
+        return applied
+    }
+}

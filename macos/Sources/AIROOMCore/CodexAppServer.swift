@@ -150,7 +150,7 @@ public final class CodexAppServerRunner {
                              delivered: () -> Void, onUpdate: (String) -> Void) throws -> CLIRunResult {
         var actualCWD = cwd
         var scratch: URL?
-        if access == .readOnly {
+        if access != .stagedWrite {
             let temp = FileManager.default.temporaryDirectory
                 .appendingPathComponent("airoom-server-readonly-\(UUID().uuidString)", isDirectory: true)
             let copy = try WorkspaceStaging(storage: temp)
@@ -275,7 +275,7 @@ public final class CodexAppServerRunner {
                         id: 2, method: "thread/start", params: [
                             "cwd": actualCWD.path,
                             "approvalPolicy": "never",
-                            "sandbox": access == .readOnly ? "read-only" : "workspace-write",
+                            "sandbox": access == .stagedWrite ? "workspace-write" : "read-only",
                             "ephemeral": true
                         ]))
                 }

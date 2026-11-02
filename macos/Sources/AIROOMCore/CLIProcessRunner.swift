@@ -101,7 +101,7 @@ public final class CLIProcessRunner {
         // NOT an OS sandbox and cannot prevent a CLI reading other home paths.
         var actualCWD = cwd
         var scratch: URL?
-        if access == .readOnly {
+        if access != .stagedWrite {
             let temporary = FileManager.default.temporaryDirectory
                 .appendingPathComponent("airoom-readonly-\(UUID().uuidString)", isDirectory: true)
             let copy = try WorkspaceStaging(storage: temporary)

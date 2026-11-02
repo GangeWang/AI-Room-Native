@@ -91,7 +91,8 @@ public enum AttentionBuilder {
             }
         }
         for room in state.rooms {
-            let target: AttentionItem.Target = room.roundtableID.map { .roundtable($0) } ?? .room(room.id)
+            let target: AttentionItem.Target = room.roundtableID.map { .roundtable($0) }
+                ?? room.projectID.map { .project($0) } ?? .room(room.id)
             for question in room.lounge.pendingQuestions {
                 items.append(AttentionItem(id: "q-\(question.id)", kind: .question, title: "\(name(question.from)) 在「\(room.title)」問你",
                     detail: String(question.text.prefix(140)), target: target))
@@ -114,6 +115,22 @@ public enum AttentionBuilder {
             } else if topic.status == .conclusion {
                 items.append(AttentionItem(id: "rt-confirm-\(topic.id)", kind: .acceptance, title: "圓桌「\(topic.title)」等你確認結論",
                     detail: "會議紀要已整理，請確認結論。", target: .roundtable(topic.id)))
+            }
+        }
+        for flow in state.projectFlows {
+            let target = AttentionItem.Target.project(flow.id)
+            if flow.step == .plan {
+                items.append(AttentionItem(id: "flow-plan-\(flow.id)", kind: .decision, title: "專案「\(flow.title)」的方案等你確認",
+                    detail: "看過方案後按「確認方案，開工」，或要求修改。", target: target))
+            } else if let round = flow.activeRound, round.status == .awaitingAcceptance {
+                items.append(AttentionItem(id: "flow-accept-\(round.id)", kind: .acceptance, title: "專案「\(flow.title)」：\(round.title) 等你驗收",
+                    detail: "查看成品和改動，選擇通過或駁回。", target: target))
+            } else if flow.step == .executing, let round = flow.activeRound, round.status == .pending {
+                items.append(AttentionItem(id: "flow-next-\(round.id)", kind: .decision, title: "專案「\(flow.title)」：下一輪等你開始",
+                    detail: "按原計劃開始，或要求修改方案。", target: target))
+            } else if flow.paused, flow.plan?.tasks.contains(where: { $0.status == .failed }) == true {
+                items.append(AttentionItem(id: "flow-failed-\(flow.id)", kind: .unknown, title: "專案「\(flow.title)」有任務沒有完成",
+                    detail: "檢查原因後可以繼續，沒有自動重送。", target: target))
             }
         }
         for project in state.projects where project.phase == .reviewing || project.phase == .failed {

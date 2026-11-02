@@ -48,3 +48,48 @@ final class ProjectFlowTests: XCTestCase {
         XCTAssertTrue(ProjectFlowEngine.parseVerdict(#"{"verdict":"pass","summary":"ok"}"#).pass)
     }
 }
+
+final class ProjectWorkspaceTests: XCTestCase {
+    func testTaskEditsReachTheProjectOnlyThroughMergeAndAcceptance() throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("airoom-flow-\(UUID())")
+        defer { try? fm.removeItem(at: base) }
+        let project = base.appendingPathComponent("project")
+        try fm.createDirectory(at: project, withIntermediateDirectories: true)
+        try Data("v1".utf8).write(to: project.appendingPathComponent("a.txt"))
+        let space = try ProjectWorkspace(root: base.appendingPathComponent("store"), flowID: UUID())
+        let round = UUID(), task = UUID()
+        _ = try space.roundFolder(round, original: project.path)
+        let taskFolder = try space.taskFolder(task, round: round)
+        try Data("v2".utf8).write(to: taskFolder.appendingPathComponent("a.txt"))
+        try Data("new".utf8).write(to: taskFolder.appendingPathComponent("b.txt"))
+        XCTAssertEqual(space.taskChanges(task).map(\.path), ["a.txt", "b.txt"])
+        XCTAssertEqual(space.roundChanges(round), [], "nothing merged yet")
+        try space.mergeTask(task, round: round)
+        XCTAssertEqual(space.roundChanges(round).count, 2)
+        XCTAssertEqual(String(decoding: try Data(contentsOf: project.appendingPathComponent("a.txt")), as: UTF8.self), "v1")
+        try space.acceptRound(round, original: project.path)
+        XCTAssertEqual(String(decoding: try Data(contentsOf: project.appendingPathComponent("a.txt")), as: UTF8.self), "v2")
+        XCTAssertTrue(fm.fileExists(atPath: project.appendingPathComponent("b.txt").path))
+    }
+
+    func testReadFilesModeGivesClaudeReadToolsOnly() {
+        let args = CommandPlan.arguments(for: .claude, access: .readFiles)
+        XCTAssertEqual(args[args.firstIndex(of: "--tools")! + 1], "Read,Glob,Grep")
+        XCTAssertFalse(args.contains("acceptEdits"))
+        XCTAssertTrue(CommandPlan.arguments(for: .codex, access: .readFiles).contains("read-only"))
+    }
+
+    func testAttentionAsksForPlanAndAcceptance() throws {
+        var flow = ProjectFlow(title: "網站", folder: "/tmp", members: [.claude, .codex])
+        flow.plan = try ProjectFlowEngine.parsePlan(#"{"rounds":[{"key":"r1","title":"一","goal":"g"}],"tasks":[{"key":"t1","round":"r1","title":"x","member":"claude","goal":"g"}]}"#, members: flow.members)
+        flow.step = .plan
+        var state = SavedState(); state.projectFlows = [flow]
+        XCTAssertEqual(AttentionBuilder.items(state: state, cli: [:]).first?.kind, .decision)
+        state.projectFlows[0].step = .acceptance
+        state.projectFlows[0].plan!.rounds[0].status = .awaitingAcceptance
+        let item = try XCTUnwrap(AttentionBuilder.items(state: state, cli: [:]).first)
+        XCTAssertEqual(item.kind, .acceptance)
+        XCTAssertEqual(item.target, .project(flow.id))
+    }
+}

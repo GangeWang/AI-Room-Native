@@ -68,7 +68,8 @@ public enum NativeCLIError: Error, LocalizedError {
     }
 }
 
-public enum ExecutionAccess: Sendable { case readOnly, stagedWrite }
+/// readOnly: no tools. readFiles: may read the (copied) working folder. stagedWrite: may edit it.
+public enum ExecutionAccess: Sendable { case readOnly, readFiles, stagedWrite }
 
 public enum CommandPlan {
     public static let fallbackPATH = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/opt/local/bin"]
@@ -178,7 +179,7 @@ public enum CommandPlan {
         switch agent {
         case .codex:
             // Explicitly read-only. No --full-auto / --dangerously-bypass flags.
-            return ["exec", "--json", "--sandbox", access == .readOnly ? "read-only" : "workspace-write", "--skip-git-repo-check", "-"]
+            return ["exec", "--json", "--sandbox", access == .stagedWrite ? "workspace-write" : "read-only", "--skip-git-repo-check", "-"]
         case .claude:
             // Print mode via stdin; empty tools list disables tool execution for MVP.
             // Read-only runs get no tools. Writing runs (member desk folders) get
@@ -186,6 +187,7 @@ public enum CommandPlan {
             // inside the working directory; anything outside it is denied.
             var claude = ["--print", "--output-format", "stream-json", "--include-partial-messages", "--verbose"]
                 + (access == .readOnly ? ["--tools", ""]
+                   : access == .readFiles ? ["--tools", "Read,Glob,Grep"]
                    : ["--tools", "Read,Edit,Write,Glob,Grep", "--permission-mode", "acceptEdits"])
             if !options.model.isEmpty { claude += ["--model", options.model] }
             if !options.effort.isEmpty { claude += ["--effort", options.effort] }

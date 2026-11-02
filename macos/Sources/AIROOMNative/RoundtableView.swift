@@ -373,20 +373,21 @@ struct RoundtableTopicView: View {
     }
 
     @ViewBuilder private var handoff: some View {
-        let open = model.archive.projects.filter { [.draft, .rejected, .failed].contains($0.phase) }
+        let flows = model.archive.projectFlows.filter { $0.step != .completed }
         if let projectID = topic.handoffProjectID {
-            Text(t("已帶回專案：", "Handed to project: ") + (model.archive.projects.first { $0.id == projectID }?.title ?? ""))
+            Text(t("已帶回專案：", "Handed to project: ") + (model.archive.projectFlows.first { $0.id == projectID }?.title
+                 ?? model.archive.projects.first { $0.id == projectID }?.title ?? ""))
                 .font(.caption).foregroundStyle(.secondary)
-        } else if !open.isEmpty {
+        } else if !flows.isEmpty {
             HStack {
                 Picker(t("帶回專案", "Hand to project"), selection: $handoffProject) {
                     Text(t("選擇專案", "Choose project")).tag(UUID?.none)
-                    ForEach(open) { project in Text(project.title).tag(Optional(project.id)) }
+                    ForEach(flows) { flow in Text(flow.title).tag(Optional(flow.id)) }
                 }.frame(maxWidth: 320)
-                Button(t("帶回專案", "Hand over")) { if let id = handoffProject { model.handoffTopic(topic.id, to: id) } }
+                Button(t("帶回專案", "Hand over")) { if let id = handoffProject { model.handoffTopicToFlow(topic.id, flowID: id) } }
                     .disabled(handoffProject == nil)
             }
-            Text(t("結論只會加進該專案的需求一次，不會自動寫檔或開工。", "The conclusion is added to that project's requirements once; nothing runs automatically."))
+            Text(t("結論會作為該專案下一次寫方案的材料，只用一次；不會自動寫檔或開工。", "The conclusion becomes material for that project's next plan, once; nothing runs automatically."))
                 .font(.caption2).foregroundStyle(.secondary)
         }
     }

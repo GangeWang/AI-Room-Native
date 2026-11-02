@@ -112,21 +112,26 @@ public struct TeamRoom: Identifiable, Codable, Equatable, Sendable {
     public var roundtableID: UUID?
     /// Material every member should know (roundtable versions, issue list), outside the transcript.
     public var briefing: String
+    /// Set for a project room: members may read (never edit) a copy of this folder.
+    public var projectID: UUID?
+    public var readFolder: String
 
     public init(id: UUID = UUID(), title: String = "茶歇室", entries: [RoomEntry] = [], participants: [AgentKind] = AgentKind.allCases,
                 updatedAt: Date = .now, lounge: LoungeState = LoungeState(), summary: String = "",
                 summaryThroughEntryID: UUID? = nil, carriedSummary: String = "",
-                roundtableID: UUID? = nil, briefing: String = "") {
+                roundtableID: UUID? = nil, briefing: String = "", projectID: UUID? = nil, readFolder: String = "") {
         self.id = id; self.title = title; self.entries = entries; self.participants = participants; self.updatedAt = updatedAt
         self.lounge = lounge; self.summary = summary; self.summaryThroughEntryID = summaryThroughEntryID
         self.carriedSummary = carriedSummary
         self.roundtableID = roundtableID
         self.briefing = briefing
+        self.projectID = projectID
+        self.readFolder = readFolder
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, title, entries, participants, updatedAt, lounge, summary, summaryThroughEntryID, carriedSummary,
-             roundtableID, briefing
+             roundtableID, briefing, projectID, readFolder
     }
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
@@ -141,7 +146,12 @@ public struct TeamRoom: Identifiable, Codable, Equatable, Sendable {
         carriedSummary = try box.decodeIfPresent(String.self, forKey: .carriedSummary) ?? ""
         roundtableID = try box.decodeIfPresent(UUID.self, forKey: .roundtableID)
         briefing = try box.decodeIfPresent(String.self, forKey: .briefing) ?? ""
+        projectID = try box.decodeIfPresent(UUID.self, forKey: .projectID)
+        readFolder = try box.decodeIfPresent(String.self, forKey: .readFolder) ?? ""
     }
+
+    /// Hidden from the lounge: roundtable and project rooms live in their own pages.
+    public var isLounge: Bool { roundtableID == nil && projectID == nil }
 }
 
 public enum ProjectPhase: String, Codable, Sendable {
