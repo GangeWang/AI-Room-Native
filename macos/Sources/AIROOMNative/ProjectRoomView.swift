@@ -203,6 +203,9 @@ struct FlowDetailView: View {
                             StudioAvatar(agent: task.member, size: 18)
                             Text(task.title).font(.caption.weight(.semibold))
                             Text(task.goal).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            if !task.files.isEmpty {
+                                Text(task.files.joined(separator: "、")).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                            }
                         }
                     }
                 }.padding(.vertical, 3)
@@ -212,6 +215,7 @@ struct FlowDetailView: View {
                 ForEach(ReviewLevel.allCases) { Text($0.title).tag($0) }
             }.pickerStyle(.segmented).frame(maxWidth: 420)
             Text(level.detail).font(.caption).foregroundStyle(.secondary)
+            parallelControl
             HStack {
                 TextField(t("給第一輪的附言（可留空）", "Note for the first round (optional)"), text: $note).textFieldStyle(.roundedBorder)
                 Button(t("確認方案，開工", "Confirm plan and start")) { model.confirmPlan(flow.id, reviewLevel: level, note: note); note = "" }
@@ -242,8 +246,14 @@ struct FlowDetailView: View {
                         .disabled(busy || note.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             } else {
-                Text(t("已完成 \(tasks.filter { $0.status == .done }.count)/\(tasks.count) 項任務", "\(tasks.filter { $0.status == .done }.count)/\(tasks.count) tasks done"))
-                    .font(.caption)
+                HStack {
+                    Text(t("已完成 \(tasks.filter { $0.status == .done }.count)/\(tasks.count) 項任務", "\(tasks.filter { $0.status == .done }.count)/\(tasks.count) tasks done"))
+                        .font(.caption)
+                    Spacer()
+                    parallelControl
+                }
+                ForEach(flow.quotaWaits) { wait in FlowQuotaBanner(flow: flow, wait: wait) }
+                ForEach(tasks.filter { $0.status == .disputed }) { task in DisputeRulingCard(flow: flow, task: task) }
                 if let failed = tasks.first(where: { $0.status == .failed }) {
                     Label(t("「\(failed.title)」沒有完成：\(failed.error ?? "")", "\(failed.title) failed: \(failed.error ?? "")"), systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.orange)
@@ -254,6 +264,18 @@ struct FlowDetailView: View {
                 }
             }
         }
+    }
+
+    /// 同時進行的任務: how many tasks may run side by side.
+    private var parallelControl: some View {
+        HStack(spacing: 8) {
+            Text(t("同時進行的任務", "Tasks at once")).font(.caption)
+            Picker("", selection: Binding(get: { flow.maxParallel }, set: { model.setFlowParallel(flow.id, $0) })) {
+                ForEach(1...3, id: \.self) { Text("\($0)").tag($0) }
+            }.pickerStyle(.segmented).labelsHidden().frame(width: 110)
+        }
+        .help(t("只有不同成員、彼此不依賴、預計修改的檔案不重疊的任務才會同時做；沒寫檔案的任務單獨做。",
+                "Only tasks by different members, without dependencies between them and with separate files, run at once."))
     }
 
     @ViewBuilder private var acceptanceCard: some View {
@@ -280,6 +302,100 @@ struct FlowDetailView: View {
                     .disabled(busy || opinion.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
+    }
+}
+
+// MARK: 異議裁定 and 額度等待
+
+/// The author disputed review findings; the owner rules on each one.
+struct DisputeRulingCard: View {
+    @EnvironmentObject private var model: WorkbenchModel
+    let flow: ProjectFlow
+    let task: FlowTask
+    @State private var verdicts: [String: FlowVerdict] = [:]
+    private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, model.archive.settings.language) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(t("「\(task.title)」：\(model.memberName(task.member)) 對複核意見有異議，等你裁定",
+                    "\(task.title): \(model.memberName(task.member)) disputes the review"), systemImage: "scale.3d")
+                .font(.subheadline.weight(.semibold))
+            Text(t("支持作者：這條不用改，並返還一次退回次數（每項任務最多 \(ProjectFlowEngine.maxWaivers) 次，已用 \(task.waivers) 次）。維持複核：作者必須修正，不能再提異議。",
+                   "Side with the author: no change needed, one return refunded (at most \(ProjectFlowEngine.maxWaivers) per task). Uphold: the author must fix it."))
+                .font(.caption).foregroundStyle(.secondary)
+            ForEach(task.disputes, id: \.findingID) { dispute in
+                if let finding = task.openFindings.first(where: { $0.id == dispute.findingID }) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(task.reviewer.map(model.memberName) ?? t("複核者", "Reviewer"))：\(finding.location.isEmpty ? "" : finding.location + "：")\(finding.request)")
+                            .font(.callout)
+                        Text(t("作者異議：", "Author: ") + dispute.reason).font(.callout).foregroundStyle(.secondary)
+                        Picker("", selection: Binding(get: { verdicts[dispute.findingID] }, set: { verdicts[dispute.findingID] = $0 })) {
+                            Text(t("支持作者", "Author")).tag(Optional(FlowVerdict.author))
+                            Text(t("維持複核", "Review")).tag(Optional(FlowVerdict.review))
+                        }.pickerStyle(.segmented).labelsHidden().frame(width: 220)
+                    }
+                    .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+            if !task.summary.isEmpty {
+                DisclosureGroup(t("作者這次的說明", "Author's report")) {
+                    RichText(task.summary, font: .callout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                }.font(.caption)
+            }
+            HStack {
+                Button(t("支持全部異議", "Side with the author on all")) { rule(.author) }
+                Button(t("維持全部複核意見", "Uphold all")) { rule(.review) }
+                Spacer()
+                Button(t("提交逐條裁定", "Submit rulings")) { model.ruleDisputes(flow.id, taskID: task.id, verdicts: verdicts) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(task.disputes.contains { verdicts[$0.findingID] == nil })
+            }
+        }
+        .padding(10)
+        .background(StudioTheme.amber.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func rule(_ verdict: FlowVerdict) {
+        model.ruleDisputes(flow.id, taskID: task.id, verdicts: Dictionary(uniqueKeysWithValues: task.disputes.map { ($0.findingID, verdict) }))
+    }
+}
+
+/// A member ran out of quota; their work waits until the owner continues or hands it over.
+struct FlowQuotaBanner: View {
+    @EnvironmentObject private var model: WorkbenchModel
+    let flow: ProjectFlow
+    let wait: FlowQuotaWait
+    private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, model.archive.settings.language) }
+
+    var body: some View {
+        let name = model.memberName(wait.agent)
+        VStack(alignment: .leading, spacing: 6) {
+            Label(wait.ready ? t("\(name) 的額度應該恢復了", "\(name)'s quota should be back") : t("\(name) 的額度用完了", "\(name) is out of quota"),
+                  systemImage: wait.ready ? "checkmark.circle" : "hourglass")
+                .font(.subheadline.weight(.semibold))
+            Text(t("停在：\(wait.stage)。", "Stopped at: \(wait.stage). ")
+                 + (wait.resetAt.map { t("預計 \($0.formatted(date: .abbreviated, time: .shortened)) 恢復，到時會通知你。",
+                                          "Expected back \($0.formatted(date: .abbreviated, time: .shortened)); you'll be notified.") }
+                    ?? t("官方還沒給恢復時間，可以重新查詢額度。", "No reset time yet; you can check the quota again.")))
+                .font(.caption)
+            if !wait.message.isEmpty { Text(wait.message).font(.caption2).foregroundStyle(.secondary).lineLimit(2) }
+            Text(t("不會自動重送。其他成員的任務照常進行。", "Nothing is re-sent by itself. Other members keep working."))
+                .font(.caption2).foregroundStyle(.secondary)
+            HStack {
+                Button(t("接著做", "Continue")) { model.resumeFlow(flow.id) }
+                    .buttonStyle(.borderedProminent).disabled(model.flowRunning)
+                ForEach(flow.members.filter { $0 != wait.agent }, id: \.self) { other in
+                    Button(t("交給 \(model.memberName(other)) 接手", "Hand to \(model.memberName(other))")) {
+                        model.handOverQuotaWork(flow.id, from: wait.agent, to: other)
+                    }
+                }
+                Button(t("重新查詢額度", "Check quota")) { model.refreshQuota(for: wait.agent) }
+                    .disabled(model.quotaRefreshing.contains(wait.agent))
+            }
+        }
+        .padding(10)
+        .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -375,6 +491,10 @@ struct FlowBoard: View {
                             }
                             Text(statusTitle(task)).font(.caption2).foregroundStyle(task.status == .failed ? .orange : .secondary)
                             if !task.findings.isEmpty { Text(task.findings).font(.caption2).foregroundStyle(.secondary).lineLimit(3) }
+                            if task.waivers > 0 {
+                                Text(t("異議返還已用 \(task.waivers)/\(ProjectFlowEngine.maxWaivers) 次", "Dispute refunds \(task.waivers)/\(ProjectFlowEngine.maxWaivers)"))
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
                         }
                         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
                         .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
@@ -392,6 +512,7 @@ struct FlowBoard: View {
         case .fixing: return t("依複核修正（第 \(task.returns) 次退回）", "Fixing (return \(task.returns))")
         case .done: return t("完成", "Done") + (task.changes.isEmpty ? "" : t(" · 改了 \(task.changes.count) 個檔案", " · \(task.changes.count) files"))
         case .failed: return t("沒有完成：", "Failed: ") + (task.error ?? "")
+        case .disputed: return t("對複核有異議，等你裁定", "Disputed, waiting for your ruling")
         }
     }
 }

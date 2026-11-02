@@ -136,6 +136,13 @@ public enum AttentionBuilder {
             } else if flow.step == .executing, let round = flow.activeRound, round.status == .pending {
                 items.append(AttentionItem(id: "flow-next-\(round.id)", kind: .decision, title: "專案「\(flow.title)」：下一輪等你開始",
                     detail: "按原計劃開始，或要求修改方案。", target: target))
+            } else if let task = flow.plan?.tasks.first(where: { $0.status == .disputed }) {
+                items.append(AttentionItem(id: "flow-dispute-\(task.id)", kind: .decision, title: "專案「\(flow.title)」：「\(task.title)」的複核異議等你裁定",
+                    detail: "逐條選擇支持作者或維持複核。", target: target))
+            } else if let wait = flow.quotaWaits.first {
+                items.append(AttentionItem(id: "flow-quota-\(wait.id)-\(wait.ready)", kind: .decision,
+                    title: wait.ready ? "專案「\(flow.title)」：\(wait.agent.rawValue) 的額度應該恢復了" : "專案「\(flow.title)」：\(wait.agent.rawValue) 的額度用完了",
+                    detail: wait.ready ? "按「接著做」繼續，不會自動重送。" : "可以等恢復、換人接手，其他成員的任務照常進行。", target: target))
             } else if flow.paused, flow.plan?.tasks.contains(where: { $0.status == .failed }) == true {
                 items.append(AttentionItem(id: "flow-failed-\(flow.id)", kind: .unknown, title: "專案「\(flow.title)」有任務沒有完成",
                     detail: "檢查原因後可以繼續，沒有自動重送。", target: target))

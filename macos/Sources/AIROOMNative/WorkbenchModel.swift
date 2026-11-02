@@ -1115,6 +1115,7 @@ final class WorkbenchModel: ObservableObject {
 
     private func automationTick(now: Date = .now) {
         guard storageAvailable else { return }
+        flowQuotaTick(now: now)
         for idx in archive.schedules.indices {
             let item = archive.schedules[idx]
             guard LocalAutomation.shouldFire(item, now: now) else { continue }
@@ -1434,8 +1435,12 @@ final class WorkbenchModel: ObservableObject {
     @Published var flowRunning = false
     /// What the project room is doing right now, shown inline.
     @Published var flowActivity: String?
-    private var flowRunID: UUID?
+    private var flowRunIDs: Set<UUID> = []
     private var cancelFlow = false
+    /// What each running task is doing; joined into `flowActivity`.
+    private var flowActivities: [UUID: String] = [:]
+    /// A round to pick up again once the current flow job ends (a ruling arrived meanwhile).
+    private var pendingFlowRun: UUID?
     var roundtableNames: [AgentKind: String] {
         Dictionary(uniqueKeysWithValues: AgentKind.allCases.map { ($0, memberName($0)) })
     }
@@ -2194,6 +2199,7 @@ extension WorkbenchModel {
         archive.projectFlows[index].plan = plan
         archive.projectFlows[index].step = .executing
         archive.projectFlows[index].paused = false
+        archive.projectFlows[index].quotaWaits = []
         persist()
         runRound(id)
     }
@@ -2205,13 +2211,25 @@ extension WorkbenchModel {
         persist()
     }
 
+    /// 繼續 / 接著做: failed tasks go again (a fix or review resumes on its copy); quota waits are cleared.
     func resumeFlow(_ id: UUID) {
         guard let index = flowIndex(id), !flowRunning else { return }
         archive.projectFlows[index].paused = false
+        for wait in archive.projectFlows[index].quotaWaits { refreshQuota(for: wait.agent) }
+        archive.projectFlows[index].quotaWaits = []
+        // A round report that stopped part-way is written again from the finished tasks.
+        if archive.projectFlows[index].activeRound?.status == .checking {
+            archive.projectFlows[index].plan?.rounds[archive.projectFlows[index].currentRound].status = .executing
+        }
         // A failed task is retried only because the user pressed Continue.
-        if let round = archive.projectFlows[index].activeRound, var plan = archive.projectFlows[index].plan {
-            for t in plan.tasks.indices where plan.tasks[t].roundKey == round.key && plan.tasks[t].status != .done {
-                plan.tasks[t].status = .pending
+        if let round = archive.projectFlows[index].activeRound, var plan = archive.projectFlows[index].plan,
+           let workspace = flowWorkspace(id) {
+            for t in plan.tasks.indices where plan.tasks[t].roundKey == round.key
+                && ![.done, .disputed, .pending].contains(plan.tasks[t].status) {
+                let step = plan.tasks[t].status == .failed ? plan.tasks[t].failedAt : plan.tasks[t].status
+                let keepsCopy = (step == .fixing || step == .reviewing) && workspace.existingTaskFolder(plan.tasks[t].id) != nil
+                plan.tasks[t].status = keepsCopy ? step! : .pending
+                plan.tasks[t].failedAt = nil
             }
             archive.projectFlows[index].plan = plan
         }
@@ -2221,24 +2239,81 @@ extension WorkbenchModel {
 
     func stopFlow() {
         cancelFlow = true
-        if let id = flowRunID { _ = runner.cancel(id: id) }
+        for runID in flowRunIDs { _ = runner.cancel(id: runID) }
     }
 
-    /// Step 4: tasks run one at a time in dependency order, each in its own copy.
+    func setFlowParallel(_ id: UUID, _ value: Int) {
+        guard let index = flowIndex(id) else { return }
+        archive.projectFlows[index].maxParallel = min(3, max(1, value))
+        persist()
+    }
+
+    private func setFlowActivity(_ key: UUID, _ text: String?) {
+        flowActivities[key] = text
+        if !flowActivities.isEmpty { flowActivity = flowActivities.values.sorted().joined(separator: "\n") }
+    }
+
+    /// Step 4: ready tasks run side by side (one per member, files not overlapping, up to
+    /// the flow's limit), each in its own copy. A failure doesn't stop the others.
     private func runRound(_ id: UUID) {
         guard let index = flowIndex(id), let round = archive.projectFlows[index].activeRound,
               let workspace = flowWorkspace(id) else { return }
         flowTask(id, activity: t("第 \(archive.projectFlows[index].currentRound + 1) 輪執行中……")) { [self] in
             _ = try workspace.roundFolder(round.id, original: archive.projectFlows[index].folder)
-            while let current = flowIndex(id), let plan = archive.projectFlows[current].plan,
-                  let task = ProjectFlowEngine.nextTask(in: round, plan: plan) {
-                if archive.projectFlows[current].paused || cancelFlow { return }
-                try await runTask(id, taskID: task.id, round: round, workspace: workspace)
+            var failures: [String] = []
+            await withTaskGroup(of: (UUID, String?).self) { group in
+                var active: Set<UUID> = []
+                while true {
+                    if let current = flowIndex(id), !archive.projectFlows[current].paused, !cancelFlow,
+                       let plan = archive.projectFlows[current].plan {
+                        let ready = ProjectFlowEngine.readyTasks(in: round, plan: plan, active: active,
+                                                                 maxParallel: archive.projectFlows[current].maxParallel,
+                                                                 unavailable: unavailableMembers(id))
+                        for task in ready {
+                            active.insert(task.id)
+                            group.addTask { @MainActor [self] in
+                                do { try await runTask(id, taskID: task.id, round: round, workspace: workspace); return (task.id, nil) }
+                                catch { return (task.id, error.localizedDescription) }
+                            }
+                        }
+                    }
+                    guard let (taskID, failure) = await group.next() else { break }
+                    active.remove(taskID)
+                    setFlowActivity(taskID, nil)
+                    if let failure {
+                        updateTask(id, taskID) { task in
+                            if task.status != .failed { task.failedAt = task.status; task.status = .failed }
+                            task.error = failure
+                        }
+                        failures.append(failure)
+                    }
+                }
             }
+            flowActivities = [:]
             guard let current = flowIndex(id), let plan = archive.projectFlows[current].plan else { return }
-            if plan.tasks(in: round).contains(where: { $0.status != .done }) { return } // a task failed; waits for the user
-            try await checkRound(id, round: round, workspace: workspace)
+            if cancelFlow { archive.projectFlows[current].paused = true; return }
+            let tasks = plan.tasks(in: round)
+            if tasks.allSatisfy({ $0.status == .done }) {
+                try await checkRound(id, round: round, workspace: workspace)
+            } else if let failure = failures.first {
+                archive.projectFlows[current].paused = true
+                statusMessage = "\(t("專案工作暫停")): \(failure)"
+            }
         }
+    }
+
+    /// Members who get no new task: out of quota (a wait not yet recovered, or a fresh sample at 100%).
+    private func unavailableMembers(_ id: UUID) -> Set<AgentKind> {
+        guard let index = flowIndex(id) else { return [] }
+        let waits = archive.projectFlows[index].quotaWaits
+        var out = Set(waits.filter { !$0.ready }.map(\.agent))
+        for agent in archive.projectFlows[index].members where !out.contains(agent) && QuotaSignal.blocks(accountQuotas[agent]) {
+            if !waits.contains(where: { $0.agent == agent }) {
+                addQuotaWait(id, agent: agent, stage: t("派新任務前"), message: t("最新的官方額度顯示已用完，沒有派新任務給 TA。"))
+            }
+            out.insert(agent)
+        }
+        return out
     }
 
     private func updateTask(_ id: UUID, _ taskID: UUID, _ change: (inout FlowTask) -> Void) {
@@ -2251,41 +2326,139 @@ extension WorkbenchModel {
         flowIndex(id).flatMap { archive.projectFlows[$0].plan?.tasks.first { $0.id == taskID } }
     }
 
+    /// One task: work → (深入複核) review → fix …, then merge into the round copy.
+    /// Starts from where the task stands, so a ruled dispute or a failed fix resumes on its copy.
     private func runTask(_ id: UUID, taskID: UUID, round: FlowRound, workspace: ProjectWorkspace) async throws {
-        guard let index = flowIndex(id), let lead = archive.projectFlows[index].lead else { return }
+        guard let index = flowIndex(id), let lead = archive.projectFlows[index].lead, let start = task(id, taskID) else { return }
         let members = archive.projectFlows[index].members
         let level = archive.projectFlows[index].reviewLevel
-        updateTask(id, taskID) { $0.status = .running; $0.error = nil }
-        let folder = try workspace.taskFolder(taskID, round: round.id)
+        let folder: URL
+        var needsWork = true
+        if start.status != .pending, let existing = workspace.existingTaskFolder(taskID) {
+            folder = existing
+            needsWork = start.status != .reviewing
+        } else {
+            folder = try workspace.taskFolder(taskID, round: round.id)
+            updateTask(id, taskID) { $0.status = .running }
+        }
+        updateTask(id, taskID) { $0.error = nil; $0.failedAt = nil }
         while true {
             guard let current = task(id, taskID), let flow = flowIndex(id).map({ archive.projectFlows[$0] }) else { return }
-            flowActivity = t("\(memberName(current.member)) 正在做「\(current.title)」……")
-            do {
-                let summary = try await flowCall(id, agent: current.member,
+            if needsWork {
+                setFlowActivity(taskID, current.status == .fixing ? t("\(memberName(current.member)) 正在修正「\(current.title)」……")
+                                                                : t("\(memberName(current.member)) 正在做「\(current.title)」……"))
+                let reply = try await flowCall(id, agent: current.member,
                     prompt: ProjectFlowEngine.taskPrompt(current, flow: flow, round: round, names: memberNames, ownerName: archive.settings.ownerName,
                                                          profile: memberProfile(current.member)),
-                    folder: folder.path, access: .stagedWrite, inPlace: true)
-                updateTask(id, taskID) { $0.summary = summary; $0.changes = workspace.taskChanges(taskID) }
-            } catch {
-                updateTask(id, taskID) { $0.status = .failed; $0.error = error.localizedDescription }
-                throw error
+                    folder: folder.path, access: .stagedWrite, inPlace: true, stage: t("執行任務「\(current.title)」"))
+                let parsed = level == .deep && current.status == .fixing
+                    ? ProjectFlowEngine.parseDisputes(reply, open: current.openFindings, ruled: current.rulings)
+                    : (summary: reply, disputes: [])
+                updateTask(id, taskID) { $0.summary = parsed.summary; $0.changes = workspace.taskChanges(taskID) }
+                if !parsed.disputes.isEmpty {
+                    // The owner rules; the copy waits as it is.
+                    updateTask(id, taskID) { $0.status = .disputed; $0.disputes = parsed.disputes }
+                    Notifier.post(t("有複核異議等你裁定"), "\(flow.title)：\(current.title)")
+                    return
+                }
             }
+            needsWork = true
             // 深入複核: another member checks each task; up to two returns.
             guard level == .deep, let checked = task(id, taskID) else { break }
             let reviewer = ProjectFlowEngine.reviewer(for: checked, lead: lead, members: members)
             updateTask(id, taskID) { $0.status = .reviewing; $0.reviewer = reviewer }
-            flowActivity = t("\(memberName(reviewer)) 正在複核「\(checked.title)」……")
-            let verdict = ProjectFlowEngine.parseVerdict(try await flowCall(id, agent: reviewer,
-                prompt: ProjectFlowEngine.taskReviewPrompt(checked, reviewer: reviewer, names: memberNames),
-                folder: folder.path, access: .readFiles, inPlace: true))
-            if verdict.pass || checked.returns >= ProjectFlowEngine.maxReturns {
-                updateTask(id, taskID) { $0.findings = verdict.pass ? "" : verdict.findings }
+            setFlowActivity(taskID, t("\(memberName(reviewer)) 正在複核「\(checked.title)」……"))
+            let review = ProjectFlowEngine.parseReview(try await flowCall(id, agent: reviewer,
+                prompt: ProjectFlowEngine.taskReviewPrompt(checked, reviewer: reviewer, names: memberNames, ownerName: archive.settings.ownerName,
+                                                   round: flow.plan?.rounds.first { $0.id == round.id } ?? round),
+                folder: folder.path, access: .readFiles, inPlace: true, stage: t("複核「\(checked.title)」")))
+            if review.pass || checked.returns >= ProjectFlowEngine.maxReturns {
+                updateTask(id, taskID) { $0.findings = review.pass ? "" : review.text; $0.openFindings = review.pass ? [] : review.findings }
                 break
             }
-            updateTask(id, taskID) { $0.status = .fixing; $0.findings = verdict.findings; $0.returns += 1 }
+            updateTask(id, taskID) { $0.status = .fixing; $0.findings = review.text; $0.openFindings = review.findings; $0.returns += 1 }
         }
-        try workspace.mergeTask(taskID, round: round.id)
+        do {
+            try workspace.mergeTask(taskID, round: round.id)
+        } catch WorkspaceError.conflict(let files) {
+            // Another task in this round changed the same file. 繼續 redoes this one on the latest copy.
+            let message = t("和同一輪另一項任務改到同一個檔案（\(files.prefix(5).joined(separator: "、"))），沒有合併。按「繼續」會在最新的副本上重做這項任務。")
+            updateTask(id, taskID) { $0.status = .failed; $0.failedAt = nil; $0.error = message }
+            throw NativeCLIError.processFailed(message)
+        }
         updateTask(id, taskID) { $0.status = .done }
+    }
+
+    /// The owner rules on an author's disputes (支持作者 / 維持複核), then the task goes on.
+    func ruleDisputes(_ id: UUID, taskID: UUID, verdicts: [String: FlowVerdict]) {
+        guard let current = task(id, taskID), current.status == .disputed else { return }
+        var ruled = current
+        ProjectFlowEngine.applyRulings(&ruled, verdicts: verdicts)
+        guard ruled.status != .disputed else { statusMessage = t("請逐條裁定每一項異議。"); return }
+        updateTask(id, taskID) { $0 = ruled }
+        continueRound(id)
+    }
+
+    /// 換人接手: the member out of quota hands their unfinished tasks in this round to another member.
+    func handOverQuotaWork(_ id: UUID, from agent: AgentKind, to other: AgentKind) {
+        guard let index = flowIndex(id), agent != other, archive.projectFlows[index].members.contains(other),
+              let round = archive.projectFlows[index].activeRound, var plan = archive.projectFlows[index].plan else { return }
+        for t in plan.tasks.indices where plan.tasks[t].roundKey == round.key && plan.tasks[t].member == agent
+            && [.pending, .failed].contains(plan.tasks[t].status) {
+            plan.tasks[t].member = other
+            plan.tasks[t].status = .pending
+            plan.tasks[t].failedAt = nil
+            plan.tasks[t].error = nil
+        }
+        archive.projectFlows[index].plan = plan
+        archive.projectFlows[index].quotaWaits.removeAll { $0.agent == agent }
+        archive.projectFlows[index].paused = false
+        persist()
+        continueRound(id)
+    }
+
+    private func continueRound(_ id: UUID) {
+        guard let index = flowIndex(id), archive.projectFlows[index].activeRound?.status == .executing,
+              !archive.projectFlows[index].paused else { return }
+        if flowRunning { pendingFlowRun = id } else { runRound(id) }
+    }
+
+    private func addQuotaWait(_ id: UUID, agent: AgentKind, stage: String, message: String) {
+        guard let index = flowIndex(id) else { return }
+        let reset = QuotaSignal.resetHint(message) ?? QuotaSignal.resetAt(accountQuotas[agent])
+        let wait = FlowQuotaWait(agent: agent, stage: stage, resetAt: reset, message: message)
+        archive.projectFlows[index].quotaWaits.removeAll { $0.agent == agent }
+        archive.projectFlows[index].quotaWaits.append(wait)
+        persist()
+        Notifier.post(t("\(memberName(agent)) 的額度用完了"), t("專案「\(archive.projectFlows[index].title)」：TA 的工作先等著，不會自動重送。"))
+        guard reset == nil else { return }
+        // Ask the official quota when it resets (no prompt is sent).
+        let settings = archive.settings
+        Task { [weak self] in
+            guard let self else { return }
+            let latest = await self.quotaReader.query(agent: agent, settings: settings)
+            self.accountQuotas[agent] = latest
+            guard let reset = QuotaSignal.resetAt(latest), let f = self.flowIndex(id),
+                  let w = self.archive.projectFlows[f].quotaWaits.firstIndex(where: { $0.id == wait.id }) else { return }
+            self.archive.projectFlows[f].quotaWaits[w].resetAt = reset
+            self.persist()
+        }
+    }
+
+    /// Tells the owner when a member's quota should be back; the work still waits for 接著做.
+    fileprivate func flowQuotaTick(now: Date = .now) {
+        var changed = false
+        for f in archive.projectFlows.indices {
+            for w in archive.projectFlows[f].quotaWaits.indices where !archive.projectFlows[f].quotaWaits[w].ready {
+                let wait = archive.projectFlows[f].quotaWaits[w]
+                guard QuotaSignal.recovered(wait, quota: accountQuotas[wait.agent], now: now) else { continue }
+                archive.projectFlows[f].quotaWaits[w].ready = true
+                changed = true
+                Notifier.post(t("\(memberName(wait.agent)) 的額度應該恢復了"),
+                              t("專案「\(archive.projectFlows[f].title)」：按「接著做」繼續，不會自動重送。"))
+            }
+        }
+        if changed { persist() }
     }
 
     /// Round report (checked against the files unless 快速推進), then the user's acceptance.
@@ -2354,9 +2527,12 @@ extension WorkbenchModel {
         plan.rounds[r].status = .executing
         let owners = Array(Set(plan.tasks(in: round).map(\.member))).sorted { $0.rawValue < $1.rawValue }
         for (n, member) in owners.enumerated() {
+            // A fix covers the files this member's tasks listed, so fixes by different members can run at once.
+            let mine = plan.tasks(in: round).filter { $0.member == member }
+            let files = mine.contains { $0.files.isEmpty } ? [] : mine.flatMap(\.files)
             plan.tasks.append(FlowTask(key: "\(round.key)-fix\(plan.tasks.count + n)", roundKey: round.key,
                                        title: t("依驗收意見修正"), member: member, goal: text,
-                                       criteria: [t("驗收意見中提到的問題都已處理")]))
+                                       criteria: [t("驗收意見中提到的問題都已處理")], files: files))
         }
         archive.projectFlows[index].plan = plan
         archive.projectFlows[index].step = .executing
@@ -2448,24 +2624,38 @@ extension WorkbenchModel {
                 statusMessage = cancelFlow ? nil : "\(t("專案工作暫停")): \(error.localizedDescription)"
             }
             flowRunning = false
-            flowRunID = nil
+            flowRunIDs = []
+            flowActivities = [:]
             flowActivity = nil
             persist()
+            if let next = pendingFlowRun {
+                pendingFlowRun = nil
+                continueRound(next)
+            }
         }
     }
 
     private func flowCall(_ id: UUID, agent: AgentKind, prompt: String, folder: String,
-                          access: ExecutionAccess, inPlace: Bool = false) async throws -> String {
+                          access: ExecutionAccess, inPlace: Bool = false, stage: String = "") async throws -> String {
         if cancelFlow { throw NativeCLIError.processFailed(t("已停止")) }
         let runID = UUID()
-        flowRunID = runID
+        flowRunIDs.insert(runID)
+        defer { flowRunIDs.remove(runID) }
         if let index = flowIndex(id) { archive.projectFlows[index].calls += 1 }
         var settings = archive.settings
         settings.workspacePath = folder
         // .stagedWrite edits `folder` in place (always an AIROOM-owned copy);
         // read modes work on a filtered temporary copy of it.
-        return try await runner.run(id: runID, agent: agent, prompt: String(prompt.prefix(30_000)), settings: settings,
-                                    fallbackWorkspace: workspace, access: access, onUpdate: { _ in })
+        do {
+            return try await runner.run(id: runID, agent: agent, prompt: String(prompt.prefix(30_000)), settings: settings,
+                                        fallbackWorkspace: workspace, access: access, onUpdate: { _ in })
+        } catch {
+            // Out of quota: the member waits for a reset; nothing is re-sent by itself.
+            if QuotaSignal.isQuotaFailure(error.localizedDescription) {
+                addQuotaWait(id, agent: agent, stage: stage.isEmpty ? flowActivity ?? t("專案工作") : stage, message: error.localizedDescription)
+            }
+            throw error
+        }
     }
 }
 

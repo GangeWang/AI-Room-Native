@@ -40,7 +40,8 @@ public enum FlowStep: String, Codable, CaseIterable, Sendable {
 }
 
 public enum FlowTaskStatus: String, Codable, Sendable {
-    case pending, running, reviewing, fixing, done, failed
+    /// `disputed`: the author disputed review findings; waits for the owner's ruling.
+    case pending, running, reviewing, fixing, done, failed, disputed
     public var column: Int { self == .pending ? 0 : (self == .done ? 2 : 1) }
 }
 
@@ -62,13 +63,52 @@ public struct FlowTask: Identifiable, Codable, Equatable, Sendable {
     public var supplements: [String]
     public var changes: [FileChange]
     public var error: String?
+    /// Files or folders the lead expects this task to change (relative paths).
+    /// Tasks run side by side only when both list files and they don't overlap.
+    public var files: [String]
+    /// The latest review's findings, with ids the author can dispute.
+    public var openFindings: [FlowFinding]
+    /// Findings the author disputed on the latest attempt, waiting for a ruling.
+    public var disputes: [FlowDispute]
+    public var rulings: [FlowRuling]
+    /// Returns given back after a ruling for the author (at most `ProjectFlowEngine.maxWaivers`).
+    public var waivers: Int
+    /// The step a failed task was on, so 繼續 resumes a fix or review on the same copy.
+    public var failedAt: FlowTaskStatus?
 
     public init(id: UUID = UUID(), key: String, roundKey: String, title: String, member: AgentKind, goal: String,
-                criteria: [String] = [], dependencies: [String] = []) {
+                criteria: [String] = [], dependencies: [String] = [], files: [String] = []) {
         self.id = id; self.key = key; self.roundKey = roundKey; self.title = String(title.prefix(120))
         self.member = member; self.goal = String(goal.prefix(4_000)); self.criteria = Array(criteria.prefix(12))
         self.dependencies = dependencies; status = .pending; summary = ""; reviewer = nil; findings = ""
         returns = 0; supplements = []; changes = []; error = nil
+        self.files = ProjectFlowEngine.normalizedPaths(files); openFindings = []; disputes = []; rulings = []; waivers = 0; failedAt = nil
+    }
+
+    public init(from decoder: Decoder) throws {
+        let box = try decoder.container(keyedBy: CodingKeys.self)
+        id = try box.decode(UUID.self, forKey: .id)
+        key = try box.decode(String.self, forKey: .key)
+        roundKey = try box.decode(String.self, forKey: .roundKey)
+        title = try box.decode(String.self, forKey: .title)
+        member = try box.decode(AgentKind.self, forKey: .member)
+        goal = try box.decode(String.self, forKey: .goal)
+        criteria = try box.decode([String].self, forKey: .criteria)
+        dependencies = try box.decode([String].self, forKey: .dependencies)
+        status = try box.decode(FlowTaskStatus.self, forKey: .status)
+        summary = try box.decode(String.self, forKey: .summary)
+        reviewer = try box.decodeIfPresent(AgentKind.self, forKey: .reviewer)
+        findings = try box.decode(String.self, forKey: .findings)
+        returns = try box.decode(Int.self, forKey: .returns)
+        supplements = try box.decode([String].self, forKey: .supplements)
+        changes = try box.decode([FileChange].self, forKey: .changes)
+        error = try box.decodeIfPresent(String.self, forKey: .error)
+        files = (try? box.decodeIfPresent([String].self, forKey: .files)) ?? []
+        openFindings = (try? box.decodeIfPresent([FlowFinding].self, forKey: .openFindings)) ?? []
+        disputes = (try? box.decodeIfPresent([FlowDispute].self, forKey: .disputes)) ?? []
+        rulings = (try? box.decodeIfPresent([FlowRuling].self, forKey: .rulings)) ?? []
+        waivers = (try? box.decodeIfPresent(Int.self, forKey: .waivers)) ?? 0
+        failedAt = try? box.decodeIfPresent(FlowTaskStatus.self, forKey: .failedAt)
     }
 }
 
@@ -135,12 +175,40 @@ public struct ProjectFlow: Identifiable, Codable, Equatable, Sendable {
     public var segment: Int
     public var calls: Int
     public var createdAt: Date
+    /// How many tasks may run at the same time (1–3).
+    public var maxParallel: Int
+    /// Members whose quota ran out; their work waits (never re-sent by itself).
+    public var quotaWaits: [FlowQuotaWait]
 
     public init(id: UUID = UUID(), title: String, folder: String, members: [AgentKind], reviewLevel: ReviewLevel = .standard) {
         self.id = id; self.title = String(title.prefix(80)); self.folder = folder; self.members = members
         lead = nil; self.reviewLevel = reviewLevel; step = .discussion; roomID = nil; plan = nil; planRequests = []
         currentRound = 0; paused = false; materials = []; completionReport = ""; previousSummary = ""
-        segment = 1; calls = 0; createdAt = .now
+        segment = 1; calls = 0; createdAt = .now; maxParallel = 2; quotaWaits = []
+    }
+
+    public init(from decoder: Decoder) throws {
+        let box = try decoder.container(keyedBy: CodingKeys.self)
+        id = try box.decode(UUID.self, forKey: .id)
+        title = try box.decode(String.self, forKey: .title)
+        folder = try box.decode(String.self, forKey: .folder)
+        members = try box.decode([AgentKind].self, forKey: .members)
+        lead = try box.decodeIfPresent(AgentKind.self, forKey: .lead)
+        reviewLevel = try box.decode(ReviewLevel.self, forKey: .reviewLevel)
+        step = try box.decode(FlowStep.self, forKey: .step)
+        roomID = try box.decodeIfPresent(UUID.self, forKey: .roomID)
+        plan = try box.decodeIfPresent(FlowPlan.self, forKey: .plan)
+        planRequests = try box.decode([String].self, forKey: .planRequests)
+        currentRound = try box.decode(Int.self, forKey: .currentRound)
+        paused = try box.decode(Bool.self, forKey: .paused)
+        materials = try box.decode([String].self, forKey: .materials)
+        completionReport = try box.decode(String.self, forKey: .completionReport)
+        previousSummary = try box.decode(String.self, forKey: .previousSummary)
+        segment = try box.decode(Int.self, forKey: .segment)
+        calls = try box.decode(Int.self, forKey: .calls)
+        createdAt = try box.decode(Date.self, forKey: .createdAt)
+        maxParallel = min(3, max(1, (try? box.decodeIfPresent(Int.self, forKey: .maxParallel)) ?? 2))
+        quotaWaits = (try? box.decodeIfPresent([FlowQuotaWait].self, forKey: .quotaWaits)) ?? []
     }
 
     public var activeRound: FlowRound? {
@@ -193,7 +261,8 @@ public enum ProjectFlowEngine {
                                   title: (item["title"] as? String) ?? "任務 \(index + 1)", member: member,
                                   goal: (item["goal"] as? String) ?? "",
                                   criteria: ((item["criteria"] as? [Any]) ?? []).compactMap { $0 as? String },
-                                  dependencies: ((item["dependencies"] as? [Any]) ?? []).compactMap { $0 as? String }.filter(known.contains)))
+                                  dependencies: ((item["dependencies"] as? [Any]) ?? []).compactMap { $0 as? String }.filter(known.contains),
+                                  files: ((item["files"] as? [Any]) ?? []).compactMap { $0 as? String }))
         }
         guard !rounds.isEmpty, !tasks.isEmpty else { throw FlowPlanError.empty }
         guard rounds.count <= 20, tasks.count <= 60 else { throw FlowPlanError.tooLarge }
@@ -218,17 +287,8 @@ public enum ProjectFlowEngine {
     }
 
     public static func parseVerdict(_ text: String) -> (pass: Bool, findings: String) {
-        if let object = LoungeEngine.jsonObject(in: text) {
-            let verdict = ((object["verdict"] as? String) ?? "").lowercased()
-            let findings = ((object["findings"] as? [Any]) ?? []).compactMap { item -> String? in
-                if let text = item as? String { return "- \(text)" }
-                guard let dict = item as? [String: Any] else { return nil }
-                return "- [\((dict["severity"] as? String) ?? "should-fix")] \((dict["location"] as? String) ?? "")：\((dict["request"] as? String) ?? (dict["text"] as? String) ?? "")"
-            }.joined(separator: "\n")
-            return (verdict == "pass", findings.isEmpty ? ((object["summary"] as? String) ?? "") : findings)
-        }
-        let lowered = text.lowercased()
-        return (lowered.contains("verdict: pass") || text.contains("通過"), text)
+        let review = parseReview(text)
+        return (review.pass, review.text)
     }
 
     // MARK: Prompts
@@ -263,11 +323,11 @@ public enum ProjectFlowEngine {
         \(String(discussion.suffix(12_000)))
         === 紀錄結束 ===
         \(previous)
-        方案要分輪：每輪有清楚的目標；每項任務只交給一位成員，寫清楚目標、怎樣算完成（criteria）、依賴哪些前面的任務（dependencies 填任務 key）。任務要小而具體，能在一次工作中完成。不要編造檔案現狀。
+        方案要分輪：每輪有清楚的目標；每項任務只交給一位成員，寫清楚目標、怎樣算完成（criteria）、依賴哪些前面的任務（dependencies 填任務 key）、預計會修改的檔案或資料夾（files，相對路徑）。不同成員、檔案不重疊、彼此不依賴的任務會同時進行，所以 files 要寫準；不確定就留空，那項任務會單獨進行。任務要小而具體，能在一次工作中完成。不要編造檔案現狀。
         只回傳一個 JSON 物件，物件外不要有文字：
         {"objective":"…","scope":"…","deliverables":["…"],"acceptance":["…"],
          "rounds":[{"key":"r1","title":"…","goal":"…"}],
-         "tasks":[{"key":"t1","round":"r1","title":"…","member":"claude 或 codex","goal":"…","criteria":["…"],"dependencies":[]}]}
+         "tasks":[{"key":"t1","round":"r1","title":"…","member":"claude 或 codex","goal":"…","criteria":["…"],"dependencies":[],"files":["src/…"]}]}
         """
     }
 
@@ -276,7 +336,7 @@ public enum ProjectFlowEngine {
         let plan = flow.plan
         let deps = plan?.tasks.filter { task.dependencies.contains($0.key) }
             .map { "- \($0.title)（\(names[$0.member] ?? $0.member.rawValue)）：\(String($0.summary.prefix(1_500)))" }.joined(separator: "\n") ?? ""
-        let fix = task.findings.isEmpty || task.status != .fixing ? "" : "\n複核退回，請先修正這些問題：\n\(task.findings)\n"
+        let fix = task.status == .fixing ? fixSection(task, ownerName: ownerName) : ""
         return """
         你是 \(names[task.member] ?? task.member.rawValue)，在 AIROOM 專案「\(flow.title)」執行一項任務。目前資料夾是這項任務專用的副本；只修改這個資料夾內的檔案，絕對不要動其他路徑。\(ownerName)驗收前，原始專案不會改變。
         \(profile)
@@ -287,6 +347,7 @@ public enum ProjectFlowEngine {
         任務：\(task.title)
         目標：\(task.goal)
         完成標準：\n\(task.criteria.map { "- \($0)" }.joined(separator: "\n"))
+        \(task.files.isEmpty ? "" : "預計修改的檔案：\(task.files.joined(separator: "、"))。同一輪可能有其他成員同時在改別的檔案；盡量只改這些，必須改別的檔案時在報告裡說明。")
         \(deps.isEmpty ? "" : "前置任務的成果：\n\(deps)")
         \(task.supplements.isEmpty ? "" : "補充要求：\n\(task.supplements.map { "- \($0)" }.joined(separator: "\n"))")
         \(fix)
@@ -294,13 +355,44 @@ public enum ProjectFlowEngine {
         """
     }
 
-    public static func taskReviewPrompt(_ task: FlowTask, reviewer: AgentKind, names: [AgentKind: String]) -> String {
-        """
+    /// What the author must fix; findings not yet ruled on may be disputed with a closing line.
+    static func fixSection(_ task: FlowTask, ownerName: String) -> String {
+        guard !task.openFindings.isEmpty else { return task.findings.isEmpty ? "" : "\n複核退回，請先修正這些問題：\n\(task.findings)\n" }
+        let ruled = Set(task.rulings.map(\.finding.id))
+        let disputable = task.openFindings.filter { !ruled.contains($0.id) }
+        let upheld = task.openFindings.filter { ruled.contains($0.id) }
+        var lines = ["", "複核退回，請處理這些問題："]
+        lines += disputable.map { "- " + $0.line }
+        if !upheld.isEmpty {
+            lines.append("以下已由\(ownerName)裁定維持複核，必須修正，不能再提異議：")
+            lines += upheld.map { "- " + $0.line }
+        }
+        if !disputable.isEmpty {
+            lines.append("""
+            如果你確定上面某一條不成立（例如誤解需求、和完成標準矛盾），可以不改它，改在報告最後單獨一行寫：
+            \(disputeMarker) {"disputes":[{"finding":"f1","reason":"為什麼這條不成立"}]}
+            由\(ownerName)裁定。其餘問題仍要修正；沒有異議就不要寫這一行。
+            """)
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    public static func taskReviewPrompt(_ task: FlowTask, reviewer: AgentKind, names: [AgentKind: String], ownerName: String = "使用者",
+                                        round: FlowRound? = nil) -> String {
+        // The owner's round note and return opinion bind the reviewer too.
+        let notes = [round.map(\.startNote).flatMap { $0.isEmpty ? nil : "\(ownerName)開始這一輪時的附言：\($0)" },
+                     round.map(\.userOpinion).flatMap { $0.isEmpty ? nil : "\(ownerName)上次驗收的意見：\($0)" }]
+            .compactMap { $0 }.joined(separator: "\n")
+        let ruled = task.rulings.filter { $0.verdict == .author }
+        let settled = ruled.isEmpty ? "" : "以下問題\(ownerName)已裁定支持作者，不要再提：\n" + ruled.map { "- \($0.finding.location)：\($0.finding.request)" }.joined(separator: "\n")
+        return """
         你是 \(names[reviewer] ?? reviewer.rawValue)，請複核 \(names[task.member] ?? task.member.rawValue) 完成的任務「\(task.title)」。目前資料夾是他做完後的副本，只讀查看，不要修改檔案。
         任務目標：\(task.goal)
         完成標準：\n\(task.criteria.map { "- \($0)" }.joined(separator: "\n"))
         變更的檔案：\(task.changes.map { "\($0.kind.rawValue) \($0.path)" }.joined(separator: "、"))
         他的說明：\(String(task.summary.prefix(4_000)))
+        \(notes)
+        \(settled)
         實際查看檔案核對每個完成標準。只回傳一個 JSON 物件：
         {"verdict":"pass 或 changes","summary":"一兩句結論","findings":[{"severity":"blocking/should-fix/optional","location":"檔案或位置","request":"要怎麼改"}]}
         只有 blocking 或 should-fix 的問題才判 changes。
@@ -382,6 +474,12 @@ public final class ProjectWorkspace {
     public func taskFolder(_ task: UUID, round: UUID) throws -> URL {
         if exists(tasks.stageDirectory(task)) { try tasks.discard(id: task) }
         return try tasks.prepare(id: task, source: rounds.workingDirectory(round))
+    }
+
+    /// The task's copy as it was left (a fix or review in progress), if it still exists.
+    public func existingTaskFolder(_ task: UUID) -> URL? {
+        let work = tasks.workingDirectory(task)
+        return exists(work) ? work : nil
     }
 
     public func taskChanges(_ task: UUID) -> [FileChange] { (try? tasks.changes(id: task)) ?? [] }
