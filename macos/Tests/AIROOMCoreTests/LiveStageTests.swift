@@ -40,7 +40,7 @@ final class LiveCueParserTests: XCTestCase {
     }
 
     func testSpeakableTextRemovesMarkdownAndLinks() {
-        let spoken = LiveSpeechText.speakable("**重點** 請看 https://example.com/x 和 `rm -rf`")
+        let spoken = LiveSpeechText.speakable("**重點** 請看 https://example.com/x 和 `rm -rf` 👋")
         XCTAssertEqual(spoken, "重點 請看 和")
     }
 
@@ -59,19 +59,20 @@ final class LiveStageSettingsTests: XCTestCase {
         object.removeValue(forKey: "liveStage")
         let restored = try JSONDecoder().decode(SavedState.self, from: JSONSerialization.data(withJSONObject: object))
         XCTAssertFalse(restored.liveStage.performs)
-        XCTAssertEqual(restored.liveStage.vtsPort, 8001)
+        XCTAssertEqual(restored.liveStage.character(.codex).vtsPort, 8001)
+        XCTAssertEqual(restored.liveStage.character(.claude).vtsPort, 8002)
         XCTAssertEqual(Set(restored.liveStage.characters.map(\.agent)), Set(AgentKind.allCases))
     }
 
     func testCharacterValuesAreClampedAndSanitised() {
-        var stage = LiveStageSettings(vtsPort: 80)
-        XCTAssertEqual(stage.vtsPort, 1_024)
+        var stage = LiveStageSettings()
         stage.updateCharacter(.codex) {
-            $0.speechRate = 9; $0.mouthParameter = "Mouth Open;rm"
+            $0.speechRate = 9; $0.vtsPort = 80; $0.mouthParameter = "Mouth Open;rm"
             $0.emotionHotkeys = ["happy": "abc", "launch": "x"]
         }
         let codex = stage.character(.codex)
         XCTAssertEqual(codex.speechRate, 0.65)
+        XCTAssertEqual(codex.vtsPort, 1_024)
         XCTAssertEqual(codex.mouthParameter, "MouthOpenrm")
         XCTAssertEqual(codex.emotionHotkeys, ["happy": "abc"])
     }

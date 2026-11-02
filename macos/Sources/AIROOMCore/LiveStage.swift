@@ -142,6 +142,8 @@ public enum LiveSpeechText {
                 in: value, range: NSRange(location: 0, length: (value as NSString).length), withTemplate: " ")
         }
         value = value.filter { !"*#_>|~".contains($0) }
+        // Emoji are read out as their names ("smiling face") or render as tofu.
+        value.unicodeScalars.removeAll { $0.properties.isEmojiPresentation || $0.value == 0xFE0F || $0.value == 0x200D }
         return String(value.split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(limit))
     }
 }
@@ -155,29 +157,40 @@ public struct LiveCharacterStage: Codable, Equatable, Sendable {
     /// AVSpeechUtterance rate (0.3–0.65; 0.5 is the system default).
     public var speechRate: Double
     public var pitch: Double
-    /// Whether this co-host's turns drive the model loaded in VTube Studio.
+    /// Whether this co-host has its own VTube Studio instance to drive.
     public var drivesAvatar: Bool
+    /// Each co-host has a separate VTS instance (a second one is started with
+    /// `start_without_steam` and takes the next free port).
+    public var vtsPort: Int
+    /// Plugin token issued by that VTS instance after the user clicks Allow.
+    /// It only grants control of local VTS; stored with the encrypted state.
+    public var vtsToken: String
     public var mouthParameter: String
     /// LiveEmotion.rawValue → VTube Studio hotkeyID. Only IDs reported by the
     /// currently loaded model are ever triggered.
     public var emotionHotkeys: [String: String]
 
     public init(agent: AgentKind, voiceIdentifier: String = "", speechRate: Double = 0.5,
-                pitch: Double = 1.0, drivesAvatar: Bool = false, mouthParameter: String = "MouthOpen",
-                emotionHotkeys: [String: String] = [:]) {
+                pitch: Double = 1.0, drivesAvatar: Bool = false, vtsPort: Int? = nil, vtsToken: String = "",
+                mouthParameter: String = "MouthOpen", emotionHotkeys: [String: String] = [:]) {
         self.agent = agent
         self.voiceIdentifier = String(voiceIdentifier.prefix(200))
         self.speechRate = min(0.65, max(0.3, speechRate))
         self.pitch = min(2.0, max(0.5, pitch))
         self.drivesAvatar = drivesAvatar
+        self.vtsPort = min(65_535, max(1_024, vtsPort ?? Self.defaultPort(agent)))
+        self.vtsToken = String(vtsToken.prefix(512))
         let mouth = mouthParameter.filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }
         self.mouthParameter = mouth.isEmpty ? "MouthOpen" : String(mouth.prefix(32))
         self.emotionHotkeys = emotionHotkeys.filter { LiveEmotion(rawValue: $0.key) != nil && $0.value.count <= 128 }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case agent, voiceIdentifier, speechRate, pitch, drivesAvatar, mouthParameter, emotionHotkeys
+        case agent, voiceIdentifier, speechRate, pitch, drivesAvatar, vtsPort, vtsToken, mouthParameter, emotionHotkeys
     }
+
+    /// GPT's model went live first, so its VTS instance usually owns 8001.
+    public static func defaultPort(_ agent: AgentKind) -> Int { agent == .codex ? 8001 : 8002 }
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
         self.init(agent: try box.decode(AgentKind.self, forKey: .agent),
@@ -185,6 +198,8 @@ public struct LiveCharacterStage: Codable, Equatable, Sendable {
                   speechRate: try box.decodeIfPresent(Double.self, forKey: .speechRate) ?? 0.5,
                   pitch: try box.decodeIfPresent(Double.self, forKey: .pitch) ?? 1.0,
                   drivesAvatar: try box.decodeIfPresent(Bool.self, forKey: .drivesAvatar) ?? false,
+                  vtsPort: try box.decodeIfPresent(Int.self, forKey: .vtsPort),
+                  vtsToken: try box.decodeIfPresent(String.self, forKey: .vtsToken) ?? "",
                   mouthParameter: try box.decodeIfPresent(String.self, forKey: .mouthParameter) ?? "MouthOpen",
                   emotionHotkeys: try box.decodeIfPresent([String: String].self, forKey: .emotionHotkeys) ?? [:])
     }
@@ -193,33 +208,24 @@ public struct LiveCharacterStage: Codable, Equatable, Sendable {
 public struct LiveStageSettings: Codable, Equatable, Sendable {
     public var speechEnabled: Bool
     public var vtsEnabled: Bool
-    public var vtsPort: Int
-    /// Plugin token issued by VTube Studio after the user clicks Allow. It only
-    /// grants control of the local VTS instance; stored with the encrypted state.
-    public var vtsToken: String
     public var characters: [LiveCharacterStage]
 
-    public init(speechEnabled: Bool = false, vtsEnabled: Bool = false, vtsPort: Int = 8001,
-                vtsToken: String = "", characters: [LiveCharacterStage] = []) {
+    public init(speechEnabled: Bool = false, vtsEnabled: Bool = false, characters: [LiveCharacterStage] = []) {
         self.speechEnabled = speechEnabled
         self.vtsEnabled = vtsEnabled
-        self.vtsPort = min(65_535, max(1_024, vtsPort))
-        self.vtsToken = String(vtsToken.prefix(512))
         var unique: [LiveCharacterStage] = []
         for item in characters where !unique.contains(where: { $0.agent == item.agent }) { unique.append(item) }
         for agent in AgentKind.allCases where !unique.contains(where: { $0.agent == agent }) {
-            unique.append(LiveCharacterStage(agent: agent, drivesAvatar: agent == .claude))
+            unique.append(LiveCharacterStage(agent: agent, drivesAvatar: true))
         }
         self.characters = unique
     }
 
-    private enum CodingKeys: String, CodingKey { case speechEnabled, vtsEnabled, vtsPort, vtsToken, characters }
+    private enum CodingKeys: String, CodingKey { case speechEnabled, vtsEnabled, characters }
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
         self.init(speechEnabled: try box.decodeIfPresent(Bool.self, forKey: .speechEnabled) ?? false,
                   vtsEnabled: try box.decodeIfPresent(Bool.self, forKey: .vtsEnabled) ?? false,
-                  vtsPort: try box.decodeIfPresent(Int.self, forKey: .vtsPort) ?? 8001,
-                  vtsToken: try box.decodeIfPresent(String.self, forKey: .vtsToken) ?? "",
                   characters: try box.decodeIfPresent([LiveCharacterStage].self, forKey: .characters) ?? [])
     }
 
@@ -235,7 +241,7 @@ public struct LiveStageSettings: Codable, Equatable, Sendable {
         let edited = characters[index]
         characters[index] = LiveCharacterStage(agent: edited.agent, voiceIdentifier: edited.voiceIdentifier,
             speechRate: edited.speechRate, pitch: edited.pitch, drivesAvatar: edited.drivesAvatar,
-            mouthParameter: edited.mouthParameter, emotionHotkeys: edited.emotionHotkeys)
+            vtsPort: edited.vtsPort, vtsToken: edited.vtsToken, mouthParameter: edited.mouthParameter, emotionHotkeys: edited.emotionHotkeys)
     }
 }
 

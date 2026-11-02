@@ -47,34 +47,14 @@ struct LiveStageView: View {
 
     private var vtsPanel: some View {
         StudioPanel {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 Toggle(isOn: Binding(get: { settings.vtsEnabled },
                                      set: { value in model.updateLiveStage { $0.vtsEnabled = value } })) {
                     Label(t("連接 VTube Studio（Live2D）", "Connect VTube Studio (Live2D)"),
                           systemImage: "person.crop.square.badge.camera").font(.headline)
                 }
-                HStack(spacing: 10) {
-                    Text(t("API 連接埠", "API port"))
-                    TextField("8001", value: Binding(get: { settings.vtsPort },
-                                                     set: { value in model.updateLiveStage { $0.vtsPort = value } }),
-                              format: .number.grouping(.never))
-                        .frame(width: 80).textFieldStyle(.roundedBorder)
-                    Button(stage.isConnected ? t("重新連線", "Reconnect") : t("連線", "Connect")) { model.connectVTubeStudio() }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!settings.vtsEnabled || stage.connection == .connecting)
-                    if stage.isConnected {
-                        Button(t("重新讀取熱鍵", "Reload hotkeys")) { Task { await stage.refreshHotkeys() } }
-                        Button(t("中斷", "Disconnect")) { stage.disconnect() }
-                    }
-                    Spacer()
-                    if !settings.vtsToken.isEmpty {
-                        Button(t("撤銷授權", "Forget token"), role: .destructive) { model.forgetVTubeStudioToken() }
-                            .font(.caption)
-                    }
-                }
-                connectionStatus
-                Text(t("第一次使用：在 VTube Studio 設定開啟「Start API」（預設 8001）→ 按「連線」→ VTS 會跳出 AIROOM Native 外掛授權視窗，按 Allow。",
-                       "First time: enable \"Start API\" in VTube Studio settings (default 8001) → Connect → click Allow on the AIROOM Native plugin prompt in VTS."))
+                Text(t("每位成員各開一個 VTube Studio、各自載入自己的模型。第一個從 Steam 開啟（連接埠 8001）；第二個執行 ~/Library/Application Support/Steam/steamapps/common/VTube Studio 裡的 start_without_steam，會自動使用下一個連接埠（8002）。兩個都要在設定開啟「Start API」，OBS 以兩個 NDI 來源分別擷取。",
+                       "Each co-host runs its own VTube Studio with its own model. Start the first from Steam (port 8001); launch start_without_steam in ~/Library/Application Support/Steam/steamapps/common/VTube Studio for the second, which takes the next port (8002). Enable \"Start API\" in both; capture each in OBS as its own NDI source."))
                     .font(.caption).foregroundStyle(.secondary)
                 if let warning = stage.lastWarning {
                     Label(warning, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
@@ -83,16 +63,41 @@ struct LiveStageView: View {
         }
     }
 
-    @ViewBuilder private var connectionStatus: some View {
-        switch stage.connection {
+    private func vtsControls(_ agent: AgentKind, _ character: LiveCharacterStage) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(t("VTS 連接埠", "VTS port"))
+                TextField("8001", value: Binding(get: { character.vtsPort },
+                                                 set: { value in model.updateStageCharacter(agent) { $0.vtsPort = value } }),
+                          format: .number.grouping(.never))
+                    .frame(width: 80).textFieldStyle(.roundedBorder)
+                Button(stage.isConnected(agent) ? t("重新連線", "Reconnect") : t("連線", "Connect")) { model.connectVTubeStudio(agent) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!settings.vtsEnabled || stage.connection(agent) == .connecting)
+                if stage.isConnected(agent) {
+                    Button(t("重新讀取熱鍵", "Reload hotkeys")) { Task { await stage.refreshHotkeys(agent) } }
+                    Button(t("中斷", "Disconnect")) { stage.disconnect(agent) }
+                }
+                Spacer()
+                if !character.vtsToken.isEmpty {
+                    Button(t("撤銷授權", "Forget token"), role: .destructive) { model.forgetVTubeStudioToken(agent) }
+                        .font(.caption)
+                }
+            }
+            connectionStatus(agent)
+        }
+    }
+
+    @ViewBuilder private func connectionStatus(_ agent: AgentKind) -> some View {
+        switch stage.connection(agent) {
         case .off:
             Label(t("未連線", "Not connected"), systemImage: "circle").font(.caption).foregroundStyle(.secondary)
         case .connecting:
-            Label(t("連線中…若 VTube Studio 跳出授權視窗，請按 Allow", "Connecting… click Allow if VTube Studio asks"),
+            Label(t("連線中…若 VTube Studio 跳出 AIROOM Native 授權視窗，請按 Allow", "Connecting… click Allow on the AIROOM Native prompt in VTube Studio"),
                   systemImage: "hourglass").font(.caption)
         case .connected(let name):
             Label(t("已連線 · 模型：", "Connected · model: ") + (name.isEmpty ? t("（未載入）", "(none loaded)") : name)
-                  + " · \(stage.hotkeys.count) " + t("個熱鍵", "hotkeys"),
+                  + " · \(stage.hotkeys(agent).count) " + t("個熱鍵", "hotkeys"),
                   systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
         case .failed(let message):
             Label(message, systemImage: "xmark.octagon").font(.caption).foregroundStyle(.red)
@@ -130,10 +135,11 @@ struct LiveStageView: View {
                     }
                 }
                 Divider()
-                Toggle(t("由這位驅動 VTube Studio 目前載入的模型", "This co-host drives the model loaded in VTube Studio"),
+                Toggle(t("這位有自己的 VTube Studio 形象", "This co-host has its own VTube Studio avatar"),
                        isOn: Binding(get: { character.drivesAvatar },
                                      set: { value in model.updateStageCharacter(agent) { $0.drivesAvatar = value } }))
                 if character.drivesAvatar {
+                    vtsControls(agent, character)
                     HStack {
                         Text(t("嘴型參數", "Mouth parameter"))
                         TextField("MouthOpen", text: Binding(get: { character.mouthParameter },
@@ -156,10 +162,10 @@ struct LiveStageView: View {
                     Text(t("不觸發", "None")).tag("")
                     // Keep a mapped ID selectable even while VTS is offline.
                     if let mapped = character.emotionHotkeys[emotion.rawValue],
-                       !stage.hotkeys.contains(where: { $0.id == mapped }) {
+                       !stage.hotkeys(agent).contains(where: { $0.id == mapped }) {
                         Text(t("（離線）", "(offline) ") + mapped.prefix(8)).tag(mapped)
                     }
-                    ForEach(stage.hotkeys) { hotkey in Text("\(hotkey.name) · \(hotkey.type)").tag(hotkey.id) }
+                    ForEach(stage.hotkeys(agent)) { hotkey in Text("\(hotkey.name) · \(hotkey.type)").tag(hotkey.id) }
                 }
             }
         }

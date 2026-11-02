@@ -624,7 +624,7 @@ final class WorkbenchModel: ObservableObject {
             do { try await Task.sleep(nanoseconds: UInt64(config.turnDelaySeconds) * 1_000_000_000) }
             catch { break }
         }
-        await stage.resetAvatar()
+        await stage.resetAvatars()
     }
 
     // MARK: Live stage (TTS + VTube Studio)
@@ -632,7 +632,7 @@ final class WorkbenchModel: ObservableObject {
         change(&archive.liveStage)
         let edited = archive.liveStage
         archive.liveStage = LiveStageSettings(speechEnabled: edited.speechEnabled, vtsEnabled: edited.vtsEnabled,
-            vtsPort: edited.vtsPort, vtsToken: edited.vtsToken, characters: edited.characters)
+                                              characters: edited.characters)
         persist()
     }
 
@@ -645,16 +645,17 @@ final class WorkbenchModel: ObservableObject {
 
     func saveLiveStage() { persist() }
 
-    func connectVTubeStudio() {
+    func connectVTubeStudio(_ agent: AgentKind) {
         guard storageAvailable else { return }
-        stage.connect(port: archive.liveStage.vtsPort, token: archive.liveStage.vtsToken) { [weak self] token in
-            self?.updateLiveStage { $0.vtsToken = token }
+        let character = archive.liveStage.character(agent)
+        stage.connect(agent, port: character.vtsPort, token: character.vtsToken) { [weak self] token in
+            self?.updateStageCharacter(agent) { $0.vtsToken = token }
         }
     }
 
-    func forgetVTubeStudioToken() {
-        stage.disconnect()
-        updateLiveStage { $0.vtsToken = "" }
+    func forgetVTubeStudioToken(_ agent: AgentKind) {
+        stage.disconnect(agent)
+        updateStageCharacter(agent) { $0.vtsToken = "" }
     }
 
     func rehearseStage(_ agent: AgentKind) {

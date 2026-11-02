@@ -12,17 +12,17 @@ AI 回覆（可含 [happy] 等情緒標籤）
   → 念完才進入下一輪（兩位 AI 不會同時說話）
 ```
 
-## 第一次設定
+## 第一次設定（兩位各一個 VTube Studio）
 
-1. VTube Studio：設定 → 開啟 **Start API**（預設連接埠 8001），載入 GPT 做好的 Live2D 模型。
-2. AIROOM →「直播舞台」→ 勾選「連接 VTube Studio」→ 按「連線」→ 在 VTS 跳出的 *AIROOM Native* 授權視窗按 **Allow**。授權 Token 存在本機加密資料，下次不會再問。
-3. 在負責這個模型的成員卡勾選「由這位驅動 VTube Studio」，把各情緒對應到模型的熱鍵（表情 Toggle 或動作）。
-4. 勾選「用語音念出發言」，為每位成員選擇聲音、語速、音高 → 按「試演」確認表情與嘴型。
-5. 聲音從系統預設輸出播放；OBS 以「桌面音訊」擷取即可。
+1. 第一個 VTS 從 Steam 開啟，載入 GPT 娘的模型（通常是連接埠 **8001**）。
+2. 第二個 VTS：執行 `~/Library/Application Support/Steam/steamapps/common/VTube Studio/start_without_steam`，載入 Claude 的模型，它會自動使用 **8002**。
+3. 兩個 VTS 都到設定開啟 **Start API**。
+4. AIROOM →「直播舞台」→ 勾選「連接 VTube Studio」→ 在每位成員卡確認連接埠、按「連線」→ 在對應的 VTS 視窗按 **Allow**。授權 Token 各自存在本機加密資料。
+5. 把各情緒對應到該模型的熱鍵，勾選「用語音念出發言」，選聲音 → 按「試演」。
+6. OBS：兩個 VTS 各是一個 NDI 來源；聲音從系統預設輸出播放，以「桌面音訊」擷取。
 
 ## 限制（尚未完成）
 
-- VTube Studio 一次只載入一個主模型：目前只有勾選「驅動」的成員會動嘴與換表情，另一位只有聲音。第二個形象（第二個 VTS、或 VTS 內的 Live2D 道具）之後再實測決定。
 - TTS 使用 macOS 內建聲音；更自然的聲音需在系統設定下載「加強版／高品質」語音。外部 TTS 服務尚未串接。
 - 直播平台留言（YouTube／Bilibili）仍需手動插入；OBS + 直播姬雙端推流之後處理。
 - VTS 實機連線、熱鍵與嘴型同步尚待你在裝好 VTube Studio 後驗收；協定層以模擬 VTS 的單元測試覆蓋。
