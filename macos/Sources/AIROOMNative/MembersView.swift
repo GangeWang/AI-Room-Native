@@ -254,7 +254,7 @@ private struct MemoryImportSheet: View {
                         }
                     }
                 }
-                .frame(maxHeight: 150)
+                .frame(height: min(168, CGFloat(sources.count) * 28))
             }
             if let error { Text(error).font(.callout).foregroundStyle(.red) }
             if !candidates.isEmpty {
