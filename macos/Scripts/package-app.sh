@@ -97,6 +97,12 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST
+# Build number = commit count, so each installed/trashed copy is identifiable.
+BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
+BUILD_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 0.2.$BUILD_NUMBER" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :AIROOMGitCommit string $BUILD_COMMIT" "$APP/Contents/Info.plist"
 /usr/bin/plutil -lint "$APP/Contents/Info.plist"
 # Development-only ad-hoc signing. Public distribution requires Developer ID and notarization.
 /usr/bin/codesign --force --sign - "$APP"

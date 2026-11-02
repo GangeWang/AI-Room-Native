@@ -11,8 +11,10 @@
 ```bash
 swift test
 ./Scripts/package-app.sh
-open dist/AIROOMNative.app
+./Scripts/install-app.sh --open
 ```
+
+`install-app.sh` 會先結束執行中的 AIROOM，把 `/Applications` 裡的舊版**移到垃圾桶**（檔名附版本號與時間，可還原），再安裝新版。版本號（`CFBundleVersion`）等於 git commit 數，`AIROOMGitCommit` 記錄對應的 commit。資料與 Keychain 不受影響。
 
 封裝腳本會檢查原版圖片；缺少時從固定上游 Commit 下載並驗證，必要時會使用網路。產生的 `.app` 為本機開發用途臨時簽章，未經 Apple 公證。請先驗證新版讀取原有資料正確，再將 App 取代 `/Applications` 的舊版；**不要刪除 Application Support 或 Keychain**。
 
