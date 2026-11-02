@@ -208,3 +208,38 @@ struct StudioEmptyState: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+
+/// Renders the light Markdown models write (headings, **bold**, *italic*,
+/// `code`, lists) without turning links into anything clickable.
+struct RichText: View {
+    let source: String
+    var font: Font = .system(size: 14)
+    init(_ source: String, font: Font = .system(size: 14)) { self.source = source; self.font = font }
+
+    var body: some View {
+        Text(Self.render(source)).font(font)
+    }
+
+    static func render(_ text: String) -> AttributedString {
+        var result = AttributedString()
+        let lines = text.components(separatedBy: "\n")
+        for (index, raw) in lines.enumerated() {
+            var line = raw
+            var heading = false
+            let hashes = line.prefix(while: { $0 == "#" }).count
+            if (1...6).contains(hashes), line.dropFirst(hashes).first == " " {
+                line = String(line.dropFirst(hashes + 1))
+                heading = true
+            }
+            var piece = (try? AttributedString(markdown: line, options: .init(
+                allowsExtendedAttributes: false, interpretedSyntax: .inlineOnlyPreservingWhitespace,
+                failurePolicy: .returnPartiallyParsedIfPossible))) ?? AttributedString(line)
+            // Links stay plain text: model output must never become a click target.
+            for run in piece.runs where run.link != nil { piece[run.range].link = nil }
+            if heading { piece.inlinePresentationIntent = .stronglyEmphasized }
+            result += piece
+            if index < lines.count - 1 { result += AttributedString("\n") }
+        }
+        return result
+    }
+}

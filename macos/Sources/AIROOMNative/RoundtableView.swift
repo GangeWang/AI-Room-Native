@@ -232,8 +232,8 @@ struct RoundtableTopicView: View {
                                     Label(t("已採用", "Adopted"), systemImage: "checkmark.seal.fill").font(.caption).foregroundStyle(.green)
                                 }
                             }
-                            Text(submission.succeeded ? submission.text : t("沒有完成：", "Not completed: ") + (submission.error ?? ""))
-                                .font(.callout).textSelection(.enabled)
+                            RichText(submission.succeeded ? submission.text : t("沒有完成：", "Not completed: ") + (submission.error ?? ""), font: .callout)
+                                .textSelection(.enabled)
                         }
                         .padding(.vertical, 6)
                     }
@@ -243,7 +243,7 @@ struct RoundtableTopicView: View {
                         ForEach(topic.peerReviews) { review in
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(model.memberName(review.agent)).font(.subheadline.weight(.semibold))
-                                Text(review.succeeded ? review.text : (review.error ?? "")).font(.callout).textSelection(.enabled)
+                                RichText(review.succeeded ? review.text : (review.error ?? ""), font: .callout).textSelection(.enabled)
                             }.padding(.vertical, 6)
                         }
                     }
@@ -258,8 +258,8 @@ struct RoundtableTopicView: View {
                                 .disabled(model.roundtableRunning || model.roomRunning)
                         }
                     } else {
-                        Text(topic.findings.isEmpty ? t("整理中……", "Compiling…") : topic.findings)
-                            .font(.callout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                        RichText(topic.findings.isEmpty ? t("整理中……", "Compiling…") : topic.findings, font: .callout)
+                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
@@ -305,8 +305,8 @@ struct RoundtableTopicView: View {
                                 if entry.isMinutes { Label(t("會議紀要", "Minutes"), systemImage: "doc.text").font(.caption2).foregroundStyle(StudioTheme.amber) }
                                 if entry.delivery == .inProgress { ProgressView().controlSize(.mini) }
                             }
-                            Text(entry.isReaction ? t("回應了 ", "reacted ") + entry.body : entry.body)
-                                .font(.callout).textSelection(.enabled)
+                            RichText(entry.isReaction ? t("回應了 ", "reacted ") + entry.body : entry.body, font: .callout)
+                                .textSelection(.enabled)
                         }
                     }
                 }
@@ -365,7 +365,7 @@ struct RoundtableTopicView: View {
                     if let adopted = topic.adopted {
                         Text(t("採用：\(model.memberName(adopted)) 的版本", "Adopted: \(model.memberName(adopted))'s version")).font(.caption)
                     }
-                    Text(topic.conclusion).font(.callout).textSelection(.enabled)
+                    RichText(topic.conclusion, font: .callout).textSelection(.enabled)
                     if topic.status == .confirmed { handoff }
                 }
             }
@@ -422,7 +422,7 @@ struct CompareSheet: View {
                             }
                         }
                         ScrollView {
-                            Text(submission.text).font(.callout).textSelection(.enabled)
+                            RichText(submission.text, font: .callout).textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }

@@ -199,7 +199,7 @@ struct RoomView: View {
                                             Text(entry.createdAt, style: .time)
                                                 .font(.caption2).foregroundStyle(.secondary)
                                         }
-                                        Text(entry.body).font(.system(size: 14))
+                                        RichText(entry.body)
                                             .textSelection(.enabled)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                         if !item.reactions.isEmpty { reactionChips(item.reactions) }

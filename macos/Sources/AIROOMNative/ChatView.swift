@@ -231,9 +231,8 @@ struct ChatView: View {
                 }
                 if !message.attachments.isEmpty { attachmentStrip(message.attachments, removable: false) }
                 if !message.body.isEmpty {
-                    Text(message.body)
+                    RichText(message.body)
                         .textSelection(.enabled)
-                        .font(.system(size: 14))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
