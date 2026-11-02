@@ -155,6 +155,8 @@ public final class WorkspaceStaging {
         guard !PrivacyGuard.blocked(relativePath: path), changes.contains(where: { $0.path == path }) else { throw WorkspaceError.unsafeFile(path) }
         func read(_ root: URL) -> String {
             let url = root.appendingPathComponent(path)
+            // A missing side means the file was added (no "before") or deleted (no "after").
+            guard FileManager.default.fileExists(atPath: url.path) else { return "（這一側沒有這個檔案：新增或已刪除）" }
             guard let data = try? Data(contentsOf: url), data.count <= limit, !data.contains(0),
                   let text = String(data: data, encoding: .utf8) else { return "（二進位或內容過長，不顯示）" }
             return PrivacyGuard.redact(text)
