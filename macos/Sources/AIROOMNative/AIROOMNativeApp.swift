@@ -5,6 +5,13 @@ import AIROOMCore
 struct AIROOMNativeApp: App {
     @StateObject private var workbench = WorkbenchModel()
 
+    init() {
+        // Every rebuild is signed ad hoc with a new identity, so restoring the
+        // previous build's window state fails and SwiftUI then opened no
+        // window at all. The single workbench window is simply recreated.
+        UserDefaults.standard.register(defaults: ["NSQuitAlwaysKeepsWindows": false])
+    }
+
     var body: some Scene {
         // One workbench window: a single scene can always be reopened from the
         // Window menu or the Dock, and never splits state across two windows.
