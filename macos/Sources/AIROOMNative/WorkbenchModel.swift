@@ -840,6 +840,7 @@ final class WorkbenchModel: ObservableObject {
         let prompt = LoungeEngine.minutesPrompt(room: archive.rooms[index], state: archive.rooms[index].lounge,
                                                 attendees: attendees, ownerName: ownerName, language: archive.settings.language)
         archive.rooms[index].lounge.phase = .summarizing
+        archive.rooms[index].lounge.reason = nil
         let entryID = UUID(), runID = UUID()
         archive.rooms[index].entries.append(RoomEntry(id: entryID, speaker: .assistant, agent: agent,
             displayName: member.name, body: t("正在整理會議紀要……"), delivery: .inProgress, isMinutes: true))
