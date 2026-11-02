@@ -67,7 +67,7 @@ public struct CallLedger: Codable, Equatable, Sendable {
 public enum AttentionKind: String, Sendable { case question, decision, unknown, login, missing, acceptance }
 
 public struct AttentionItem: Identifiable, Equatable, Sendable {
-    public enum Target: Equatable, Sendable { case room(UUID), project(UUID), settings, member(AgentKind) }
+    public enum Target: Equatable, Sendable { case room(UUID), roundtable(UUID), project(UUID), settings, member(AgentKind) }
     public var id: String
     public var kind: AttentionKind
     public var title: String
@@ -91,19 +91,29 @@ public enum AttentionBuilder {
             }
         }
         for room in state.rooms {
+            let target: AttentionItem.Target = room.roundtableID.map { .roundtable($0) } ?? .room(room.id)
             for question in room.lounge.pendingQuestions {
                 items.append(AttentionItem(id: "q-\(question.id)", kind: .question, title: "\(name(question.from)) 在「\(room.title)」問你",
-                    detail: String(question.text.prefix(140)), target: .room(room.id)))
+                    detail: String(question.text.prefix(140)), target: target))
             }
             if room.lounge.phase == .awaitingHost {
                 items.append(AttentionItem(id: "pick-\(room.id)", kind: .decision, title: "「\(room.title)」有人舉手",
-                    detail: "請點名誰補充，或讓大家等你說話。", target: .room(room.id)))
+                    detail: "請點名誰補充，或讓大家等你說話。", target: target))
             }
             // Only the latest member reply counts: an older failure was already seen.
             if let last = room.entries.last(where: { $0.speaker == .assistant }),
                last.delivery == .failed {
                 items.append(AttentionItem(id: "unknown-\(last.id)", kind: .unknown, title: "「\(room.title)」有結果待核對",
-                    detail: "\(last.displayName) 的回覆沒有確認完成，沒有自動重送。", target: .room(room.id)))
+                    detail: "\(last.displayName) 的回覆沒有確認完成，沒有自動重送。", target: target))
+            }
+        }
+        for topic in state.roundtableTopics {
+            if topic.status == .prepared {
+                items.append(AttentionItem(id: "rt-reveal-\(topic.id)", kind: .decision, title: "圓桌「\(topic.title)」準備完成",
+                    detail: "大家都交了，可以公開並開始審議。", target: .roundtable(topic.id)))
+            } else if topic.status == .conclusion {
+                items.append(AttentionItem(id: "rt-confirm-\(topic.id)", kind: .acceptance, title: "圓桌「\(topic.title)」等你確認結論",
+                    detail: "會議紀要已整理，請確認結論。", target: .roundtable(topic.id)))
             }
         }
         for project in state.projects where project.phase == .reviewing || project.phase == .failed {

@@ -1,156 +1,485 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import AIROOMCore
 
+/// 圓桌: topics on the left; the selected topic's stage on the right.
 struct RoundtableView: View {
     @EnvironmentObject private var model: WorkbenchModel
     @Environment(\.colorScheme) private var scheme
+    @State private var composing = false
+    @State private var confirmDelete: UUID?
     private var lang: InterfaceLanguage { model.archive.settings.language }
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, lang) }
 
+    private var selected: RoundtableTopic? {
+        model.archive.roundtableTopics.first { $0.id == model.selectedRoundtableID } ?? model.archive.roundtableTopics.first
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            topicList.frame(width: 250)
+            Divider()
+            Group {
+                if let topic = selected { RoundtableTopicView(topic: topic) }
+                else {
+                    StudioEmptyState(icon: "person.3", title: t("還沒有議題", "No topics yet"),
+                                     detail: t("開一個新議題：評審、比稿或方案比較。", "Open a topic: review, candidates or proposals."))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .sheet(isPresented: $composing) { NewRoundtableSheet().environmentObject(model) }
+        .confirmationDialog(t("刪除這個議題和它的審議紀錄？", "Delete this topic and its deliberation?"),
+                            isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } })) {
+            Button(t("刪除議題", "Delete topic"), role: .destructive) { if let id = confirmDelete { model.deleteRoundtable(id) } }
+        }
+    }
+
+    private var topicList: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(t("圓桌", "Roundtable")).font(.title3.bold())
+                Spacer()
+                Button { composing = true } label: { Label(t("開新議題", "New topic"), systemImage: "plus") }
+                    .disabled(model.roundtableRunning)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(model.archive.roundtableTopics) { topic in
+                        Button { model.selectedRoundtableID = topic.id } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(topic.title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                                HStack(spacing: 6) {
+                                    Text(topic.kind.title).font(.caption2)
+                                    Text("·").font(.caption2)
+                                    Text(statusTitle(topic.status)).font(.caption2)
+                                }.foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                            .background(topic.id == selected?.id ? StudioTheme.amber.opacity(0.14) : .clear,
+                                        in: RoundedRectangle(cornerRadius: 8))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button(t("刪除議題", "Delete topic"), role: .destructive) { confirmDelete = topic.id }
+                        }
+                    }
+                    if !model.archive.roundtables.isEmpty { legacy }
+                }
+            }
+        }
+        .padding(14)
+        .background(StudioTheme.surface(scheme).opacity(0.6))
+    }
+
+    private var legacy: some View {
+        DisclosureGroup(t("舊版圓桌紀錄", "Older roundtables")) {
+            ForEach(model.archive.roundtables.prefix(20)) { old in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(old.question).font(.caption.weight(.semibold)).lineLimit(2)
+                    ForEach(old.results) { result in
+                        Text("\(result.agent.shortName)：\(result.text)").font(.caption2).foregroundStyle(.secondary).lineLimit(3)
+                    }
+                }
+                .padding(.vertical, 4)
+                .textSelection(.enabled)
+            }
+        }
+        .font(.caption).padding(.top, 10)
+    }
+
+    private func statusTitle(_ status: RoundtableStatus) -> String {
+        switch status {
+        case .preparing: return t("各自準備中", "Preparing")
+        case .prepared: return t("待公開", "Ready to reveal")
+        case .reviewing: return t("互評與整理問題", "Reviewing")
+        case .discussing: return t("審議中", "Deliberating")
+        case .conclusion: return t("等你確認結論", "Confirm conclusion")
+        case .confirmed: return t("已確認", "Confirmed")
+        }
+    }
+}
+
+// MARK: One topic
+
+struct RoundtableTopicView: View {
+    @EnvironmentObject private var model: WorkbenchModel
+    @Environment(\.colorScheme) private var scheme
+    let topic: RoundtableTopic
+    @State private var draft = ""
+    @State private var comparing = false
+    @State private var handoffProject: UUID?
+    private var lang: InterfaceLanguage { model.archive.settings.language }
+    private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, lang) }
+    private var room: TeamRoom? { topic.roomID.flatMap { id in model.archive.rooms.first { $0.id == id } } }
+    private var revealed: Bool { ![.preparing, .prepared].contains(topic.status) }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                StudioPageHeading(eyebrow: "ROUNDTABLE",
-                    title: t("獨立圓桌", "Roundtable"),
-                    subtitle: t("同一題目交給兩位成員獨立作答；公開前彼此看不到答案。", "Two independent answers to the same task, without sharing each other's responses."))
+            VStack(alignment: .leading, spacing: 16) {
+                header
+                progress
                 StudioPanel {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 9) {
-                            Image(systemName: "text.bubble")
-                                .foregroundStyle(StudioTheme.orange)
-                            Text(t("議題與材料", "Topic and Material")).font(.headline)
-                            Spacer()
-                            Text(t("獨立比較", "Independent comparison")).font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        TextEditor(text: $model.roundtablePrompt)
-                            .frame(height: 115)
-                            .font(.body).scrollContentBackground(.hidden)
-                            .padding(8)
-                            .background(StudioTheme.secondary(scheme), in: RoundedRectangle(cornerRadius: 11))
-                        HStack(spacing: 12) {
-                            Button { model.startRoundtable() } label: {
-                                Label(t("開始獨立比較", "Start Comparison"), systemImage: "person.2")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(model.roundtableRunning || model.roundtablePrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            if model.roundtableRunning {
-                                ProgressView().controlSize(.small)
-                                Button(t("取消剩餘比較", "Cancel remaining")) { model.stopRoundtable() }
-                            }
-                            Spacer()
-                            HStack(spacing: 5) {
-                                StudioAvatar(agent: .claude, size: 26)
-                                StudioAvatar(agent: .codex, size: 26)
-                            }
+                    DisclosureGroup(t("材料／要求", "Material")) {
+                        Text(topic.material).font(.callout).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 6)
+                        if !topic.attachments.isEmpty {
+                            Text(t("附件：", "Attachments: ") + topic.attachments.map(\.fileName).joined(separator: "、"))
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
-                HStack(spacing: 10) {
-                    Image(systemName: "lock.shield").foregroundStyle(StudioTheme.moss)
-                    Text(t("第一階段答案獨立；公開後可互相審查與建議投票。候選採用權始終由你決定。", "Independent proposals, then peer review and advisory voting. You choose the final candidate."))
-                        .font(.caption).foregroundStyle(.secondary)
+                stage
+            }
+            .padding(22)
+            .frame(maxWidth: 980, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .sheet(isPresented: $comparing) { CompareSheet(topic: topic).environmentObject(model) }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("ROUNDTABLE · \(topic.kind.title)").font(.caption.weight(.bold)).tracking(1.4).foregroundStyle(StudioTheme.warning)
+            Text(topic.title).font(.title2.bold())
+            HStack(spacing: 6) {
+                ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                    Text(step.0).font(.caption)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(step.1 ? StudioTheme.amber.opacity(0.25) : .secondary.opacity(0.1), in: Capsule())
+                    if index < steps.count - 1 { Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary) }
                 }
-                Text(t("獨立回答", "Independent Responses"))
-                    .font(.headline)
-                HStack(alignment: .top, spacing: 16) {
-                    ForEach(AgentKind.allCases) { agent in
-                        let result = model.roundtableResults.first(where: { $0.agent == agent })
-                        StudioPanel {
-                            VStack(alignment: .leading, spacing: 15) {
-                                HStack(spacing: 11) {
-                                    StudioAvatar(agent: agent, size: 42)
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(agent.shortName).font(.headline)
-                                        Text(t("獨立成員", "Independent agent"))
-                                            .font(.caption).foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    if result == nil {
-                                        Image(systemName: "hourglass")
-                                            .foregroundStyle(.tertiary)
-                                    } else if result?.error != nil {
-                                        Image(systemName: "exclamationmark.triangle")
-                                            .foregroundStyle(.red)
-                                    } else {
-                                        Image(systemName: "checkmark.circle")
-                                            .foregroundStyle(StudioTheme.moss)
-                                    }
-                                }
-                                Divider()
-                                Text(result?.text ?? t("尚未執行比較。", "No result yet."))
-                                    .font(.system(size: 14))
-                                    .textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+        }
+    }
+
+    private var steps: [(String, Bool)] {
+        let order: [RoundtableStatus] = [.preparing, .prepared, .reviewing, .discussing, .conclusion, .confirmed]
+        let at = order.firstIndex(of: topic.status) ?? 0
+        return [(t("各自準備", "Prepare"), at >= 0), (t("公開", "Reveal"), at >= 2), (t("審議", "Deliberate"), at >= 3),
+                (t("結論", "Conclude"), at >= 4), (t("確認", "Confirm"), at >= 5)]
+    }
+
+    private var progress: some View {
+        HStack(spacing: 14) {
+            ForEach(topic.members, id: \.self) { agent in
+                HStack(spacing: 5) {
+                    StudioAvatar(agent: agent, size: 22, running: model.roundtableRunning)
+                    if let submission = topic.submission(agent) {
+                        Image(systemName: submission.succeeded ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .foregroundStyle(submission.succeeded ? .green : .orange)
+                    } else {
+                        Image(systemName: "circle.dotted").foregroundStyle(.secondary)
                     }
-                }
-                if !model.archive.roundtables.isEmpty {
-                    Text(t("歷史議題", "Past Topics")).font(.headline)
-                    ForEach(model.archive.roundtables.prefix(20)) { old in
-                        StudioPanel {
-                            DisclosureGroup(String(old.question.prefix(90))) {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    ForEach(old.results) { result in
-                                        HStack(spacing: 9) {
-                                            StudioAvatar(agent: result.agent, size: 29)
-                                            Text(result.agent.shortName).font(.subheadline.weight(.semibold))
-                                        }
-                                        Text(result.text).textSelection(.enabled)
-                                            .font(.subheadline)
-                                        Divider()
-                                    }
-                                    if old.reviews.count < 2 || old.reviews.contains(where: { $0.error != nil }) {
-                                        Button {
-                                            model.reviewRoundtable(id: old.id)
-                                        } label: { Label(t("啟動／重試交叉互評與建議投票", "Start / retry peer review"), systemImage: "checkmark.bubble") }
-                                            .disabled(model.roundtableRunning || model.roundtableReviewRunning || old.results.contains(where: { $0.error != nil }))
-                                    }
-                                    if !old.reviews.isEmpty {
-                                        Text(t("互評結果", "Peer reviews")).font(.headline)
-                                        ForEach(old.reviews) { review in
-                                            VStack(alignment: .leading, spacing: 4) {
-                                                Text("\(review.reviewer.shortName) → \(review.candidate.shortName) · " +
-                                                    (review.vote.map { t("投給 \($0.shortName)", "Vote: \($0.shortName)") } ?? t("未提供有效投票", "No valid vote")))
-                                                    .font(.caption.weight(.semibold))
-                                                Text(review.error ?? review.notes).font(.subheadline).textSelection(.enabled)
-                                            }
-                                        }
-                                    }
-                                    HStack(spacing: 12) {
-                                        ForEach(old.results.filter { $0.error == nil }) { item in
-                                            Button {
-                                                model.adoptRoundtable(id: old.id, candidate: item.agent)
-                                            } label: {
-                                                Label(old.adopted == item.agent
-                                                      ? t("已採用 \(item.agent.shortName)", "Adopted \(item.agent.shortName)")
-                                                      : t("採用 \(item.agent.shortName)", "Adopt \(item.agent.shortName)"),
-                                                      systemImage: old.adopted == item.agent ? "checkmark.circle.fill" : "circle")
-                                            }.disabled(model.roundtableReviewRunning)
-                                        }
-                                        Spacer()
-                                    }
-                                    if old.adopted != nil && old.handoffProjectID == nil {
-                                        Menu {
-                                            ForEach(model.archive.projects.filter { [.draft, .rejected, .failed].contains($0.phase) }) { project in
-                                                Button(project.title) { model.handoffRoundtable(id: old.id, to: project.id) }
-                                            }
-                                        } label: { Label(t("帶回專案", "Send to project"), systemImage: "folder.badge.plus") }
-                                    } else if old.handoffProjectID != nil {
-                                        Label(t("已送入專案", "Sent to project"), systemImage: "checkmark.circle")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }.padding(.top, 12)
-                            }
-                        }
+                    if agent == topic.lead {
+                        Text(t("匯總", "Lead")).font(.caption2).padding(.horizontal, 5)
+                            .background(.secondary.opacity(0.15), in: Capsule())
                     }
                 }
             }
-            .padding(26)
-            .frame(maxWidth: 1120)
-            .frame(maxWidth: .infinity)
+            Spacer()
+            Text(t("已交 \(topic.completed)/\(topic.members.count) · 問題 \(topic.findingCount) 個 · 呼叫 \(topic.calls) 次",
+                   "\(topic.completed)/\(topic.members.count) in · \(topic.findingCount) issues · \(topic.calls) calls"))
+                .font(.caption).foregroundStyle(.secondary)
+            if model.roundtableRunning {
+                ProgressView().controlSize(.small)
+                Button(t("停止", "Stop"), role: .destructive) { model.stopRoundtable() }
+            }
+        }
+    }
+
+    @ViewBuilder private var stage: some View {
+        switch topic.status {
+        case .preparing:
+            StudioNotice(icon: "eye.slash", message: model.roundtableRunning
+                ? t("成員正在各自準備，公開前互相看不到。", "Members are preparing independently; nobody sees the others yet.")
+                : t("準備被中斷了，可以繼續讓還沒交的成員準備。", "Preparation stopped; continue with members who haven't submitted."))
+            if !model.roundtableRunning {
+                Button(t("繼續準備", "Continue preparing")) { model.prepareRoundtable(topic.id) }
+            }
+        case .prepared:
+            StudioPanel {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(t("大家都交了", "Everyone has submitted")).font(.headline)
+                        Text(topic.peerReview
+                             ? t("公開後每位成員只看別人的版本互評，再由匯總成員整理問題清單。", "After reveal, each member reviews the others' versions; then the lead compiles an issue list.")
+                             : t("公開後由匯總成員整理問題清單，接著開始審議。", "After reveal, the lead compiles an issue list, then deliberation starts."))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(t("公開", "Reveal")) { model.revealRoundtable(topic.id) }
+                        .buttonStyle(.borderedProminent).disabled(model.roundtableRunning || topic.completed == 0)
+                }
+            }
+        default:
+            revealedContent
+        }
+    }
+
+    @ViewBuilder private var revealedContent: some View {
+        StudioPanel {
+            VStack(alignment: .leading, spacing: 8) {
+                DisclosureGroup(t("各成員的版本", "Versions")) {
+                    ForEach(topic.submissions) { submission in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                StudioAvatar(agent: submission.agent, size: 20)
+                                Text(model.memberName(submission.agent)).font(.subheadline.weight(.semibold))
+                                if topic.adopted == submission.agent {
+                                    Label(t("已採用", "Adopted"), systemImage: "checkmark.seal.fill").font(.caption).foregroundStyle(.green)
+                                }
+                            }
+                            Text(submission.succeeded ? submission.text : t("沒有完成：", "Not completed: ") + (submission.error ?? ""))
+                                .font(.callout).textSelection(.enabled)
+                        }
+                        .padding(.vertical, 6)
+                    }
+                }
+                if !topic.peerReviews.isEmpty {
+                    DisclosureGroup(t("互評", "Peer reviews")) {
+                        ForEach(topic.peerReviews) { review in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(model.memberName(review.agent)).font(.subheadline.weight(.semibold))
+                                Text(review.succeeded ? review.text : (review.error ?? "")).font(.callout).textSelection(.enabled)
+                            }.padding(.vertical, 6)
+                        }
+                    }
+                }
+                DisclosureGroup(t("問題清單（\(topic.findingCount) 個）", "Issue list (\(topic.findingCount))")) {
+                    Text(topic.findings.isEmpty ? t("整理中……", "Compiling…") : topic.findings)
+                        .font(.callout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        if topic.status == .reviewing {
+            StudioNotice(icon: "hourglass", message: t("正在互評並整理問題清單，完成後會自動開始審議。", "Reviewing and compiling issues; deliberation starts automatically."))
+        }
+        if let room { deliberation(room) }
+        conclusionPanel
+    }
+
+    private func deliberation(_ room: TeamRoom) -> some View {
+        StudioPanel {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label(t("審議討論", "Deliberation"), systemImage: "bubble.left.and.bubble.right").font(.headline)
+                    Spacer()
+                    if topic.kind.hasCandidates {
+                        Button(t("下一步：比較並選擇候選", "Next: compare candidates")) { comparing = true }
+                    }
+                    if [.discussing].contains(topic.status) && !model.roomRunning {
+                        Menu(t("整理會議紀要", "Write minutes")) {
+                            ForEach(topic.members, id: \.self) { agent in
+                                Button(t("請 \(model.memberName(agent)) 整理", "Ask \(model.memberName(agent))")) {
+                                    model.concludeRoundtable(topic.id, by: agent)
+                                }
+                            }
+                        }.fixedSize()
+                    }
+                }
+                ForEach(room.entries.filter { $0.speaker != .system }) { entry in
+                    HStack(alignment: .top, spacing: 8) {
+                        if let agent = entry.agent { StudioAvatar(agent: agent, size: 24) }
+                        else { Image(systemName: "person.crop.circle.fill").font(.title3).foregroundStyle(StudioTheme.warning) }
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                Text(entry.displayName).font(.caption.weight(.semibold))
+                                if entry.isMinutes { Label(t("會議紀要", "Minutes"), systemImage: "doc.text").font(.caption2).foregroundStyle(StudioTheme.amber) }
+                                if entry.delivery == .inProgress { ProgressView().controlSize(.mini) }
+                            }
+                            Text(entry.isReaction ? t("回應了 ", "reacted ") + entry.body : entry.body)
+                                .font(.callout).textSelection(.enabled)
+                        }
+                    }
+                }
+                if room.lounge.phase == .awaitingHost {
+                    HStack {
+                        Text(t("有人舉手：", "Hands up: ")).font(.caption)
+                        ForEach(topic.members.filter { (room.lounge.hands[$0.rawValue]?.want ?? 0) > 0 && !room.lounge.supplemented.contains($0) }, id: \.self) { agent in
+                            Button(t("請 \(model.memberName(agent)) 補充", "Let \(model.memberName(agent)) add")) { model.pickHand(agent, in: room.id) }
+                        }
+                        Button(t("不用了", "No one")) { model.pickHand(nil, in: room.id) }
+                    }.controlSize(.small)
+                }
+                if topic.status == .discussing {
+                    HStack {
+                        TextField(t("在審議中發言（每位成員會回答一次）", "Speak in the deliberation (each member answers once)"), text: $draft)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit(send)
+                        if model.roomRunning {
+                            Button(t("停止", "Stop"), role: .destructive) { model.stopRoom() }
+                        }
+                        Button(t("送出", "Send"), action: send)
+                            .disabled(model.roomRunning || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+        }
+    }
+
+    private func send() {
+        model.sendToDeliberation(topic.id, text: draft)
+        draft = ""
+    }
+
+    @ViewBuilder private var conclusionPanel: some View {
+        if topic.status == .conclusion || topic.status == .confirmed {
+            StudioPanel {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Label(t("結論", "Conclusion"), systemImage: "checkmark.seal").font(.headline)
+                        Spacer()
+                        if topic.status == .conclusion {
+                            Button(t("確認結論", "Confirm conclusion")) { model.confirmConclusion(topic.id) }
+                                .buttonStyle(.borderedProminent)
+                        } else {
+                            Label(t("已確認", "Confirmed"), systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                        }
+                    }
+                    if let adopted = topic.adopted {
+                        Text(t("採用：\(model.memberName(adopted)) 的版本", "Adopted: \(model.memberName(adopted))'s version")).font(.caption)
+                    }
+                    Text(topic.conclusion).font(.callout).textSelection(.enabled)
+                    if topic.status == .confirmed { handoff }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var handoff: some View {
+        let open = model.archive.projects.filter { [.draft, .rejected, .failed].contains($0.phase) }
+        if let projectID = topic.handoffProjectID {
+            Text(t("已帶回專案：", "Handed to project: ") + (model.archive.projects.first { $0.id == projectID }?.title ?? ""))
+                .font(.caption).foregroundStyle(.secondary)
+        } else if !open.isEmpty {
+            HStack {
+                Picker(t("帶回專案", "Hand to project"), selection: $handoffProject) {
+                    Text(t("選擇專案", "Choose project")).tag(UUID?.none)
+                    ForEach(open) { project in Text(project.title).tag(Optional(project.id)) }
+                }.frame(maxWidth: 320)
+                Button(t("帶回專案", "Hand over")) { if let id = handoffProject { model.handoffTopic(topic.id, to: id) } }
+                    .disabled(handoffProject == nil)
+            }
+            Text(t("結論只會加進該專案的需求一次，不會自動寫檔或開工。", "The conclusion is added to that project's requirements once; nothing runs automatically."))
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+}
+
+// MARK: Side-by-side comparison
+
+struct CompareSheet: View {
+    @EnvironmentObject private var model: WorkbenchModel
+    @Environment(\.dismiss) private var dismiss
+    let topic: RoundtableTopic
+    private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, model.archive.settings.language) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(t("並排比較", "Compare side by side")).font(.title3.bold())
+                Spacer()
+                Button(t("完成", "Done")) { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(topic.submissions.filter(\.succeeded)) { submission in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            StudioAvatar(agent: submission.agent, size: 24)
+                            Text(model.memberName(submission.agent)).font(.headline)
+                            Spacer()
+                            if model.archive.roundtableTopics.first(where: { $0.id == topic.id })?.adopted == submission.agent {
+                                Label(t("已採用", "Adopted"), systemImage: "checkmark.seal.fill").foregroundStyle(.green)
+                            } else {
+                                Button(t("採用此候選", "Adopt this")) { model.adoptCandidate(topic.id, agent: submission.agent) }
+                                    .buttonStyle(.borderedProminent)
+                            }
+                        }
+                        ScrollView {
+                            Text(submission.text).font(.callout).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(12)
+                    .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                }
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 860, minHeight: 560)
+    }
+}
+
+// MARK: New topic
+
+struct NewRoundtableSheet: View {
+    @EnvironmentObject private var model: WorkbenchModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var title = ""
+    @State private var kind: RoundtableKind = .proposals
+    @State private var material = ""
+    @State private var attachments: [ChatAttachment] = []
+    @State private var members = Set(AgentKind.allCases)
+    @State private var lead: AgentKind = .claude
+    @State private var peerReview = true
+    @State private var importing = false
+    private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, model.archive.settings.language) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(t("開新議題", "New roundtable topic")).font(.title3.bold())
+            Picker("", selection: $kind) {
+                ForEach(RoundtableKind.allCases) { Text($0.title).tag($0) }
+            }.pickerStyle(.segmented).labelsHidden()
+            Text(kind.detail).font(.caption).foregroundStyle(.secondary)
+            TextField(t("議題名稱（可留空，自動取材料開頭）", "Title (optional)"), text: $title).textFieldStyle(.roundedBorder)
+            TextEditor(text: $material).font(.body).frame(minHeight: 160)
+                .overlay(alignment: .topLeading) {
+                    if material.isEmpty {
+                        Text(t("寫下材料或要求……", "Material or requirements…")).foregroundStyle(.secondary).padding(6).allowsHitTesting(false)
+                    }
+                }
+                .border(.secondary.opacity(0.3))
+            HStack {
+                Button { importing = true } label: { Label(t("附加檔案", "Attach files"), systemImage: "paperclip") }
+                Text(attachments.map(\.fileName).joined(separator: "、")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            HStack(spacing: 14) {
+                Text(t("參加成員", "Members")).font(.subheadline)
+                ForEach(AgentKind.allCases) { agent in
+                    Toggle(model.memberName(agent), isOn: Binding(
+                        get: { members.contains(agent) },
+                        set: { if $0 { members.insert(agent) } else { members.remove(agent) } }))
+                }
+                Spacer()
+                Picker(t("匯總成員", "Lead"), selection: $lead) {
+                    ForEach(AgentKind.allCases.filter(members.contains)) { Text(model.memberName($0)).tag($0) }
+                }.frame(width: 220)
+            }.toggleStyle(.checkbox)
+            Toggle(t("公開後互評（每人只看別人的版本並提意見）", "Peer review after reveal (each sees only the others)"), isOn: $peerReview)
+                .toggleStyle(.checkbox)
+            HStack {
+                Text(t("成員會各自獨立準備，公開前互相看不到。每一步都會呼叫 AI。", "Members prepare independently and can't see each other until reveal. Each step calls the AI."))
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button(t("取消", "Cancel")) { dismiss() }
+                Button(t("開始準備", "Start")) {
+                    model.openRoundtable(title: title, kind: kind, material: material, attachments: attachments,
+                                         members: Array(members), lead: lead, peerReview: peerReview)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(members.count < 2 || (material.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty))
+            }
+        }
+        .padding(20)
+        .frame(width: 680)
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.image, .pdf, .text, .sourceCode, .json, .data],
+                      allowsMultipleSelection: true) { result in
+            if case .success(let urls) = result { attachments += model.storeRoundtableAttachments(urls) }
         }
     }
 }

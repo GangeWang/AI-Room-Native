@@ -13,12 +13,14 @@ public struct SavedState: Codable, Equatable, Sendable {
     public var liveShow: LiveShowSettings
     public var liveStage: LiveStageSettings
     public var calls: CallLedger
+    public var roundtableTopics: [RoundtableTopic]
     public init(settings: NativeSettings = NativeSettings(), conversations: [Conversation] = [],
                 members: [MemberCard] = MemberCard.defaults, rooms: [TeamRoom] = [TeamRoom()],
                 projects: [ProjectRecord] = [], roundtables: [StoredRoundtable] = [],
                 schedules: [ScheduledActivity] = [], autoChat: AutoChatSettings = AutoChatSettings(),
                 teamWorkflows: [TeamProjectWorkflow] = [], liveShow: LiveShowSettings = LiveShowSettings(),
-                liveStage: LiveStageSettings = LiveStageSettings(), calls: CallLedger = CallLedger()) {
+                liveStage: LiveStageSettings = LiveStageSettings(), calls: CallLedger = CallLedger(),
+                roundtableTopics: [RoundtableTopic] = []) {
         self.settings = settings
         self.conversations = conversations
         self.members = members
@@ -31,8 +33,9 @@ public struct SavedState: Codable, Equatable, Sendable {
         self.liveShow = liveShow
         self.liveStage = liveStage
         self.calls = calls
+        self.roundtableTopics = roundtableTopics
     }
-    private enum CodingKeys: String, CodingKey { case settings, conversations, members, rooms, projects, roundtables, schedules, autoChat, teamWorkflows, liveShow, liveStage, calls }
+    private enum CodingKeys: String, CodingKey { case settings, conversations, members, rooms, projects, roundtables, schedules, autoChat, teamWorkflows, liveShow, liveStage, calls, roundtableTopics }
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         settings = try container.decodeIfPresent(NativeSettings.self, forKey: .settings) ?? NativeSettings()
@@ -47,6 +50,7 @@ public struct SavedState: Codable, Equatable, Sendable {
         liveShow = try container.decodeIfPresent(LiveShowSettings.self, forKey: .liveShow) ?? LiveShowSettings()
         liveStage = try container.decodeIfPresent(LiveStageSettings.self, forKey: .liveStage) ?? LiveStageSettings()
         calls = (try? container.decodeIfPresent(CallLedger.self, forKey: .calls)) ?? CallLedger()
+        roundtableTopics = (try? container.decodeIfPresent([RoundtableTopic].self, forKey: .roundtableTopics)) ?? []
     }
 }
 

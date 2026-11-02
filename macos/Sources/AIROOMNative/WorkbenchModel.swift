@@ -90,7 +90,7 @@ final class WorkbenchModel: ObservableObject {
         self.workspace = root.appendingPathComponent("workspace", isDirectory: true)
         self.persistence = loadedStore
         self.archive = loaded
-        self.selectedRoomID = loaded.rooms.first?.id
+        self.selectedRoomID = loaded.rooms.first(where: { $0.roundtableID == nil })?.id
         if archive.rooms.isEmpty {
             archive.rooms = [TeamRoom()]
             selectedRoomID = archive.rooms[0].id
@@ -531,7 +531,6 @@ final class WorkbenchModel: ObservableObject {
     func stopRoundtable() {
         cancelRoundtableQueue = true
         if let id = roundtableRunID { _ = runner.cancel(id: id) }
-        statusMessage = t("已要求取消圓桌剩餘執行端；已送出的請求不會自動重送。")
     }
 
     private func updateRoundtable(agent: AgentKind, text: String, error: String? = nil, force: Bool = false) {
@@ -551,8 +550,11 @@ final class WorkbenchModel: ObservableObject {
         if let selectedRoomID {
             return archive.rooms.firstIndex(where: { $0.id == selectedRoomID })
         }
-        return archive.rooms.isEmpty ? nil : 0
+        return archive.rooms.firstIndex(where: { $0.roundtableID == nil })
     }
+
+    /// Lounge topics only; roundtable deliberation rooms live under the roundtable.
+    var loungeRooms: [TeamRoom] { archive.rooms.filter { $0.roundtableID == nil } }
 
     var activeRoom: TeamRoom? { activeRoomIndex.map { archive.rooms[$0] } }
 
@@ -856,8 +858,9 @@ final class WorkbenchModel: ObservableObject {
     }
 
     /// Host picks who adds something after hands went up (nil = nobody).
-    func pickHand(_ agent: AgentKind?) {
-        guard !roomRunning, let index = activeRoomIndex, archive.rooms[index].lounge.phase == .awaitingHost else { return }
+    func pickHand(_ agent: AgentKind?, in roomID: UUID? = nil) {
+        guard !roomRunning, let index = roomID.flatMap({ id in archive.rooms.firstIndex(where: { $0.id == id }) }) ?? activeRoomIndex,
+              archive.rooms[index].lounge.phase == .awaitingHost else { return }
         if let agent {
             archive.rooms[index].lounge.supplemented.append(agent)
             archive.rooms[index].lounge.meetingPending = [agent]
@@ -887,8 +890,9 @@ final class WorkbenchModel: ObservableObject {
     }
 
     /// Ends the meeting: one member writes conclusions, disagreements and next steps.
-    func writeMinutes(by agent: AgentKind) {
-        guard storageAvailable, !roomRunning, let index = activeRoomIndex,
+    func writeMinutes(by agent: AgentKind, in roomID: UUID? = nil) {
+        guard storageAvailable, !roomRunning,
+              let index = roomID.flatMap({ id in archive.rooms.firstIndex(where: { $0.id == id }) }) ?? activeRoomIndex,
               let member = presentMembers(in: index).first(where: { $0.agent == agent }) else { return }
         let roomID = archive.rooms[index].id
         let attendees = presentMembers(in: index)
@@ -916,6 +920,13 @@ final class WorkbenchModel: ObservableObject {
                     archive.rooms[current].lounge.phase = .idle
                     archive.rooms[current].lounge.meetingStartEntryID = nil
                     archive.rooms[current].lounge.reason = t("會議紀要已整理，會議結束。")
+                    // A roundtable's minutes become its conclusion, awaiting confirmation.
+                    if let topicID = archive.rooms[current].roundtableID,
+                       let topic = archive.roundtableTopics.firstIndex(where: { $0.id == topicID }) {
+                        archive.roundtableTopics[topic].conclusion = text
+                        archive.roundtableTopics[topic].status = .conclusion
+                        archive.roundtableTopics[topic].calls += 1
+                    }
                 }
                 Notifier.post(t("會議紀要已整理"), text)
             } catch {
@@ -1345,6 +1356,218 @@ final class WorkbenchModel: ObservableObject {
             // the bounded raw transcript remains authoritative.
         }
         liveRunID = nil
+    }
+
+    // MARK: Roundtable (new-style topics)
+    @Published var selectedRoundtableID: UUID?
+    var roundtableNames: [AgentKind: String] {
+        Dictionary(uniqueKeysWithValues: AgentKind.allCases.map { ($0, memberName($0)) })
+    }
+
+    private func topicIndex(_ id: UUID) -> Int? { archive.roundtableTopics.firstIndex(where: { $0.id == id }) }
+
+    func openRoundtable(title: String, kind: RoundtableKind, material: String, attachments: [ChatAttachment],
+                        members: [AgentKind], lead: AgentKind, peerReview: Bool) {
+        guard storageAvailable, !roundtableRunning else { return }
+        let text = material.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty || !attachments.isEmpty else { statusMessage = t("請寫下材料或要求。"); return }
+        let chosen = AgentKind.allCases.filter { agent in
+            members.contains(agent) && archive.members.contains(where: { $0.agent == agent && $0.enabled })
+        }
+        guard chosen.count >= 2 else { statusMessage = t("圓桌至少需要兩位已啟用的成員。"); return }
+        do { try PrivacyGuard.validatePrompt(text) } catch { statusMessage = error.localizedDescription; return }
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let topic = RoundtableTopic(title: name.isEmpty ? TopicNaming.title(from: text) : name, kind: kind, material: text,
+                                    attachments: attachments, members: chosen, lead: chosen.contains(lead) ? lead : chosen[0],
+                                    peerReview: peerReview)
+        archive.roundtableTopics.insert(topic, at: 0)
+        selectedRoundtableID = topic.id
+        persist()
+        prepareRoundtable(topic.id)
+    }
+
+    /// Independent preparation; contents stay hidden until everyone is done.
+    func prepareRoundtable(_ id: UUID) {
+        guard !roundtableRunning, let index = topicIndex(id) else { return }
+        let topic = archive.roundtableTopics[index]
+        let pending = topic.members.filter { agent in !(topic.submission(agent)?.succeeded ?? false) }
+        guard !pending.isEmpty else { return }
+        archive.roundtableTopics[index].status = .preparing
+        roundtableRunning = true
+        cancelRoundtableQueue = false
+        persist()
+        Task {
+            defer { roundtableRunning = false; roundtableRunID = nil; persist() }
+            let prepared: (files: [PreparedAttachment], inline: String, scratch: URL?)
+            do { prepared = try prepareAttachments(topic.attachments) }
+            catch { statusMessage = error.localizedDescription; return }
+            defer { if let scratch = prepared.scratch { try? FileManager.default.removeItem(at: scratch) } }
+            for agent in pending {
+                if cancelRoundtableQueue { break }
+                guard let member = archive.members.first(where: { $0.agent == agent }) else { continue }
+                var material = topic
+                if !prepared.inline.isEmpty { material.material += "\n\n" + prepared.inline }
+                let prompt = RoundtableFlow.preparePrompt(material, member: member, ownerName: archive.settings.ownerName)
+                let files = agent == .codex ? prepared.files.filter { $0.attachment.kind != .pdf } : prepared.files
+                let result = await roundtableCall(id, agent: agent, prompt: prompt, files: files)
+                guard let current = topicIndex(id) else { return }
+                archive.roundtableTopics[current].submissions.removeAll { $0.agent == agent }
+                archive.roundtableTopics[current].submissions.append(result)
+                persist()
+            }
+            if let current = topicIndex(id), archive.roundtableTopics[current].allPrepared {
+                archive.roundtableTopics[current].status = .prepared
+                Notifier.post(t("圓桌準備完成"), archive.roundtableTopics[current].title)
+            }
+        }
+    }
+
+    /// Reveal: optional peer review, then the lead's issue list, then deliberation.
+    func revealRoundtable(_ id: UUID) {
+        guard !roundtableRunning, let index = topicIndex(id), archive.roundtableTopics[index].status == .prepared,
+              archive.roundtableTopics[index].completed >= 1 else { return }
+        archive.roundtableTopics[index].status = .reviewing
+        roundtableRunning = true
+        cancelRoundtableQueue = false
+        persist()
+        Task {
+            defer { roundtableRunning = false; roundtableRunID = nil; persist() }
+            let names = roundtableNames
+            var topic = archive.roundtableTopics[index]
+            if topic.peerReview {
+                for agent in topic.members where topic.submissions.contains(where: { $0.agent != agent && $0.succeeded }) {
+                    if cancelRoundtableQueue { return }
+                    guard let member = archive.members.first(where: { $0.agent == agent }) else { continue }
+                    let review = await roundtableCall(id, agent: agent,
+                        prompt: RoundtableFlow.peerReviewPrompt(topic, reviewer: member, names: names), files: [])
+                    topic.peerReviews.removeAll { $0.agent == agent }
+                    topic.peerReviews.append(review)
+                    if let current = topicIndex(id) { archive.roundtableTopics[current].peerReviews = topic.peerReviews; persist() }
+                }
+            }
+            guard !cancelRoundtableQueue, let lead = archive.members.first(where: { $0.agent == topic.lead }) else { return }
+            let findings = await roundtableCall(id, agent: topic.lead,
+                prompt: RoundtableFlow.findingsPrompt(topic, lead: lead, names: names), files: [])
+            guard let current = topicIndex(id) else { return }
+            archive.roundtableTopics[current].findings = findings.succeeded ? findings.text
+                : t("問題清單沒有整理完成：") + (findings.error ?? "")
+            startDeliberation(id)
+        }
+    }
+
+    private func startDeliberation(_ id: UUID) {
+        guard let index = topicIndex(id) else { return }
+        let topic = archive.roundtableTopics[index]
+        var lounge = LoungeState(style: .meeting)
+        lounge.handRaise = true
+        let room = TeamRoom(title: "圓桌：\(topic.title)", participants: topic.members, lounge: lounge,
+                            roundtableID: topic.id, briefing: RoundtableFlow.briefing(topic, names: roundtableNames))
+        archive.rooms.append(room)
+        archive.roundtableTopics[index].roomID = room.id
+        archive.roundtableTopics[index].status = .discussing
+        persist()
+        dispatchRoomMessage(roomID: room.id, question: RoundtableFlow.deliberationOpening(topic), target: nil, displayName: t("你"))
+    }
+
+    func sendToDeliberation(_ id: UUID, text: String) {
+        guard let index = topicIndex(id), let roomID = archive.roundtableTopics[index].roomID, !roomRunning else { return }
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value.count <= 8_000 else { return }
+        dispatchRoomMessage(roomID: roomID, question: value, target: nil, displayName: t("你"))
+    }
+
+    func adoptCandidate(_ id: UUID, agent: AgentKind?) {
+        guard let index = topicIndex(id), archive.roundtableTopics[index].kind.hasCandidates else { return }
+        if let agent, !(archive.roundtableTopics[index].submission(agent)?.succeeded ?? false) { return }
+        archive.roundtableTopics[index].adopted = agent
+        persist()
+    }
+
+    func concludeRoundtable(_ id: UUID, by agent: AgentKind) {
+        guard let index = topicIndex(id), let roomID = archive.roundtableTopics[index].roomID else { return }
+        writeMinutes(by: agent, in: roomID)
+    }
+
+    func confirmConclusion(_ id: UUID) {
+        guard let index = topicIndex(id), archive.roundtableTopics[index].status == .conclusion,
+              !archive.roundtableTopics[index].conclusion.isEmpty else { return }
+        archive.roundtableTopics[index].status = .confirmed
+        persist()
+    }
+
+    /// 帶回專案: the confirmed conclusion (and adopted version) is added once to a project's requirements.
+    func handoffTopic(_ id: UUID, to projectID: UUID) {
+        guard let index = topicIndex(id), archive.roundtableTopics[index].status == .confirmed,
+              archive.roundtableTopics[index].handoffProjectID == nil,
+              let project = archive.projects.firstIndex(where: { $0.id == projectID }),
+              [.draft, .rejected, .failed].contains(archive.projects[project].phase) else { return }
+        let addition = "\n\n" + RoundtableFlow.handoff(archive.roundtableTopics[index], names: roundtableNames)
+        guard archive.projects[project].task.count + addition.count <= 30_000 else {
+            statusMessage = t("專案需求已達 30,000 字，無法再加入圓桌結論。"); return
+        }
+        archive.projects[project].task += addition
+        archive.roundtableTopics[index].handoffProjectID = projectID
+        persist()
+    }
+
+    func deleteRoundtable(_ id: UUID) {
+        guard !roundtableRunning, let index = topicIndex(id) else { return }
+        if let roomID = archive.roundtableTopics[index].roomID {
+            guard !roomRunning else { return }
+            archive.rooms.removeAll { $0.id == roomID }
+        }
+        archive.roundtableTopics.remove(at: index)
+        if selectedRoundtableID == id { selectedRoundtableID = archive.roundtableTopics.first?.id }
+        persist()
+    }
+
+    private func roundtableCall(_ id: UUID, agent: AgentKind, prompt: String,
+                                files: [PreparedAttachment]) async -> RoundtableSubmission {
+        let runID = UUID()
+        roundtableRunID = runID
+        if let index = topicIndex(id) { archive.roundtableTopics[index].calls += 1 }
+        do {
+            let result = try await runner.runDetailed(id: runID, agent: agent, prompt: String(prompt.prefix(30_000)),
+                                                      settings: archive.settings, fallbackWorkspace: workspace,
+                                                      options: CLIRunOptions(attachments: files), onUpdate: { _ in })
+            return RoundtableSubmission(agent: agent, text: result.text)
+        } catch {
+            return RoundtableSubmission(agent: agent, error: cancelRoundtableQueue ? t("已停止") : error.localizedDescription)
+        }
+    }
+
+    /// Decrypts image/PDF attachments to a private temp folder; text files are inlined.
+    private func prepareAttachments(_ items: [ChatAttachment]) throws -> (files: [PreparedAttachment], inline: String, scratch: URL?) {
+        guard let persistence, !items.isEmpty else { return ([], "", nil) }
+        let texts = items.filter { $0.kind == .text }.compactMap { item in
+            (try? persistence.loadAttachment(id: item.id)).map { (item, $0) }
+        }
+        let binaries = items.filter { $0.kind != .text }
+        guard !binaries.isEmpty else { return ([], AttachmentPolicy.inline(texts), nil) }
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("airoom-attachments-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let files = try binaries.map { item -> PreparedAttachment in
+            let ext = item.kind == .pdf ? "pdf" : (item.fileName as NSString).pathExtension.lowercased()
+            let file = scratch.appendingPathComponent("\(item.id.uuidString).\(ext)")
+            try persistence.loadAttachment(id: item.id).write(to: file, options: .atomic)
+            return PreparedAttachment(attachment: item, file: file)
+        }
+        return (files, AttachmentPolicy.inline(texts), scratch)
+    }
+
+    /// Stores files picked for a new roundtable topic (same sealed store as desk attachments).
+    func storeRoundtableAttachments(_ urls: [URL]) -> [ChatAttachment] {
+        guard let persistence else { return [] }
+        return urls.prefix(AttachmentPolicy.maxPerMessage).compactMap { url in
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let data = try Data(contentsOf: url)
+                let attachment = try AttachmentPolicy.classify(fileName: url.lastPathComponent, data: data)
+                try persistence.storeAttachment(data, id: attachment.id)
+                return attachment
+            } catch { statusMessage = error.localizedDescription; return nil }
+        }
     }
 
     // MARK: Peer reviews and human candidate selection

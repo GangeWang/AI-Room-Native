@@ -26,7 +26,7 @@ struct RoomView: View {
                         }
                         Spacer()
                         Menu {
-                            ForEach(model.archive.rooms) { room in
+                            ForEach(model.loungeRooms) { room in
                                 Button {
                                     model.selectRoom(room.id)
                                 } label: {

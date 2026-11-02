@@ -160,6 +160,7 @@ struct ContentView: View {
     private func openAttention(_ target: AttentionItem.Target) {
         switch target {
         case .room(let id): model.selectRoom(id); route = .room
+        case .roundtable(let id): model.selectedRoundtableID = id; route = .roundtable
         case .project(let id): selectedProjectID = id; route = .projects
         case .settings: route = .settings
         case .member(let agent): route = .chat(agent)

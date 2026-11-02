@@ -108,17 +108,25 @@ public struct TeamRoom: Identifiable, Codable, Equatable, Sendable {
     public var summaryThroughEntryID: UUID?
     /// Summary of the previous topic, carried into this one when it was opened.
     public var carriedSummary: String
+    /// Set for a roundtable's deliberation room, which is hidden from the lounge.
+    public var roundtableID: UUID?
+    /// Material every member should know (roundtable versions, issue list), outside the transcript.
+    public var briefing: String
 
     public init(id: UUID = UUID(), title: String = "茶歇室", entries: [RoomEntry] = [], participants: [AgentKind] = AgentKind.allCases,
                 updatedAt: Date = .now, lounge: LoungeState = LoungeState(), summary: String = "",
-                summaryThroughEntryID: UUID? = nil, carriedSummary: String = "") {
+                summaryThroughEntryID: UUID? = nil, carriedSummary: String = "",
+                roundtableID: UUID? = nil, briefing: String = "") {
         self.id = id; self.title = title; self.entries = entries; self.participants = participants; self.updatedAt = updatedAt
         self.lounge = lounge; self.summary = summary; self.summaryThroughEntryID = summaryThroughEntryID
         self.carriedSummary = carriedSummary
+        self.roundtableID = roundtableID
+        self.briefing = briefing
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, entries, participants, updatedAt, lounge, summary, summaryThroughEntryID, carriedSummary
+        case id, title, entries, participants, updatedAt, lounge, summary, summaryThroughEntryID, carriedSummary,
+             roundtableID, briefing
     }
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
@@ -131,6 +139,8 @@ public struct TeamRoom: Identifiable, Codable, Equatable, Sendable {
         summary = try box.decodeIfPresent(String.self, forKey: .summary) ?? ""
         summaryThroughEntryID = try box.decodeIfPresent(UUID.self, forKey: .summaryThroughEntryID)
         carriedSummary = try box.decodeIfPresent(String.self, forKey: .carriedSummary) ?? ""
+        roundtableID = try box.decodeIfPresent(UUID.self, forKey: .roundtableID)
+        briefing = try box.decodeIfPresent(String.self, forKey: .briefing) ?? ""
     }
 }
 
