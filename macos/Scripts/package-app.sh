@@ -111,7 +111,12 @@ BUILD_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 # changes identity every build, so macOS asks again and launch blocks until
 # someone clicks Allow). Override with AIROOM_SIGN_IDENTITY. Public
 # distribution still requires Developer ID and notarization.
-IDENTITY="${AIROOM_SIGN_IDENTITY:-$(/usr/bin/security find-identity -p codesigning 2>/dev/null | /usr/bin/awk '/"AIROOM Local Signing"/ {print $2; exit}')}"
+# Prefer an Apple Development certificate (free Apple ID in Xcode): its team ID
+# gives the Keychain a stable partition, so "Always Allow" survives rebuilds.
+# A self-signed certificate keeps the code identity stable, but the Keychain
+# still keys on the binary's cdhash and asks again after every build.
+IDENTITY="${AIROOM_SIGN_IDENTITY:-$(/usr/bin/security find-identity -v -p codesigning 2>/dev/null | /usr/bin/awk -F'"' '/Apple Development:/ {split($0, f, " "); print f[2]; exit}')}"
+IDENTITY="${IDENTITY:-$(/usr/bin/security find-identity -p codesigning 2>/dev/null | /usr/bin/awk '/"AIROOM Local Signing"/ {print $2; exit}')}"
 if [[ -n "$IDENTITY" ]]; then
   /usr/bin/codesign --force --sign "$IDENTITY" "$APP"
 else
