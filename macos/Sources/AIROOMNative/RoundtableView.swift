@@ -249,8 +249,18 @@ struct RoundtableTopicView: View {
                     }
                 }
                 DisclosureGroup(t("問題清單（\(topic.findingCount) 個）", "Issue list (\(topic.findingCount))")) {
-                    Text(topic.findings.isEmpty ? t("整理中……", "Compiling…") : topic.findings)
-                        .font(.callout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    if let error = topic.findingsError {
+                        HStack {
+                            Label(t("問題清單沒有整理完成：", "Issue list failed: ") + error, systemImage: "exclamationmark.triangle")
+                                .font(.callout).foregroundStyle(.orange)
+                            Spacer()
+                            Button(t("重新整理問題清單", "Compile again")) { model.recompileFindings(topic.id) }
+                                .disabled(model.roundtableRunning || model.roomRunning)
+                        }
+                    } else {
+                        Text(topic.findings.isEmpty ? t("整理中……", "Compiling…") : topic.findings)
+                            .font(.callout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
         }
@@ -293,6 +303,14 @@ struct RoundtableTopicView: View {
                             Text(entry.isReaction ? t("回應了 ", "reacted ") + entry.body : entry.body)
                                 .font(.callout).textSelection(.enabled)
                         }
+                    }
+                }
+                if room.lounge.phase == .paused && !model.roomRunning {
+                    HStack {
+                        Label(room.lounge.reason ?? t("審議已暫停", "Paused"), systemImage: "pause.circle")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button(t("繼續", "Continue")) { model.continueLounge(in: room.id) }.controlSize(.small)
                     }
                 }
                 if room.lounge.phase == .awaitingHost {

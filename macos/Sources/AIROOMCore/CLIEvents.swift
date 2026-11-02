@@ -53,12 +53,16 @@ public struct CLIEventAccumulator {
                 if !completed.isEmpty { text = completed; return text }
             }
             if type == "result" {
+                // An error result carries its reason (e.g. a usage limit) in
+                // `result`; it must never be mistaken for an answer.
+                if value["is_error"] as? Bool == true {
+                    let reason = (value["result"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                    failure = reason ?? (value["subtype"] as? String).map { "Claude 執行失敗：\($0)" } ?? "Claude 執行失敗"
+                    return nil
+                }
                 if let result = value["result"] as? String, !result.isEmpty {
                     text = result
                     return text
-                }
-                if value["is_error"] as? Bool == true {
-                    failure = value["result"] as? String ?? "Claude 執行失敗"
                 }
             }
         }

@@ -112,3 +112,18 @@ final class ModelCatalogTests: XCTestCase {
         XCTAssertEqual(choices[2].efforts, [])
     }
 }
+
+final class ClaudeErrorResultTests: XCTestCase {
+    func testErrorResultIsAFailureNotAnAnswer() {
+        var parser = CLIEventAccumulator(agent: .claude)
+        parser.consume(line: #"{"type":"result","subtype":"success","is_error":true,"result":"Claude AI usage limit reached|1793620000"}"#)
+        XCTAssertEqual(parser.text, "")
+        XCTAssertEqual(parser.failure, "Claude AI usage limit reached|1793620000")
+        var ok = CLIEventAccumulator(agent: .claude)
+        ok.consume(line: #"{"type":"result","subtype":"success","is_error":false,"result":"OK"}"#)
+        XCTAssertEqual(ok.text, "OK"); XCTAssertNil(ok.failure)
+        var bare = CLIEventAccumulator(agent: .claude)
+        bare.consume(line: #"{"type":"result","subtype":"error_during_execution","is_error":true}"#)
+        XCTAssertEqual(bare.failure, "Claude 執行失敗：error_during_execution")
+    }
+}

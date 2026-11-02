@@ -844,8 +844,9 @@ final class WorkbenchModel: ObservableObject {
     }
 
     /// Resume a paused chat or meeting without a new human message.
-    func continueLounge() {
-        guard !roomRunning, let index = activeRoomIndex else { return }
+    func continueLounge(in roomID: UUID? = nil) {
+        guard !roomRunning,
+              let index = roomID.flatMap({ id in archive.rooms.firstIndex(where: { $0.id == id }) }) ?? activeRoomIndex else { return }
         var lounge = archive.rooms[index].lounge
         guard lounge.phase == .paused else { return }
         lounge.phase = lounge.proposalFrom != nil ? .closing : .talking
@@ -1445,13 +1446,37 @@ final class WorkbenchModel: ObservableObject {
                     if let current = topicIndex(id) { archive.roundtableTopics[current].peerReviews = topic.peerReviews; persist() }
                 }
             }
-            guard !cancelRoundtableQueue, let lead = archive.members.first(where: { $0.agent == topic.lead }) else { return }
-            let findings = await roundtableCall(id, agent: topic.lead,
-                prompt: RoundtableFlow.findingsPrompt(topic, lead: lead, names: names), files: [])
-            guard let current = topicIndex(id) else { return }
-            archive.roundtableTopics[current].findings = findings.succeeded ? findings.text
-                : t("問題清單沒有整理完成：") + (findings.error ?? "")
+            guard !cancelRoundtableQueue else { return }
+            await compileFindings(id)
             startDeliberation(id)
+        }
+    }
+
+    private func compileFindings(_ id: UUID) async {
+        guard let index = topicIndex(id),
+              let lead = archive.members.first(where: { $0.agent == archive.roundtableTopics[index].lead }) else { return }
+        let topic = archive.roundtableTopics[index]
+        let result = await roundtableCall(id, agent: topic.lead,
+            prompt: RoundtableFlow.findingsPrompt(topic, lead: lead, names: roundtableNames), files: [])
+        guard let current = topicIndex(id) else { return }
+        archive.roundtableTopics[current].findings = result.succeeded ? result.text : ""
+        archive.roundtableTopics[current].findingsError = result.succeeded ? nil : (result.error ?? t("沒有回覆"))
+        // Keep the deliberation room's briefing in step with the list.
+        if let roomID = archive.roundtableTopics[current].roomID,
+           let room = archive.rooms.firstIndex(where: { $0.id == roomID }) {
+            archive.rooms[room].briefing = RoundtableFlow.briefing(archive.roundtableTopics[current], names: roundtableNames)
+        }
+        persist()
+    }
+
+    /// Retry a failed issue list (e.g. after a usage limit resets).
+    func recompileFindings(_ id: UUID) {
+        guard !roundtableRunning, !roomRunning, topicIndex(id) != nil else { return }
+        roundtableRunning = true
+        cancelRoundtableQueue = false
+        Task {
+            defer { roundtableRunning = false; roundtableRunID = nil; persist() }
+            await compileFindings(id)
         }
     }
 

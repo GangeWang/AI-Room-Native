@@ -57,6 +57,8 @@ public struct RoundtableTopic: Identifiable, Codable, Equatable, Sendable {
     public var submissions: [RoundtableSubmission]
     public var peerReviews: [RoundtableSubmission]
     public var findings: String
+    /// Why the issue list could not be compiled (it can be retried).
+    public var findingsError: String?
     /// The hidden lounge room used for deliberation.
     public var roomID: UUID?
     public var adopted: AgentKind?
@@ -71,13 +73,13 @@ public struct RoundtableTopic: Identifiable, Codable, Equatable, Sendable {
         self.id = id; self.title = String(title.prefix(80)); self.kind = kind
         self.material = String(material.prefix(20_000)); self.attachments = attachments
         self.members = members; self.lead = lead; self.peerReview = peerReview
-        status = .preparing; submissions = []; peerReviews = []; findings = ""; roomID = nil
+        status = .preparing; submissions = []; peerReviews = []; findings = ""; findingsError = nil; roomID = nil
         adopted = nil; conclusion = ""; handoffProjectID = nil; calls = 0; self.createdAt = createdAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, title, kind, material, attachments, members, lead, peerReview, status, submissions, peerReviews,
-             findings, roomID, adopted, conclusion, handoffProjectID, calls, createdAt
+             findings, findingsError, roomID, adopted, conclusion, handoffProjectID, calls, createdAt
     }
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
@@ -93,6 +95,13 @@ public struct RoundtableTopic: Identifiable, Codable, Equatable, Sendable {
         submissions = try box.decodeIfPresent([RoundtableSubmission].self, forKey: .submissions) ?? []
         peerReviews = try box.decodeIfPresent([RoundtableSubmission].self, forKey: .peerReviews) ?? []
         findings = try box.decodeIfPresent(String.self, forKey: .findings) ?? ""
+        findingsError = try box.decodeIfPresent(String.self, forKey: .findingsError)
+        // Builds before v0.2.17 stored a failed list as text in `findings`.
+        let legacyFailure = "問題清單沒有整理完成："
+        if findingsError == nil, findings.hasPrefix(legacyFailure) {
+            findingsError = String(findings.dropFirst(legacyFailure.count))
+            findings = ""
+        }
         roomID = try box.decodeIfPresent(UUID.self, forKey: .roomID)
         adopted = try? box.decodeIfPresent(AgentKind.self, forKey: .adopted)
         conclusion = try box.decodeIfPresent(String.self, forKey: .conclusion) ?? ""
