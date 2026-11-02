@@ -60,10 +60,15 @@ private struct RoomImageViewer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            RoomImageView(image: image).frame(minWidth: 420, maxWidth: 820, minHeight: 300, maxHeight: 620)
+            RoomImageView(image: image).frame(maxWidth: .infinity, maxHeight: 560)
             if let prompt = image.revisedPrompt, !prompt.isEmpty {
-                Text(t("Codex 實際使用的描述：", "Prompt Codex used: ") + prompt)
-                    .font(.caption).foregroundStyle(.secondary).textSelection(.enabled).lineLimit(5)
+                // Long prompts wrap inside the sheet instead of widening it.
+                ScrollView {
+                    Text(t("Codex 實際使用的描述：", "Prompt Codex used: ") + prompt)
+                        .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 64)
             }
             HStack {
                 Button { save() } label: { Label(t("另存新檔…", "Save As…"), systemImage: "square.and.arrow.down") }
@@ -75,6 +80,7 @@ private struct RoomImageViewer: View {
             }
         }
         .padding(20)
+        .frame(width: 720)
     }
 
     private func save() {
