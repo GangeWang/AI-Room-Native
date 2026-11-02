@@ -15,13 +15,15 @@ public struct SavedState: Codable, Equatable, Sendable {
     public var calls: CallLedger
     public var roundtableTopics: [RoundtableTopic]
     public var projectFlows: [ProjectFlow]
+    public var dailyOpening: DailyOpeningSettings
     public init(settings: NativeSettings = NativeSettings(), conversations: [Conversation] = [],
                 members: [MemberCard] = MemberCard.defaults, rooms: [TeamRoom] = [TeamRoom()],
                 projects: [ProjectRecord] = [], roundtables: [StoredRoundtable] = [],
                 schedules: [ScheduledActivity] = [], autoChat: AutoChatSettings = AutoChatSettings(),
                 teamWorkflows: [TeamProjectWorkflow] = [], liveShow: LiveShowSettings = LiveShowSettings(),
                 liveStage: LiveStageSettings = LiveStageSettings(), calls: CallLedger = CallLedger(),
-                roundtableTopics: [RoundtableTopic] = [], projectFlows: [ProjectFlow] = []) {
+                roundtableTopics: [RoundtableTopic] = [], projectFlows: [ProjectFlow] = [],
+                dailyOpening: DailyOpeningSettings = DailyOpeningSettings()) {
         self.settings = settings
         self.conversations = conversations
         self.members = members
@@ -36,8 +38,9 @@ public struct SavedState: Codable, Equatable, Sendable {
         self.calls = calls
         self.roundtableTopics = roundtableTopics
         self.projectFlows = projectFlows
+        self.dailyOpening = dailyOpening
     }
-    private enum CodingKeys: String, CodingKey { case settings, conversations, members, rooms, projects, roundtables, schedules, autoChat, teamWorkflows, liveShow, liveStage, calls, roundtableTopics, projectFlows }
+    private enum CodingKeys: String, CodingKey { case settings, conversations, members, rooms, projects, roundtables, schedules, autoChat, teamWorkflows, liveShow, liveStage, calls, roundtableTopics, projectFlows, dailyOpening }
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         settings = try container.decodeIfPresent(NativeSettings.self, forKey: .settings) ?? NativeSettings()
@@ -54,6 +57,7 @@ public struct SavedState: Codable, Equatable, Sendable {
         calls = (try? container.decodeIfPresent(CallLedger.self, forKey: .calls)) ?? CallLedger()
         roundtableTopics = (try? container.decodeIfPresent([RoundtableTopic].self, forKey: .roundtableTopics)) ?? []
         projectFlows = (try? container.decodeIfPresent([ProjectFlow].self, forKey: .projectFlows)) ?? []
+        dailyOpening = (try? container.decodeIfPresent(DailyOpeningSettings.self, forKey: .dailyOpening)) ?? DailyOpeningSettings()
     }
 }
 

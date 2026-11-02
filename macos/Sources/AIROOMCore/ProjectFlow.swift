@@ -271,13 +271,15 @@ public enum ProjectFlowEngine {
         """
     }
 
-    public static func taskPrompt(_ task: FlowTask, flow: ProjectFlow, round: FlowRound, names: [AgentKind: String], ownerName: String) -> String {
+    public static func taskPrompt(_ task: FlowTask, flow: ProjectFlow, round: FlowRound, names: [AgentKind: String], ownerName: String,
+                                  profile: String = "") -> String {
         let plan = flow.plan
         let deps = plan?.tasks.filter { task.dependencies.contains($0.key) }
             .map { "- \($0.title)（\(names[$0.member] ?? $0.member.rawValue)）：\(String($0.summary.prefix(1_500)))" }.joined(separator: "\n") ?? ""
         let fix = task.findings.isEmpty || task.status != .fixing ? "" : "\n複核退回，請先修正這些問題：\n\(task.findings)\n"
         return """
         你是 \(names[task.member] ?? task.member.rawValue)，在 AIROOM 專案「\(flow.title)」執行一項任務。目前資料夾是這項任務專用的副本；只修改這個資料夾內的檔案，絕對不要動其他路徑。\(ownerName)驗收前，原始專案不會改變。
+        \(profile)
         專案目標：\(plan?.objective ?? "")
         本輪（\(round.title)）目標：\(round.goal)
         \(round.startNote.isEmpty ? "" : "\(ownerName)開始這一輪時的附言（要遵守並在報告中核對）：\(round.startNote)")

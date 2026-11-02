@@ -81,19 +81,27 @@ struct AutomationView: View {
                 }
                 StudioPanel {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text(t("低頻自動閒聊", "Occasional idle chat")).font(.headline)
-                        Toggle(t("啟用定時閒聊", "Enable idle chat"), isOn: Binding(
+                        Text(t("每日開場", "Daily greeting")).font(.headline)
+                        Toggle(t("每天第一次打開 AIROOM 時，由成員輪流在茶歇室問候你", "The first time you open AIROOM each day, a member greets you in the lounge"),
+                               isOn: Binding(get: { model.archive.dailyOpening.enabled },
+                                             set: { model.configureDailyOpening(enabled: $0) }))
+                        Text(t("從下一天開始生效；會提到昨天房間裡確實說過的事，不會編造。每次一則、一次呼叫。",
+                               "Starts the next day. It may mention what was actually said in the room yesterday. One line, one call."))
+                            .font(.caption).foregroundStyle(.secondary)
+                        Divider()
+                        Text(t("成員閒聊", "Member small talk")).font(.headline)
+                        Toggle(t("兩位成員依作息和關係設定，在茶歇室輕鬆聊兩句", "Two members exchange two lines in the lounge, based on their routines and relations"), isOn: Binding(
                             get: { model.archive.autoChat.enabled },
                             set: { enabled in model.configureIdleChat(enabled: enabled,
                                 intervalMinutes: model.archive.autoChat.intervalMinutes,
                                 dailyLimit: model.archive.autoChat.dailyLimit) }))
                         HStack(spacing: 18) {
-                            Stepper(t("每 \\(model.archive.autoChat.intervalMinutes) 分鐘", "Every \\(model.archive.autoChat.intervalMinutes) min"),
+                            Stepper(t("每 \(model.archive.autoChat.intervalMinutes) 分鐘", "Every \(model.archive.autoChat.intervalMinutes) min"),
                                 value: Binding(get: { model.archive.autoChat.intervalMinutes },
                                                set: { model.configureIdleChat(enabled: model.archive.autoChat.enabled,
                                                      intervalMinutes: $0, dailyLimit: model.archive.autoChat.dailyLimit) }),
                                 in: 60...1440, step: 60)
-                            Stepper(t("每天上限 \\(model.archive.autoChat.dailyLimit) 次", "Daily cap \\(model.archive.autoChat.dailyLimit)"),
+                            Stepper(t("每天上限 \(model.archive.autoChat.dailyLimit) 次", "Daily cap \(model.archive.autoChat.dailyLimit)"),
                                 value: Binding(get: { model.archive.autoChat.dailyLimit },
                                                set: { model.configureIdleChat(enabled: model.archive.autoChat.enabled,
                                                      intervalMinutes: model.archive.autoChat.intervalMinutes, dailyLimit: $0) }),

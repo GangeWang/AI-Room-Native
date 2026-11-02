@@ -70,7 +70,7 @@ public struct CallLedger: Codable, Equatable, Sendable {
 public enum AttentionKind: String, Sendable { case question, decision, unknown, login, missing, acceptance }
 
 public struct AttentionItem: Identifiable, Equatable, Sendable {
-    public enum Target: Equatable, Sendable { case room(UUID), roundtable(UUID), project(UUID), settings, member(AgentKind) }
+    public enum Target: Equatable, Sendable { case room(UUID), roundtable(UUID), project(UUID), settings, member(AgentKind), memberCard(AgentKind) }
     public var id: String
     public var kind: AttentionKind
     public var title: String
@@ -92,6 +92,11 @@ public enum AttentionBuilder {
                     detail: "找不到官方 CLI，請在設定指定路徑或安裝。", target: .settings))
             default: break
             }
+        }
+        for member in state.members where !member.memoryProposals.isEmpty {
+            items.append(AttentionItem(id: "memory-\(member.agent.rawValue)", kind: .decision,
+                title: "\(member.name) 提議了 \(member.memoryProposals.count) 條記憶",
+                detail: member.memoryProposals.first?.text ?? "", target: .memberCard(member.agent)))
         }
         for room in state.rooms {
             let target: AttentionItem.Target = room.roundtableID.map { .roundtable($0) }

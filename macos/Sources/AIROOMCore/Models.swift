@@ -135,7 +135,8 @@ public enum PromptBuilder {
     /// MVP uses fresh read-only CLI executions, so explicit prior turns preserve conversational context.
     /// This is not a native CLI session resume and can consume more tokens.
     public static func build(history: [ChatMessage], newQuestion: String, maxTurns: Int = 8,
-                             language: InterfaceLanguage = .zhTW, canWrite: Bool = false, userName: String = "") -> String {
+                             language: InterfaceLanguage = .zhTW, canWrite: Bool = false, userName: String = "",
+                             persona: String = "", profile: String = "") -> String {
         let tail = Array(history.suffix(max(0, maxTurns * 2)))
         let access = canWrite
             ? (language == .english
@@ -150,6 +151,11 @@ public enum PromptBuilder {
         if !name.isEmpty {
             lines.append(language == .english ? "Address the user as \(name)." : "請稱呼使用者為「\(name)」。")
         }
+        let persona = persona.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !persona.isEmpty {
+            lines.append((language == .english ? "Your persona: " : "你的人物設定：") + String(persona.prefix(1_500)))
+        }
+        if !profile.isEmpty { lines.append(profile) }
         for message in tail where !message.body.isEmpty {
             let name = language == .english
                 ? (message.role == .user ? "User" : "Assistant")

@@ -9,6 +9,15 @@ public struct MemberCard: Identifiable, Codable, Equatable, Sendable {
     public var enabled: Bool
     /// Optional per-person face framing. Nil preserves the pinned original defaults.
     public var avatarCrop: PortraitFaceAnchor?
+    /// Long-term memory sent with the persona (entries that are on).
+    public var memories: [MemoryEntry]
+    /// Suggested by the member from a topic; waiting for the owner to keep or drop.
+    public var memoryProposals: [MemoryEntry]
+    /// What the member is usually doing in each part of the day, by RoutinePeriod.
+    public var routine: [String: String]
+    public var quirks: [String]
+    public var relations: [MemberRelation]
+    public var talkativeness: Talkativeness
 
     public init(id: UUID = UUID(), agent: AgentKind, name: String? = nil,
                 persona: String = "", enabled: Bool = true,
@@ -19,10 +28,11 @@ public struct MemberCard: Identifiable, Codable, Equatable, Sendable {
         self.persona = persona
         self.enabled = enabled
         self.avatarCrop = avatarCrop
+        memories = []; memoryProposals = []; routine = [:]; quirks = []; relations = []; talkativeness = .normal
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, agent, name, persona, enabled, avatarCrop
+        case id, agent, name, persona, enabled, avatarCrop, memories, memoryProposals, routine, quirks, relations, talkativeness
     }
 
     /// Old encrypted state files do not have avatarCrop; retain default framing.
@@ -34,6 +44,17 @@ public struct MemberCard: Identifiable, Codable, Equatable, Sendable {
         persona = try values.decode(String.self, forKey: .persona)
         enabled = try values.decode(Bool.self, forKey: .enabled)
         avatarCrop = try values.decodeIfPresent(PortraitFaceAnchor.self, forKey: .avatarCrop)
+        memories = (try? values.decodeIfPresent([MemoryEntry].self, forKey: .memories)) ?? []
+        memoryProposals = (try? values.decodeIfPresent([MemoryEntry].self, forKey: .memoryProposals)) ?? []
+        routine = (try? values.decodeIfPresent([String: String].self, forKey: .routine)) ?? [:]
+        quirks = (try? values.decodeIfPresent([String].self, forKey: .quirks)) ?? []
+        relations = (try? values.decodeIfPresent([MemberRelation].self, forKey: .relations)) ?? []
+        talkativeness = (try? values.decodeIfPresent(Talkativeness.self, forKey: .talkativeness)) ?? .normal
+    }
+
+    /// Memory and life settings as persona lines (see MemberLife.profile).
+    public func profile(team: [MemberCard], ownerName: String) -> String {
+        MemberLife.profile(self, team: team, ownerName: ownerName)
     }
 
     public static var defaults: [MemberCard] { AgentKind.allCases.map { MemberCard(agent: $0) } }

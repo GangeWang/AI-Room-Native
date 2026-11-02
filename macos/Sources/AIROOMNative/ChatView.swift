@@ -93,6 +93,10 @@ struct ChatView: View {
             Button { renameText = topic?.title ?? ""; renaming = true } label: {
                 Label(t("重新命名目前話題…", "Rename current topic…"), systemImage: "pencil")
             }
+            Button { if let id = topic?.id { model.proposeMemories(topicID: id) } } label: {
+                Label(t("請成員從這個話題提議記憶", "Ask for memory suggestions from this topic"), systemImage: "brain")
+            }
+            .disabled(topic.map { model.proposingMemory.contains($0.id) || !$0.messages.contains(where: { $0.role == .assistant && !$0.body.isEmpty }) } ?? true)
         } label: {
             Label(topic?.title ?? TopicNaming.defaultTitle, systemImage: "text.bubble")
                 .lineLimit(1).frame(maxWidth: 220)

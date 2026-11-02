@@ -28,6 +28,10 @@ final class WorkbenchModel: ObservableObject {
     @Published var selectedRoomID: UUID?
     @Published var roomTarget: AgentKind?
     @Published var roomRunning = false
+    /// Desk topics a member is reading for memory proposals.
+    @Published var proposingMemory: Set<UUID> = []
+    /// Member card to open on the members page (from a needs-attention item).
+    @Published var focusedMember: AgentKind?
     /// Pending lounge question the human is answering with the next message.
     @Published var answeringQuestionID: UUID?
     /// Inline lounge progress (summaries etc.), shown without a modal alert.
@@ -135,7 +139,7 @@ final class WorkbenchModel: ObservableObject {
                 chatAttachments[agent] = open.draftAttachments
             }
         }
-        if storageAvailable { persist(); startAutomationTimer() }
+        if storageAvailable { persist(); startAutomationTimer(); windowOpened() }
         refreshModelCatalogs()
         // Every CLI request is counted for 用量與額度 (AIROOM's own receipts, not the bill).
         runner.observer = { agent, event in
@@ -354,7 +358,9 @@ final class WorkbenchModel: ObservableObject {
             .filter { !$0.isEmpty }.joined(separator: "\n\n")
         let fullPrompt = PromptBuilder.build(history: history, newQuestion: question,
                                              language: archive.settings.language, canWrite: true,
-                                             userName: archive.settings.userName)
+                                             userName: archive.settings.userName,
+                                             persona: archive.members.first(where: { $0.agent == agent })?.persona ?? "",
+                                             profile: memberProfile(agent))
         // Rounds may edit the topic's folder: snapshot first so the round can be undone.
         let folder: URL
         do {
@@ -660,6 +666,11 @@ final class WorkbenchModel: ObservableObject {
         archive.members.first(where: { $0.agent == agent })?.name ?? agent.rawValue
     }
 
+    /// The member's memory and life settings, as sent with their persona.
+    func memberProfile(_ agent: AgentKind) -> String {
+        archive.members.first(where: { $0.agent == agent })?.profile(team: archive.members, ownerName: ownerName) ?? ""
+    }
+
     // MARK: Workstation: login, stop-all, attention
     var attentionItems: [AttentionItem] { AttentionBuilder.items(state: archive, cli: officialCLIStatuses) }
 
@@ -732,7 +743,8 @@ final class WorkbenchModel: ObservableObject {
                 archive.rooms[index].lounge.reason = t("這段聊天已經聊了一陣子，先停下來等你。說句話或按「繼續聊」就會接著聊。")
                 break
             }
-            guard let speaker = LoungeEngine.nextSpeaker(state, present: present),
+            let preferences = Dictionary(members.map { ($0.agent, $0.talkativeness) }, uniquingKeysWith: { a, _ in a })
+            guard let speaker = LoungeEngine.nextSpeaker(state, present: present, talkativeness: preferences),
                   let member = members.first(where: { $0.agent == speaker }) else {
                 if state.style == .meeting && state.phase == .talking {
                     if await raiseHands(roomID) { continue }
@@ -1136,9 +1148,7 @@ final class WorkbenchModel: ObservableObject {
         archive.autoChat.firedDays = archive.autoChat.firedDays.filter { $0.key >= LocalAutomation.dayKey(now.addingTimeInterval(-7 * 86_400)) }
         archive.autoChat.firedDays[key, default: 0] += 1
         persist()
-        dispatchRoomMessage(roomID: roomID,
-            question: "自由討論時間：請兩位 AI 接續彼此已完成的發言，分享一個新的觀點或問題。請勿執行工具或修改檔案。",
-            target: nil, displayName: "AIROOM 定時閒聊")
+        Task { await runMemberChat(roomID: roomID) }
     }
 
     func stopRoom() {
@@ -1462,7 +1472,8 @@ final class WorkbenchModel: ObservableObject {
                 guard let member = archive.members.first(where: { $0.agent == agent }) else { continue }
                 var material = topic
                 if !prepared.inline.isEmpty { material.material += "\n\n" + prepared.inline }
-                let prompt = RoundtableFlow.preparePrompt(material, member: member, ownerName: archive.settings.ownerName)
+                let prompt = RoundtableFlow.preparePrompt(material, member: member, ownerName: archive.settings.ownerName,
+                                                            team: archive.members)
                 let files = agent == .codex ? prepared.files.filter { $0.attachment.kind != .pdf } : prepared.files
                 let result = await roundtableCall(id, agent: agent, prompt: prompt, files: files)
                 guard let current = topicIndex(id) else { return }
@@ -2240,7 +2251,8 @@ extension WorkbenchModel {
             flowActivity = t("\(memberName(current.member)) 正在做「\(current.title)」……")
             do {
                 let summary = try await flowCall(id, agent: current.member,
-                    prompt: ProjectFlowEngine.taskPrompt(current, flow: flow, round: round, names: memberNames, ownerName: archive.settings.ownerName),
+                    prompt: ProjectFlowEngine.taskPrompt(current, flow: flow, round: round, names: memberNames, ownerName: archive.settings.ownerName,
+                                                         profile: memberProfile(current.member)),
                     folder: folder.path, access: .stagedWrite, inPlace: true)
                 updateTask(id, taskID) { $0.summary = summary; $0.changes = workspace.taskChanges(taskID) }
             } catch {
@@ -2443,5 +2455,204 @@ extension WorkbenchModel {
         // read modes work on a filtered temporary copy of it.
         return try await runner.run(id: runID, agent: agent, prompt: String(prompt.prefix(30_000)), settings: settings,
                                     fallbackWorkspace: workspace, access: access, onUpdate: { _ in })
+    }
+}
+
+// MARK: Member memory and daily life
+extension WorkbenchModel {
+    private func memberIndex(_ agent: AgentKind) -> Int? { archive.members.firstIndex(where: { $0.agent == agent }) }
+
+    /// Applies a change to a member's memory entries; refused (with a reason) when it breaks the limits.
+    @discardableResult
+    func editMemories(_ agent: AgentKind, _ change: (inout [MemoryEntry]) -> Void) -> Bool {
+        guard storageAvailable, let index = memberIndex(agent) else { return false }
+        var entries = archive.members[index].memories
+        change(&entries)
+        entries.removeAll { $0.text.isEmpty }
+        do { try MemberLife.validate(entries) }
+        catch { statusMessage = error.localizedDescription; return false }
+        archive.members[index].memories = entries
+        persist()
+        return true
+    }
+
+    func addMemory(_ agent: AgentKind, text: String) -> Bool {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return false }
+        return editMemories(agent) { $0.append(MemoryEntry(text: text, source: .manual)) }
+    }
+
+    func updateMemory(_ agent: AgentKind, id: UUID, text: String) -> Bool {
+        editMemories(agent) { entries in
+            guard let i = entries.firstIndex(where: { $0.id == id }) else { return }
+            let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard entries[i].text != text else { return }
+            entries[i].text = text
+            entries[i].updatedAt = .now
+        }
+    }
+
+    func importMemories(_ agent: AgentKind, _ candidates: [MemoryCandidate]) {
+        guard storageAvailable, let index = memberIndex(agent) else { return }
+        var entries = archive.members[index].memories
+        do {
+            let off = try MemberLife.add(candidates, source: .imported, to: &entries)
+            archive.members[index].memories = entries
+            persist()
+            statusMessage = off > 0
+                ? t("已匯入；其中 \(off) 條超過啟用上限，先關閉保存，精簡後可再打開。")
+                : t("已匯入 \(candidates.count) 條記憶。")
+        } catch { statusMessage = error.localizedDescription }
+    }
+
+    /// Asks the topic's member which facts are worth keeping; they wait on the card for the owner.
+    func proposeMemories(topicID: UUID) {
+        guard storageAvailable, let topic = archive.conversations.first(where: { $0.id == topicID }),
+              !busyAgents.contains(topic.agent), !proposingMemory.contains(topicID),
+              let member = archive.members.first(where: { $0.agent == topic.agent }),
+              topic.messages.contains(where: { $0.role == .assistant && !$0.body.isEmpty }) else { return }
+        proposingMemory.insert(topicID)
+        let prompt = MemberLife.proposalPrompt(member: member, topic: topic, ownerName: ownerName)
+        let settings = archive.settings
+        Task {
+            defer { proposingMemory.remove(topicID) }
+            do {
+                let text = try await runner.run(agent: topic.agent, prompt: String(prompt.prefix(30_000)), settings: settings,
+                                                fallbackWorkspace: workspace, onUpdate: { _ in })
+                guard let index = memberIndex(topic.agent) else { return }
+                let known = Set((archive.members[index].memories + archive.members[index].memoryProposals).map(\.text))
+                let fresh = MemberLife.parseProposals(text).filter { !known.contains($0) }
+                guard !fresh.isEmpty else { statusMessage = t("\(member.name) 覺得這個話題沒有需要長期記住的事。"); return }
+                let origin = "\(member.name) · 話題「\(topic.title)」"
+                archive.members[index].memoryProposals += fresh.map { MemoryEntry(text: $0, source: .proposed, origin: origin) }
+                persist()
+                statusMessage = t("\(member.name) 提議了 \(fresh.count) 條記憶，到「成員」頁確認。")
+                Notifier.post(t("\(member.name) 提議了新的記憶"), fresh.joined(separator: "\n"))
+            } catch {
+                statusMessage = t("記憶提議沒有完成：\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func resolveProposal(_ agent: AgentKind, id: UUID, keep: Bool) {
+        guard let index = memberIndex(agent),
+              let proposal = archive.members[index].memoryProposals.first(where: { $0.id == id }) else { return }
+        if keep {
+            var entry = proposal
+            entry.createdAt = .now
+            guard editMemories(agent, { $0.append(entry) }) else { return }
+        }
+        archive.members[index].memoryProposals.removeAll { $0.id == id }
+        persist()
+    }
+
+    /// Routine, quirks, relations and talkativeness, trimmed to their limits.
+    func updateLife(_ agent: AgentKind, _ change: (inout MemberCard) -> Void) {
+        guard storageAvailable, let index = memberIndex(agent) else { return }
+        var card = archive.members[index]
+        change(&card)
+        // Bounded but not reflowed, so typing a space between words still works; prompts trim.
+        card.routine = card.routine.reduce(into: [:]) { result, item in
+            let value = String(item.value.replacingOccurrences(of: "\n", with: " ").prefix(MemberLife.routineLimit))
+            if RoutinePeriod(rawValue: item.key) != nil, !value.trimmingCharacters(in: .whitespaces).isEmpty { result[item.key] = value }
+        }
+        var seen = Set<String>()
+        card.quirks = card.quirks.map { MemberLife.clean($0, max: MemberLife.quirkLimit) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }.prefix(MemberLife.quirksMax).map { $0 }
+        var related = Set<AgentKind>()
+        card.relations = card.relations.map { MemberRelation(agent: $0.agent, text: String($0.text.replacingOccurrences(of: "\n", with: " ").prefix(MemberLife.relationLimit))) }
+            .filter { $0.agent != agent && !$0.text.trimmingCharacters(in: .whitespaces).isEmpty && related.insert($0.agent).inserted }
+        archive.members[index] = card
+        persist()
+    }
+
+    // MARK: Daily opening and member chat
+
+    func configureDailyOpening(enabled: Bool) {
+        archive.dailyOpening.enabled = enabled
+        archive.dailyOpening.roomID = activeRoom?.id ?? archive.dailyOpening.roomID
+        persist()
+    }
+
+    /// The window was opened (or the app brought forward): the first time each day, one member greets.
+    func windowOpened(now: Date = .now) {
+        guard storageAvailable else { return }
+        let due = archive.dailyOpening.opened(now: now)
+        persist()
+        guard due, !liveActive, !roomRunning else { return }
+        Task { await runDailyOpening(now: now) }
+    }
+
+    /// The configured room, or the most recently used lounge room.
+    private func dailyLifeRoom(_ preferred: UUID?) -> Int? {
+        if let preferred, let index = archive.rooms.firstIndex(where: { $0.id == preferred && $0.isLounge }) { return index }
+        return archive.rooms.indices.filter { archive.rooms[$0].isLounge }.max { archive.rooms[$0].updatedAt < archive.rooms[$1].updatedAt }
+    }
+
+    private func runDailyOpening(now: Date) async {
+        guard let roomIndex = dailyLifeRoom(archive.dailyOpening.roomID) else { return }
+        let present = presentMembers(in: roomIndex)
+        guard let agent = MemberLife.nextGreeter(present.map(\.agent), last: archive.dailyOpening.lastAgent),
+              let member = present.first(where: { $0.agent == agent }) else { return }
+        archive.dailyOpening.lastAgent = agent
+        let roomID = archive.rooms[roomIndex].id
+        let prompt = MemberLife.openingPrompt(member: member, team: archive.members, room: archive.rooms[roomIndex],
+                                              ownerName: ownerName, now: now)
+        _ = await postLifeLine(roomID: roomID, member: member, prompt: prompt)
+        resumeLoungeIfAsked(roomID)
+    }
+
+    /// Two lines of small talk between two members, using their routines and relations.
+    func runMemberChat(roomID: UUID) async {
+        guard !roomRunning, let roomIndex = archive.rooms.firstIndex(where: { $0.id == roomID }) else { return }
+        let pair = presentMembers(in: roomIndex).shuffled().prefix(2)
+        guard pair.count == 2, let first = pair.first, let second = pair.last else { return }
+        let opener = MemberLife.chatPrompt(member: first, other: second, team: archive.members, ownerName: ownerName)
+        if let line = await postLifeLine(roomID: roomID, member: first, prompt: opener), !cancelRoomQueue {
+            let answer = MemberLife.chatPrompt(member: second, other: first, team: archive.members, ownerName: ownerName, reply: line)
+            _ = await postLifeLine(roomID: roomID, member: second, prompt: answer)
+        }
+        resumeLoungeIfAsked(roomID)
+    }
+
+    /// One stateless line in the room. Returns the text, or nil when it failed or was stopped
+    /// (a failed line is removed; nothing is retried).
+    private func postLifeLine(roomID: UUID, member: MemberCard, prompt: String) async -> String? {
+        guard !roomRunning, let index = archive.rooms.firstIndex(where: { $0.id == roomID }) else { return nil }
+        let runID = UUID(), entryID = UUID()
+        roomRunning = true
+        cancelRoomQueue = false
+        roomRunID = runID
+        archive.rooms[index].entries.append(RoomEntry(id: entryID, speaker: .assistant, agent: member.agent,
+            displayName: member.name, body: t("正在想……"), delivery: .inProgress))
+        loungePlaceholder = (roomID, entryID)
+        persist()
+        defer { roomRunID = nil; roomRunning = false; loungePlaceholder = nil; persist() }
+        do {
+            let text = try await runner.run(id: runID, agent: member.agent, prompt: String(prompt.prefix(30_000)),
+                                            settings: archive.settings, fallbackWorkspace: workspace, onUpdate: { _ in })
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cancelRoomQueue, !text.isEmpty else {
+                if !cancelRoomQueue { archive.rooms.indices.forEach { archive.rooms[$0].entries.removeAll { $0.id == entryID } } }
+                return nil
+            }
+            finishRoomReply(roomID: roomID, entryID: entryID, text: String(text.prefix(2_000)), delivery: .completed)
+            // This member's continued conversation never sees its own lines; let it start afresh with the full room.
+            if let current = archive.rooms.firstIndex(where: { $0.id == roomID }) {
+                archive.rooms[current].sessions[member.agent.rawValue] = nil
+            }
+            return text
+        } catch {
+            if !cancelRoomQueue { archive.rooms.indices.forEach { archive.rooms[$0].entries.removeAll { $0.id == entryID } } }
+            statusMessage = t("\(member.name) 的日常發言沒有完成：\(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// The owner spoke while a daily line was running: answer now.
+    private func resumeLoungeIfAsked(_ roomID: UUID) {
+        guard !cancelRoomQueue, !roomRunning, let index = archive.rooms.firstIndex(where: { $0.id == roomID }),
+              archive.rooms[index].lounge.phase == .talking else { return }
+        startLounge(roomID)
     }
 }

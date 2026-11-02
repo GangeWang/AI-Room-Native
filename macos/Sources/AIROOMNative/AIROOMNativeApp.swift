@@ -20,6 +20,10 @@ struct AIROOMNativeApp: App {
                 .environmentObject(workbench)
                 .environment(\.locale, Locale(identifier: workbench.archive.settings.language.rawValue))
                 .frame(minWidth: 840, minHeight: 560)
+                // Daily opening: the first activation of each day (once the state is unlocked).
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    workbench.windowOpened()
+                }
         }
         .defaultSize(width: 1180, height: 780)
         // Like upstream's tray icon: closing the window keeps AIROOM available here.

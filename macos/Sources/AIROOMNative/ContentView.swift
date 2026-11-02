@@ -111,10 +111,14 @@ struct ContentView: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(member?.name ?? agent.shortName).font(.subheadline.weight(.semibold))
                                             .lineLimit(1)
-                                        Text(model.busyAgents.contains(agent)
-                                             ? t("正在工作", "Working")
-                                             : (member?.enabled == false ? t("已停用", "Disabled") : t("空閒中", "Available")))
-                                            .font(.caption2).foregroundStyle(.secondary)
+                                        // Idle members show their routine for this part of the day (a setting, not real work).
+                                        TimelineView(.periodic(from: .now, by: 300)) { context in
+                                            Text(model.busyAgents.contains(agent)
+                                                 ? t("正在工作", "Working")
+                                                 : (member?.enabled == false ? t("已停用", "Disabled")
+                                                    : member.flatMap { MemberLife.status($0, at: context.date) } ?? t("空閒中", "Available")))
+                                                .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                        }
                                     }
                                     Spacer(minLength: 0)
                                     StudioQuotaCompact(quota: model.accountQuotas[agent])
@@ -185,6 +189,7 @@ struct ContentView: View {
             selectedProjectID = id; route = .projects
         case .settings: route = .settings
         case .member(let agent): route = .chat(agent)
+        case .memberCard(let agent): model.focusedMember = agent; route = .members
         }
     }
 
