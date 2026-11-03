@@ -1,4 +1,10 @@
-Original AIROOM artwork is not bundled in this source distribution.
-Run ./Scripts/fetch-original-assets.sh to fetch individual files from the pinned
-upstream Git commit, verifying their Git blob hashes before building.
-Artwork may have separate copyright terms; obtain permission before redistribution.
+AIROOM artwork (portraits, room backgrounds, app icon) by ZipZipPipe (Bilibili),
+taken unmodified from the original AIROOM (https://github.com/tonyAmadeus/offAice).
+The whale girl (ds.webp) is ZipZipPipe's derivative of an original character by 上善无形.
+
+Licensed under CC BY-NC-SA 4.0: https://creativecommons.org/licenses/by-nc-sa/4.0/
+Attribution required; no commercial use; adaptations must use the same license.
+This license covers the artwork only, not the AIROOM Native source code.
+
+./Scripts/fetch-original-assets.sh can re-download these files from the pinned
+upstream commit and verify their Git blob hashes.

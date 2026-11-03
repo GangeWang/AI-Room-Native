@@ -2,7 +2,7 @@
 
 > **原出處：[tonyAmadeus/offAice](https://github.com/tonyAmadeus/offAice)（AIROOM · 我们的 AI 工作室）**
 >
-> 本專案是 AIROOM 的 macOS 原生重新實作。功能設計、四個房間的工作方式、介面風格、人物與工作流程都來自原版，感謝原作者 [@tonyAmadeus](https://github.com/tonyAmadeus)。程式碼以 Swift 重新撰寫，沒有使用原版的 TypeScript／Electron 程式碼；圖片素材來自 ZipZipPipe（CC BY-NC），詳見下方〈素材與授權〉。
+> 本專案是 AIROOM 的 macOS 原生重新實作。功能設計、四個房間的工作方式、介面風格、人物與工作流程都來自原版，感謝原作者 [@tonyAmadeus](https://github.com/tonyAmadeus)。程式碼以 Swift 重新撰寫，沒有使用原版的 TypeScript／Electron 程式碼；圖片素材來自 ZipZipPipe（CC BY-NC-SA 4.0），詳見下方〈素材與授權〉。
 
 把 Claude 和 Codex 請進同一個視窗，給每位成員名字、頭像和個性，讓它們像同事一樣：單獨幫你做事、一起聊天開會、各寫一稿互相比較、分工完成專案，最後由你驗收。每位成員背後都是真實的官方程式（Claude Code、Codex CLI），用你自己的帳號登入；AIROOM 負責把它們組織起來，並把說了什麼、做了什麼、改了哪些檔案都攤在你面前。
 
@@ -69,7 +69,10 @@ swift test                     # 單元測試
 
 ## 素材與授權
 
-- **圖片素材**：人物立繪（Claudia、GPTia 等）、茶歇室背景與程式圖示都沿用原版 AIROOM，作者是 Bilibili 的 ZipZipPipe，以 CC BY-NC（姓名標示－非商業性）授權。本專案未修改這些圖片，只用於免費、非商業的用途；請勿將它們用於商業用途。
+- **圖片素材**：人物立繪（Claudia、GPTia 等）、茶歇室背景與程式圖示都沿用原版 AIROOM，作者是 Bilibili 的 ZipZipPipe，依 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hant)（姓名標示－非商業性－相同方式分享）授權。其中鯨魚娘（`ds.webp`）是 ZipZipPipe 以 @上善无形 的原創角色所做的二次創作。
+  - 本專案未修改這些圖片，只用於免費、非商業的用途。
+  - 任何人使用或再散布這些圖片，都必須標示作者、不得用於商業用途；以它們改作的作品也必須以 CC BY-NC-SA 4.0 公開分享。
+  - 這個授權只適用於圖片，不適用於本專案的程式碼。
 - **程式碼**：原版 [tonyAmadeus/offAice](https://github.com/tonyAmadeus/offAice) 沒有指定授權條款；本專案的 Swift 程式碼為獨立重寫，目前尚未指定授權條款。
 
 ## 致謝
