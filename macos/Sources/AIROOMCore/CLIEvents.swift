@@ -3,7 +3,7 @@ import Foundation
 /// Convert each vendor's official JSONL output into displayable final text.
 /// Do not show tool calls or raw JSON events as if they were assistant answers.
 public struct CLIEventAccumulator {
-    public let agent: AgentKind
+    public let agent: Executor
     public private(set) var text = ""
     public private(set) var failure: String?
     /// Model reported by the CLI itself (Claude's `system/init` event).
@@ -14,7 +14,7 @@ public struct CLIEventAccumulator {
     public private(set) var endedBeforeModel = false
     private var claudeDeltas = ""
 
-    public init(agent: AgentKind) { self.agent = agent }
+    public init(agent: Executor) { self.agent = agent }
 
     @discardableResult public mutating func consume(line: String) -> String? {
         guard let data = line.data(using: .utf8),

@@ -17,9 +17,6 @@ enum StudioAsset {
            let result = NSImage(contentsOf: url) { return result }
         return nil
     }
-    static func portrait(for agent: AgentKind) -> String {
-        agent == .claude ? "claudia.webp" : "gptia.webp"
-    }
     static func backdrop(for date: Date) -> String {
         switch Calendar.current.component(.hour, from: date) {
         case 5..<11: return "morning.webp"
@@ -32,7 +29,7 @@ enum StudioAsset {
 
 struct StudioPortrait: View {
     @EnvironmentObject private var model: WorkbenchModel
-    let agent: AgentKind
+    let agent: MemberID
     /// The editor's framing while a slider is being dragged.
     var preview: (scale: Double, offset: PortraitOffset)? = nil
     var body: some View {
@@ -48,10 +45,10 @@ struct StudioPortrait: View {
                     .offset(x: geo.size.width * offset.x, y: geo.size.height * offset.y)
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
-                    .accessibilityLabel(agent.rawValue)
+                    .accessibilityLabel(agent.shortName)
             } else {
-                Image(systemName: agent == .claude ? "sparkles" : "curlybraces")
-                    .font(.system(size: 49, weight: .light))
+                Text(agent.initial)
+                    .font(.system(size: 72, weight: .bold, design: .rounded))
                     .foregroundStyle(agent.studioColor)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

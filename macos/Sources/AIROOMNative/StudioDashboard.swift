@@ -4,11 +4,11 @@ import AIROOMCore
 struct StudioDashboard: View {
     @EnvironmentObject private var model: WorkbenchModel
     @Environment(\.colorScheme) private var scheme
-    let onChat: (AgentKind) -> Void
+    let onChat: (MemberID) -> Void
     let onProject: () -> Void
     let onRoom: () -> Void
     let onMembers: () -> Void
-    let onMemberCard: (AgentKind) -> Void
+    let onMemberCard: (MemberID) -> Void
     var onSettings: () -> Void = {}
     private var lang: InterfaceLanguage { model.archive.settings.language }
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, lang) }
@@ -54,7 +54,7 @@ struct StudioDashboard: View {
                                         .frame(width: 8, height: 8)
                                     Text(card?.name ?? agent.shortName).font(.title3.weight(.semibold))
                                     Spacer()
-                                    Text(agent == .claude ? "Claude Code" : "Codex")
+                                    Text(agent.executor.rawValue)
                                         .font(.caption2).foregroundStyle(.secondary)
                                 }
                                 Text(model.busyAgents.contains(agent)
@@ -88,7 +88,7 @@ struct StudioDashboard: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Label(t("開工前檢查", "Preflight Checklist"), systemImage: "checklist")
                                 .font(.headline)
-                            ForEach(AgentKind.allCases) { agent in preflightRow(agent) }
+                            ForEach(model.memberIDs) { agent in preflightRow(agent) }
                             StudioNotice(message: t("「去登入」會在終端機打開官方程式自己的登入流程；AIROOM 不接觸帳號密碼或 Token。", "\"Sign in\" opens the official CLI's own login in Terminal; AIROOM never handles passwords or tokens."))
                         }
                     }
@@ -129,7 +129,7 @@ struct StudioDashboard: View {
 struct StudioMemberSheet: View {
     @EnvironmentObject private var model: WorkbenchModel
     @Environment(\.colorScheme) private var scheme
-    let agent: AgentKind
+    let agent: MemberID
     let onDesk: () -> Void
     let onManage: () -> Void
     private func t(_ zh: String, _ en: String) -> String {
@@ -147,7 +147,7 @@ struct StudioMemberSheet: View {
                 HStack {
                     Text(member?.name ?? agent.shortName).font(.title2.bold())
                     Spacer()
-                    Text(agent.rawValue).foregroundStyle(.secondary)
+                    Text(agent.executor.rawValue).foregroundStyle(.secondary)
                 }
                 Text(member?.persona.isEmpty == false ? (member?.persona ?? "") : t("這張人物卡尚未設定個性與分工。", "No persona or role has been configured."))
                     .foregroundStyle(.secondary)
@@ -167,8 +167,9 @@ struct StudioMemberSheet: View {
 }
 
 extension StudioDashboard {
-    @ViewBuilder func preflightRow(_ agent: AgentKind) -> some View {
-        let status = model.officialCLIStatuses[agent]
+    @ViewBuilder func preflightRow(_ agent: MemberID) -> some View {
+        let executor = model.executor(of: agent)
+        let status = model.officialCLIStatuses[executor]
         HStack(spacing: 8) {
             StudioAvatar(agent: agent, size: 27, running: model.busyAgents.contains(agent))
             Text(model.memberName(agent)).font(.subheadline)
@@ -179,8 +180,8 @@ extension StudioDashboard {
             case .notLoggedIn:
                 Label(t("需要登入", "Sign-in needed"), systemImage: "person.crop.circle.badge.exclamationmark")
                     .font(.caption).foregroundStyle(.orange)
-                Button(t("去登入", "Sign in")) { model.openOfficialLogin(for: agent) }.controlSize(.small)
-                Button { model.checkVendorCLIAccount(for: agent) } label: { Image(systemName: "arrow.clockwise") }
+                Button(t("去登入", "Sign in")) { model.openOfficialLogin(for: executor) }.controlSize(.small)
+                Button { model.checkVendorCLIAccount(for: executor) } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.borderless).help(t("重新檢查", "Check again"))
             case .missingExecutable:
                 Label(t("缺少程式", "CLI missing"), systemImage: "xmark.circle").font(.caption).foregroundStyle(.red)
@@ -190,7 +191,7 @@ extension StudioDashboard {
                 Text(t("檢查中", "Checking")).font(.caption).foregroundStyle(.secondary)
             case .notConfirmed, .timedOut:
                 Label(t("無法確認", "Unconfirmed"), systemImage: "questionmark.circle").font(.caption).foregroundStyle(.secondary)
-                Button { model.checkVendorCLIAccount(for: agent) } label: { Image(systemName: "arrow.clockwise") }
+                Button { model.checkVendorCLIAccount(for: executor) } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.borderless).help(t("重新檢查", "Check again"))
             }
         }

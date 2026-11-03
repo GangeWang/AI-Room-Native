@@ -64,7 +64,7 @@ struct RoomView: View {
                     if let room = model.activeRoom { loungeStatus(room) }
                     HStack(spacing: 12) {
                         Text(t("在場", "Present")).font(.caption.weight(.semibold))
-                        ForEach(AgentKind.allCases) { agent in
+                        ForEach(model.enabledMemberIDs) { agent in
                             Toggle(isOn: Binding(
                                 get: { model.activeRoom?.participants.contains(agent) ?? false },
                                 set: { model.setRoomParticipant(agent, included: $0) }
@@ -252,8 +252,8 @@ struct RoomView: View {
                         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(StudioTheme.border(scheme)))
                     HStack(spacing: 10) {
                         Picker(t("回覆成員", "Responders"), selection: $model.roomTarget) {
-                            Text(t("所有在場成員", "All present agents")).tag(nil as AgentKind?)
-                            ForEach(AgentKind.allCases.filter { model.activeRoom?.participants.contains($0) ?? false }) { agent in
+                            Text(t("所有在場成員", "All present agents")).tag(nil as MemberID?)
+                            ForEach(model.memberIDs.filter { model.activeRoom?.participants.contains($0) ?? false }) { agent in
                                 Text(agent.shortName).tag(Optional(agent))
                             }
                         }
@@ -414,7 +414,7 @@ struct RoomView: View {
         let lounge = room.lounge
         if [.raising, .awaitingHost].contains(lounge.phase) && !lounge.hands.isEmpty {
             VStack(alignment: .leading, spacing: 5) {
-                ForEach(AgentKind.allCases.filter { lounge.hands[$0.rawValue] != nil }) { agent in
+                ForEach(model.memberIDs.filter { lounge.hands[$0.rawValue] != nil }) { agent in
                     let vote = lounge.hands[agent.rawValue]!
                     HStack(spacing: 8) {
                         StudioAvatar(agent: agent, size: 20)

@@ -4,7 +4,7 @@ import XCTest
 final class RoundtableTests: XCTestCase {
     let claude = MemberCard(agent: .claude, name: "克勞蒂亞")
     let codex = MemberCard(agent: .codex, name: "GPT娘")
-    let names: [AgentKind: String] = [.claude: "克勞蒂亞", .codex: "GPT娘"]
+    let names: [MemberID: String] = [.claude: "克勞蒂亞", .codex: "GPT娘"]
 
     private func topic() -> RoundtableTopic {
         var topic = RoundtableTopic(title: "第一集", kind: .proposals, material: "直播第一集要做什麼？",

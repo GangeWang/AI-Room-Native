@@ -34,6 +34,8 @@ done <<'ASSETS'
 build/airoom.png|airoom.png|0f068854e05426b1ee3d9352da42b0ea0e7e74a9
 src/renderer/assets/members/claudia.webp|claudia.webp|ae0a5afde2a86fa48600689e0c9339ab19b644ad
 src/renderer/assets/members/gptia.webp|gptia.webp|81ffacdf714ea3a3c55a60410594b56a4da603e9
+src/renderer/assets/members/ds.webp|ds.webp|baa3f7f51f0330d6ae2cb7d4803c70f07e4f67dc
+src/renderer/assets/members/gemini.webp|gemini.webp|756846a790d447377305da53dee8ed883f3ff2f3
 src/renderer/assets/rooms/morning.webp|morning.webp|7e0674b1d49a440700348eb93fb8bbe2b8b8aae5
 src/renderer/assets/rooms/afternoon.webp|afternoon.webp|eeac77f36360f8c0a009a702a84e9c2f316c7029
 src/renderer/assets/rooms/evening.webp|evening.webp|e5502e1a368fe606a7a4676ca460937588360e56

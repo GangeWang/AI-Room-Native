@@ -50,13 +50,13 @@ public struct FlowTask: Identifiable, Codable, Equatable, Sendable {
     public var key: String
     public var roundKey: String
     public var title: String
-    public var member: AgentKind
+    public var member: MemberID
     public var goal: String
     public var criteria: [String]
     public var dependencies: [String]
     public var status: FlowTaskStatus
     public var summary: String
-    public var reviewer: AgentKind?
+    public var reviewer: MemberID?
     public var findings: String
     public var returns: Int
     /// Extra requirements added while working (補充到他目前的任務).
@@ -76,7 +76,7 @@ public struct FlowTask: Identifiable, Codable, Equatable, Sendable {
     /// The step a failed task was on, so 繼續 resumes a fix or review on the same copy.
     public var failedAt: FlowTaskStatus?
 
-    public init(id: UUID = UUID(), key: String, roundKey: String, title: String, member: AgentKind, goal: String,
+    public init(id: UUID = UUID(), key: String, roundKey: String, title: String, member: MemberID, goal: String,
                 criteria: [String] = [], dependencies: [String] = [], files: [String] = []) {
         self.id = id; self.key = key; self.roundKey = roundKey; self.title = String(title.prefix(120))
         self.member = member; self.goal = String(goal.prefix(4_000)); self.criteria = Array(criteria.prefix(12))
@@ -91,13 +91,13 @@ public struct FlowTask: Identifiable, Codable, Equatable, Sendable {
         key = try box.decode(String.self, forKey: .key)
         roundKey = try box.decode(String.self, forKey: .roundKey)
         title = try box.decode(String.self, forKey: .title)
-        member = try box.decode(AgentKind.self, forKey: .member)
+        member = try box.decode(MemberID.self, forKey: .member)
         goal = try box.decode(String.self, forKey: .goal)
         criteria = try box.decode([String].self, forKey: .criteria)
         dependencies = try box.decode([String].self, forKey: .dependencies)
         status = try box.decode(FlowTaskStatus.self, forKey: .status)
         summary = try box.decode(String.self, forKey: .summary)
-        reviewer = try box.decodeIfPresent(AgentKind.self, forKey: .reviewer)
+        reviewer = try box.decodeIfPresent(MemberID.self, forKey: .reviewer)
         findings = try box.decode(String.self, forKey: .findings)
         returns = try box.decode(Int.self, forKey: .returns)
         supplements = try box.decode([String].self, forKey: .supplements)
@@ -156,8 +156,8 @@ public struct ProjectFlow: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var title: String
     public var folder: String
-    public var members: [AgentKind]
-    public var lead: AgentKind?
+    public var members: [MemberID]
+    public var lead: MemberID?
     public var reviewLevel: ReviewLevel
     public var step: FlowStep
     /// Discussion room (a hidden lounge meeting that may read the project files).
@@ -180,7 +180,7 @@ public struct ProjectFlow: Identifiable, Codable, Equatable, Sendable {
     /// Members whose quota ran out; their work waits (never re-sent by itself).
     public var quotaWaits: [FlowQuotaWait]
 
-    public init(id: UUID = UUID(), title: String, folder: String, members: [AgentKind], reviewLevel: ReviewLevel = .standard) {
+    public init(id: UUID = UUID(), title: String, folder: String, members: [MemberID], reviewLevel: ReviewLevel = .standard) {
         self.id = id; self.title = String(title.prefix(80)); self.folder = folder; self.members = members
         lead = nil; self.reviewLevel = reviewLevel; step = .discussion; roomID = nil; plan = nil; planRequests = []
         currentRound = 0; paused = false; materials = []; completionReport = ""; previousSummary = ""
@@ -192,8 +192,8 @@ public struct ProjectFlow: Identifiable, Codable, Equatable, Sendable {
         id = try box.decode(UUID.self, forKey: .id)
         title = try box.decode(String.self, forKey: .title)
         folder = try box.decode(String.self, forKey: .folder)
-        members = try box.decode([AgentKind].self, forKey: .members)
-        lead = try box.decodeIfPresent(AgentKind.self, forKey: .lead)
+        members = try box.decode([MemberID].self, forKey: .members)
+        lead = try box.decodeIfPresent(MemberID.self, forKey: .lead)
         reviewLevel = try box.decode(ReviewLevel.self, forKey: .reviewLevel)
         step = try box.decode(FlowStep.self, forKey: .step)
         roomID = try box.decodeIfPresent(UUID.self, forKey: .roomID)
@@ -235,14 +235,15 @@ public enum FlowPlanError: Error, LocalizedError, Equatable {
 public enum ProjectFlowEngine {
     public static let maxReturns = 2
 
-    static func agent(_ value: Any?, members: [AgentKind]) -> AgentKind? {
+    static func agent(_ value: Any?, members: [MemberID]) -> MemberID? {
         guard let text = (value as? String)?.lowercased() else { return nil }
-        return members.first { text.contains($0.executableName) || text == $0.rawValue.lowercased() }
+        return members.first { text == $0.handle.lowercased() || text == $0.rawValue.lowercased() }
+            ?? members.first { text.contains($0.handle.lowercased()) }
     }
 
     /// Parses the lead's JSON plan. Members must be present; tasks must point
     /// at rounds; dependencies are kept only when they name an earlier task.
-    public static func parsePlan(_ text: String, members: [AgentKind], version: Int = 1) throws -> FlowPlan {
+    public static func parsePlan(_ text: String, members: [MemberID], version: Int = 1) throws -> FlowPlan {
         guard let object = LoungeEngine.jsonObject(in: text) else { throw FlowPlanError.unreadable }
         let strings = { (key: String) in ((object[key] as? [Any]) ?? []).compactMap { $0 as? String }.map { String($0.prefix(400)) } }
         let rounds = ((object["rounds"] as? [[String: Any]]) ?? []).enumerated().map { index, item in
@@ -281,7 +282,7 @@ public enum ProjectFlowEngine {
     }
 
     /// Who reviews a task: another member, preferring the lead.
-    public static func reviewer(for task: FlowTask, lead: AgentKind, members: [AgentKind]) -> AgentKind {
+    public static func reviewer(for task: FlowTask, lead: MemberID, members: [MemberID]) -> MemberID {
         if task.member != lead { return lead }
         return members.first { $0 != task.member } ?? lead
     }
@@ -293,11 +294,11 @@ public enum ProjectFlowEngine {
 
     // MARK: Prompts
 
-    static func membersLine(_ flow: ProjectFlow, names: [AgentKind: String]) -> String {
-        flow.members.map { "\(names[$0] ?? $0.rawValue)（member 填 \"\($0.executableName)\"）" }.joined(separator: "、")
+    static func membersLine(_ flow: ProjectFlow, names: [MemberID: String]) -> String {
+        flow.members.map { "\(names[$0] ?? $0.rawValue)（member 填 \"\($0.handle)\"）" }.joined(separator: "、")
     }
 
-    public static func planPrompt(_ flow: ProjectFlow, discussion: String, names: [AgentKind: String], ownerName: String) -> String {
+    public static func planPrompt(_ flow: ProjectFlow, discussion: String, names: [MemberID: String], ownerName: String) -> String {
         let lead = flow.lead.map { names[$0] ?? $0.rawValue } ?? "負責人"
         let previous = flow.plan.map { plan -> String in
             // Accepted rounds are finished work: the revision must cover only what remains.
@@ -331,7 +332,7 @@ public enum ProjectFlowEngine {
         """
     }
 
-    public static func taskPrompt(_ task: FlowTask, flow: ProjectFlow, round: FlowRound, names: [AgentKind: String], ownerName: String,
+    public static func taskPrompt(_ task: FlowTask, flow: ProjectFlow, round: FlowRound, names: [MemberID: String], ownerName: String,
                                   profile: String = "") -> String {
         let plan = flow.plan
         let deps = plan?.tasks.filter { task.dependencies.contains($0.key) }
@@ -378,7 +379,7 @@ public enum ProjectFlowEngine {
         return lines.joined(separator: "\n") + "\n"
     }
 
-    public static func taskReviewPrompt(_ task: FlowTask, reviewer: AgentKind, names: [AgentKind: String], ownerName: String = "使用者",
+    public static func taskReviewPrompt(_ task: FlowTask, reviewer: MemberID, names: [MemberID: String], ownerName: String = "使用者",
                                         round: FlowRound? = nil) -> String {
         // The owner's round note and return opinion bind the reviewer too.
         let notes = [round.map(\.startNote).flatMap { $0.isEmpty ? nil : "\(ownerName)開始這一輪時的附言：\($0)" },
@@ -400,8 +401,8 @@ public enum ProjectFlowEngine {
         """
     }
 
-    public static func roundCheckPrompt(_ round: FlowRound, flow: ProjectFlow, tasks: [FlowTask], checker: AgentKind,
-                                        names: [AgentKind: String], verify: Bool) -> String {
+    public static func roundCheckPrompt(_ round: FlowRound, flow: ProjectFlow, tasks: [FlowTask], checker: MemberID,
+                                        names: [MemberID: String], verify: Bool) -> String {
         let list = tasks.map { "- \($0.title)（\(names[$0.member] ?? $0.member.rawValue)，\($0.status == .done ? "完成" : "未完成")）：\(String($0.summary.prefix(1_200)))" }
             .joined(separator: "\n")
         return """
@@ -414,7 +415,7 @@ public enum ProjectFlowEngine {
         """
     }
 
-    public static func completionPrompt(_ flow: ProjectFlow, names: [AgentKind: String]) -> String {
+    public static func completionPrompt(_ flow: ProjectFlow, names: [MemberID: String]) -> String {
         let rounds = (flow.plan?.rounds ?? []).map { "【\($0.title)】\n\(String($0.report.prefix(3_000)))" }.joined(separator: "\n\n")
         return """
         AIROOM 專案「\(flow.title)」這一段工作已全部驗收。請寫整段工作總結：目標、各輪成果、修正過什麼（含被退回的地方）、還留下哪些問題或建議。不要使用工具或修改檔案。直接輸出總結正文。
@@ -424,7 +425,7 @@ public enum ProjectFlowEngine {
         """
     }
 
-    public static func askMemberPrompt(_ question: String, member: AgentKind, flow: ProjectFlow, names: [AgentKind: String]) -> String {
+    public static func askMemberPrompt(_ question: String, member: MemberID, flow: ProjectFlow, names: [MemberID: String]) -> String {
         let mine = (flow.plan?.tasks ?? []).filter { $0.member == member }
             .map { "- \($0.title)（\($0.status.rawValue)）：\(String($0.summary.prefix(1_500)))" }.joined(separator: "\n")
         return """
@@ -445,7 +446,7 @@ public enum ProjectFlowEngine {
         init(_ plan: FlowPlan) {
             objective = plan.objective; scope = plan.scope; deliverables = plan.deliverables; acceptance = plan.acceptance
             rounds = plan.rounds.map { Round(key: $0.key, title: $0.title, goal: $0.goal) }
-            tasks = plan.tasks.map { Task(key: $0.key, round: $0.roundKey, title: $0.title, member: $0.member.executableName,
+            tasks = plan.tasks.map { Task(key: $0.key, round: $0.roundKey, title: $0.title, member: $0.member.handle,
                                           goal: $0.goal, criteria: $0.criteria, dependencies: $0.dependencies) }
         }
     }

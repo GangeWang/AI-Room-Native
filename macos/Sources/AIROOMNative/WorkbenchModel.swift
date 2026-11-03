@@ -8,18 +8,18 @@ final class WorkbenchModel: ObservableObject {
         didSet { if archive.members != oldValue.members { applyMemberSettings() } }
     }
     @Published var storageAvailable = true
-    @Published var officialCLIStatuses: [AgentKind: OfficialCLIStatus] = [:]
-    @Published var accountQuotas: [AgentKind: AccountQuota] = [:]
-    @Published var quotaRefreshing: Set<AgentKind> = []
-    @Published var chatDrafts: [AgentKind: String] = [:]
-    @Published var chatAttachments: [AgentKind: [ChatAttachment]] = [:]
+    @Published var officialCLIStatuses: [Executor: OfficialCLIStatus] = [:]
+    @Published var accountQuotas: [Executor: AccountQuota] = [:]
+    @Published var quotaRefreshing: Set<Executor> = []
+    @Published var chatDrafts: [MemberID: String] = [:]
+    @Published var chatAttachments: [MemberID: [ChatAttachment]] = [:]
     /// Live model catalogs reported by each official CLI (refreshed on launch).
-    @Published var modelCatalogs: [AgentKind: [ModelChoice]] = [:]
-    @Published var modelCatalogLoading: Set<AgentKind> = []
+    @Published var modelCatalogs: [Executor: [ModelChoice]] = [:]
+    @Published var modelCatalogLoading: Set<Executor> = []
     /// Pending task-copy changes and undo availability, per topic.
     @Published var deskChanges: [UUID: [FileChange]] = [:]
     @Published var deskUndoable: Set<UUID> = []
-    @Published var busyAgents: Set<AgentKind> = []
+    @Published var busyAgents: Set<MemberID> = []
     @Published var roundtablePrompt = ""
     @Published var roundtableResults: [RoundtableResult] = []
     @Published var roundtableRunning = false
@@ -28,12 +28,12 @@ final class WorkbenchModel: ObservableObject {
     @Published var statusMessage: String?
     @Published var roomDraft = ""
     @Published var selectedRoomID: UUID?
-    @Published var roomTarget: AgentKind?
+    @Published var roomTarget: MemberID?
     @Published var roomRunning = false
     /// Desk topics a member is reading for memory proposals.
     @Published var proposingMemory: Set<UUID> = []
     /// Member card to open on the members page (from a needs-attention item).
-    @Published var focusedMember: AgentKind?
+    @Published var focusedMember: MemberID?
     /// Pending lounge question the human is answering with the next message.
     @Published var answeringQuestionID: UUID?
     /// Inline lounge progress (summaries etc.), shown without a modal alert.
@@ -47,20 +47,20 @@ final class WorkbenchModel: ObservableObject {
     @Published var liveSubtitle = ""
     @Published var liveAudienceDraft = ""
     @Published var liveAudienceName = "觀眾"
-    @Published var liveLastSpeaker: AgentKind?
+    @Published var liveLastSpeaker: MemberID?
     @Published var liveStartedAt: Date?
     /// TTS + VTube Studio performer for the live show (see LiveStageView).
     let stage = LiveStageController()
     @Published var projectTitleDraft = ""
     @Published var projectTaskDraft = ""
     @Published var projectFolderDraft = ""
-    @Published var selectedProjectAgent: AgentKind = .codex
+    @Published var selectedProjectAgent: MemberID = .codex
 
     private func t(_ key: String) -> String { LocalizedUI.text(key, language: archive.settings.language) }
     private var persistence: LocalStateStore?
     private let runner = CLIProcessRunner()
     private let quotaReader = AccountQuotaReader()
-    private var activeRuns: [AgentKind: UUID] = [:]
+    private var activeRuns: [MemberID: UUID] = [:]
     /// Roundtable calls running now; preparation and peer review run side by side.
     private var roundtableRunIDs: Set<UUID> = []
     private var roundtableReviewRunID: UUID?
@@ -136,7 +136,7 @@ final class WorkbenchModel: ObservableObject {
         if storageAvailable {
             try? FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         }
-        for agent in AgentKind.allCases {
+        for agent in memberIDs {
             if !archive.conversations.contains(where: { $0.agent == agent && !$0.archived }) {
                 archive.conversations.append(Conversation(agent: agent))
             }
@@ -154,10 +154,19 @@ final class WorkbenchModel: ObservableObject {
             }
         }
         // 開工前檢查: know up front who is ready, signed out or missing.
-        for agent in AgentKind.allCases { checkVendorCLIAccount(for: agent) }
+        for executor in Executor.allCases { checkVendorCLIAccount(for: executor) }
     }
 
-    func refreshQuota(for agent: AgentKind) {
+    /// AIROOM's own call count for everyone running on a program.
+    func callUsage(_ executor: Executor, day: String? = nil) -> CallUsage {
+        archive.members.filter { $0.executor == executor }
+            .map { archive.calls.usage($0.agent, day: day) }.reduce(CallUsage(), +)
+    }
+
+    /// The account quota of the program a member runs on.
+    func quota(of agent: MemberID) -> AccountQuota? { accountQuotas[executor(of: agent)] }
+
+    func refreshQuota(for agent: Executor) {
         guard !quotaRefreshing.contains(agent) else { return }
         quotaRefreshing.insert(agent)
         let settings = archive.settings
@@ -172,7 +181,7 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
-    func messages(for agent: AgentKind) -> [ChatMessage] {
+    func messages(for agent: MemberID) -> [ChatMessage] {
         index(of: agent).map { archive.conversations[$0].messages } ?? []
     }
 
@@ -182,19 +191,19 @@ final class WorkbenchModel: ObservableObject {
     }
 
     // MARK: Member desk topics
-    func activeTopic(for agent: AgentKind) -> Conversation? {
+    func activeTopic(for agent: MemberID) -> Conversation? {
         index(of: agent).map { archive.conversations[$0] }
     }
 
     /// Archived and open topics, newest first.
-    func topics(for agent: AgentKind) -> [Conversation] {
+    func topics(for agent: MemberID) -> [Conversation] {
         archive.conversations.filter { $0.agent == agent }.sorted { $0.updatedAt > $1.updatedAt }
     }
 
     /// Kept for the ⌘N menu command: opens a new topic and archives the current one.
-    func resetConversation(for agent: AgentKind) { newTopic(for: agent) }
+    func resetConversation(for agent: MemberID) { newTopic(for: agent) }
 
-    func newTopic(for agent: AgentKind) {
+    func newTopic(for agent: MemberID) {
         guard !busyAgents.contains(agent) else { return }
         flushDraft(agent)
         if let index = index(of: agent) {
@@ -236,7 +245,7 @@ final class WorkbenchModel: ObservableObject {
         persist()
     }
 
-    func setTopicModel(_ agent: AgentKind, model: String) {
+    func setTopicModel(_ agent: MemberID, model: String) {
         guard let index = index(of: agent) else { return }
         archive.conversations[index].model = ModelCatalog.sanitize(model)
         let efforts = modelChoices(for: agent).first(where: { $0.id == model })?.efforts ?? []
@@ -247,21 +256,22 @@ final class WorkbenchModel: ObservableObject {
         persist()
     }
 
-    func setTopicEffort(_ agent: AgentKind, effort: String) {
+    func setTopicEffort(_ agent: MemberID, effort: String) {
         guard let index = index(of: agent) else { return }
         archive.conversations[index].effort = ModelCatalog.sanitize(effort)
         persist()
     }
 
     /// The CLI's live catalog; Claude falls back to its family aliases if the query failed.
-    func modelChoices(for agent: AgentKind) -> [ModelChoice] {
-        let live = modelCatalogs[agent] ?? []
-        return live.isEmpty && agent == .claude ? ModelCatalog.claude : live
+    func modelChoices(for agent: MemberID) -> [ModelChoice] {
+        let executor = executor(of: agent)
+        let live = modelCatalogs[executor] ?? []
+        return live.isEmpty && executor == .claude ? ModelCatalog.claude : live
     }
 
     /// New models appear without an app update: each CLI is asked again on
     /// launch and whenever the user picks "Refresh model list".
-    func refreshModelCatalogs(_ agents: [AgentKind] = AgentKind.allCases) {
+    func refreshModelCatalogs(_ agents: [Executor] = Executor.allCases) {
         let settings = archive.settings
         for agent in agents where !modelCatalogLoading.contains(agent) {
             modelCatalogLoading.insert(agent)
@@ -280,7 +290,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     /// Drafts are saved shortly after typing stops (each save re-encrypts the state).
-    func draftChanged(_ agent: AgentKind) {
+    func draftChanged(_ agent: MemberID) {
         draftSaveTask?.cancel()
         draftSaveTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 800_000_000)
@@ -290,20 +300,20 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
-    private func flushDraft(_ agent: AgentKind) {
+    private func flushDraft(_ agent: MemberID) {
         guard let index = index(of: agent) else { return }
         archive.conversations[index].draft = String((chatDrafts[agent] ?? "").prefix(30_000))
         archive.conversations[index].draftAttachments = chatAttachments[agent] ?? []
     }
 
-    private func loadDraft(_ agent: AgentKind) {
+    private func loadDraft(_ agent: MemberID) {
         let open = index(of: agent).map { archive.conversations[$0] }
         chatDrafts[agent] = open?.draft ?? ""
         chatAttachments[agent] = open?.draftAttachments ?? []
     }
 
     // MARK: Attachments
-    func addAttachments(_ urls: [URL], to agent: AgentKind) {
+    func addAttachments(_ urls: [URL], to agent: MemberID) {
         guard storageAvailable, let persistence else { return }
         var list = chatAttachments[agent] ?? []
         for url in urls {
@@ -319,7 +329,7 @@ final class WorkbenchModel: ObservableObject {
                 }
                 let data = try Data(contentsOf: url)
                 let attachment = try AttachmentPolicy.classify(fileName: url.lastPathComponent, data: data)
-                if attachment.kind == .pdf && agent == .codex { throw AttachmentError.pdfNotSupported(attachment.fileName) }
+                if attachment.kind == .pdf && executor(of: agent) == .codex { throw AttachmentError.pdfNotSupported(attachment.fileName) }
                 try persistence.storeAttachment(data, id: attachment.id)
                 list.append(attachment)
             } catch {
@@ -331,7 +341,7 @@ final class WorkbenchModel: ObservableObject {
         persist()
     }
 
-    func removeDraftAttachment(_ id: UUID, from agent: AgentKind) {
+    func removeDraftAttachment(_ id: UUID, from agent: MemberID) {
         chatAttachments[agent]?.removeAll { $0.id == id }
         flushDraft(agent)
         persist()
@@ -339,7 +349,7 @@ final class WorkbenchModel: ObservableObject {
 
     func attachmentData(_ id: UUID) -> Data? { try? persistence?.loadAttachment(id: id) }
 
-    func submit(to agent: AgentKind) {
+    func submit(to agent: MemberID) {
         guard storageAvailable, !busyAgents.contains(agent), let index = index(of: agent),
               let persistence else { return }
         let prompt = (chatDrafts[agent] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -356,7 +366,7 @@ final class WorkbenchModel: ObservableObject {
         var files = Array((recent + attachments.filter { $0.kind != .text }).reduce(into: [ChatAttachment]()) { list, item in
             if !list.contains(where: { $0.id == item.id }) { list.append(item) }
         }.suffix(AttachmentPolicy.maxPerMessage))
-        if agent == .codex { files.removeAll { $0.kind == .pdf } }
+        if executor(of: agent) == .codex { files.removeAll { $0.kind == .pdf } }
         let texts = attachments.filter { $0.kind == .text }.compactMap { item in
             (try? persistence.loadAttachment(id: item.id)).map { (item, $0) }
         }
@@ -454,7 +464,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     // MARK: Member desk folders
-    func deskFolderURL(for agent: AgentKind) -> URL? {
+    func deskFolderURL(for agent: MemberID) -> URL? {
         guard let topic = activeTopic(for: agent), let desk else { return nil }
         return topic.workFolder.isEmpty ? try? desk.personalFolder(agent)
             : (desk.hasCopy(topic: topic.id) ? desk.staging.workingDirectory(topic.id) : URL(fileURLWithPath: topic.workFolder))
@@ -467,7 +477,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     /// nil = personal folder. A topic with unapplied copy changes must apply or discard first.
-    func setTopicFolder(_ agent: AgentKind, to url: URL?) {
+    func setTopicFolder(_ agent: MemberID, to url: URL?) {
         guard !busyAgents.contains(agent), let index = index(of: agent), let desk else { return }
         let topic = archive.conversations[index]
         if !(deskChanges[topic.id] ?? []).isEmpty {
@@ -482,7 +492,7 @@ final class WorkbenchModel: ObservableObject {
         persist()
     }
 
-    func applyDeskChanges(_ agent: AgentKind) {
+    func applyDeskChanges(_ agent: MemberID) {
         guard !busyAgents.contains(agent), let topic = activeTopic(for: agent), !topic.workFolder.isEmpty, let desk else { return }
         do {
             let applied = try desk.apply(topic: topic.id, original: topic.workFolder)
@@ -491,7 +501,7 @@ final class WorkbenchModel: ObservableObject {
         refreshDesk(topic.id)
     }
 
-    func undoDeskRound(_ agent: AgentKind) {
+    func undoDeskRound(_ agent: MemberID) {
         guard !busyAgents.contains(agent), let index = index(of: agent), let desk else { return }
         let topic = archive.conversations[index]
         do {
@@ -507,7 +517,7 @@ final class WorkbenchModel: ObservableObject {
         refreshDesk(topic.id)
     }
 
-    func discardDeskCopy(_ agent: AgentKind) {
+    func discardDeskCopy(_ agent: MemberID) {
         guard !busyAgents.contains(agent), let topic = activeTopic(for: agent), let desk else { return }
         do { try desk.discard(topic: topic.id) } catch { statusMessage = error.localizedDescription }
         refreshDesk(topic.id)
@@ -521,17 +531,17 @@ final class WorkbenchModel: ObservableObject {
         archive.conversations[index].sessionNotes = []
     }
 
-    private func setReplyModel(agent: AgentKind, replyID: UUID, model: String?) {
+    private func setReplyModel(agent: MemberID, replyID: UUID, model: String?) {
         guard let model, let conversation = archive.conversations.firstIndex(where: {
             $0.agent == agent && $0.messages.contains(where: { $0.id == replyID })
         }), let message = archive.conversations[conversation].messages.firstIndex(where: { $0.id == replyID }) else { return }
         archive.conversations[conversation].messages[message].modelUsed = String(model.prefix(80))
     }
 
-    func stop(agent: AgentKind) {
+    func stop(agent: MemberID) {
         if let id = activeRuns[agent] {
             if runner.cancel(id: id) {
-                statusMessage = "\(t("已要求停止")) \(agent.rawValue). \(t("尚未確認的工作結果不會自動重送。"))"
+                statusMessage = "\(t("已要求停止")) \(memberName(agent)). \(t("尚未確認的工作結果不會自動重送。"))"
             } else {
                 statusMessage = t("程序可能已經結束，請檢查本輪回覆。")
             }
@@ -542,13 +552,14 @@ final class WorkbenchModel: ObservableObject {
         guard storageAvailable, !roundtableRunning else { return }
         let prompt = roundtablePrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty, prompt.count <= 30_000 else { statusMessage = t("請輸入 1 至 30,000 字。"); return }
-        roundtableResults = AgentKind.allCases.map { RoundtableResult(agent: $0, text: t("等待開始"), error: "尚未完成") }
+        let agents = enabledMemberIDs
+        roundtableResults = agents.map { RoundtableResult(agent: $0, text: t("等待開始"), error: "尚未完成") }
         roundtableRunning = true
         cancelRoundtableQueue = false
         let settings = archive.settings
         // Independent replies: each member gets exactly the same user input, never the other's response.
         Task {
-            for agent in AgentKind.allCases {
+            for agent in agents {
                 if cancelRoundtableQueue { break }
                 let runID = UUID()
                 roundtableRunIDs.insert(runID)
@@ -577,7 +588,7 @@ final class WorkbenchModel: ObservableObject {
         for id in roundtableRunIDs { _ = runner.cancel(id: id) }
     }
 
-    private func updateRoundtable(agent: AgentKind, text: String, error: String? = nil, force: Bool = false) {
+    private func updateRoundtable(agent: MemberID, text: String, error: String? = nil, force: Bool = false) {
         guard let index = roundtableResults.firstIndex(where: { $0.agent == agent }) else { return }
         if !force && error == nil && text.count < roundtableResults[index].text.count && roundtableResults[index].text != t("處理中……") { return }
         roundtableResults[index].text = text
@@ -593,16 +604,51 @@ final class WorkbenchModel: ObservableObject {
     /// Member defaults reach every CLI call; chosen colors reach every view.
     private func applyMemberSettings() {
         for member in archive.members {
-            runner.setDefaults(member.agent, model: member.defaultModel, effort: member.defaultEffort)
-            MemberColors.chosen[member.agent] = Color(hex: member.color)
+            runner.setDefaults(member.agent, executor: member.executor, model: member.defaultModel, effort: member.defaultEffort)
         }
+        MemberDirectory.cards = Dictionary(archive.members.map { ($0.agent, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// Back to the built-in card: persona, memories, life, pictures and defaults are cleared.
-    func resetMember(_ agent: AgentKind) {
+    /// Back to the card's starting point: persona, memories, life, pictures and defaults are
+    /// cleared; an added member gets its template's name, intro and color again. The program stays.
+    func resetMember(_ agent: MemberID) {
         guard storageAvailable, let index = memberIndex(agent) else { return }
         let old = archive.members[index]
-        archive.members[index] = MemberCard(id: old.id, agent: agent, enabled: old.enabled)
+        var fresh = agent.isBuiltIn ? MemberCard(id: old.id, agent: agent, executor: old.executor, enabled: old.enabled)
+            : MemberCard.added(from: old.look, executor: old.executor)
+        fresh.id = old.id; fresh.agent = agent; fresh.enabled = old.enabled
+        archive.members[index] = fresh
+        persist()
+    }
+
+    /// Adds a member from a template (or blank) and returns their id.
+    @discardableResult
+    func addMember(template: MemberTemplate?, executor: Executor, name: String) -> MemberID? {
+        guard storageAvailable else { return nil }
+        var card = MemberCard.added(from: template, executor: executor)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { card.name = trimmed }
+        archive.addMember(card)
+        persist()
+        return card.agent
+    }
+
+    func removeMember(_ agent: MemberID) {
+        guard storageAvailable else { return }
+        guard !busyAgents.contains(agent) else { statusMessage = t("這位成員正在工作，請先停止。"); return }
+        do {
+            try archive.removeMember(agent)
+            chatDrafts[agent] = nil
+            chatAttachments[agent] = nil
+            persist()
+        } catch { statusMessage = error.localizedDescription }
+    }
+
+    /// Switches the program a member runs on; their CLI conversations start afresh.
+    func setExecutor(_ executor: Executor, for agent: MemberID) {
+        guard storageAvailable else { return }
+        guard !busyAgents.contains(agent) else { statusMessage = t("這位成員正在工作，請先停止。"); return }
+        archive.setExecutor(executor, for: agent)
         persist()
     }
 
@@ -653,7 +699,7 @@ final class WorkbenchModel: ObservableObject {
         let previous = activeRoom
         let count = archive.rooms.count + 1
         let title = archive.settings.language == .english ? "Discussion \(count)" : "討論室 \(count)"
-        var room = TeamRoom(title: title, participants: previous?.participants ?? AgentKind.allCases,
+        var room = TeamRoom(title: title, participants: previous?.participants ?? enabledMemberIDs,
                             lounge: LoungeState(style: previous?.lounge.style ?? .chat))
         room.lounge.handRaise = previous?.lounge.handRaise ?? true
         room.lounge.hostPick = previous?.lounge.hostPick ?? false
@@ -715,13 +761,15 @@ final class WorkbenchModel: ObservableObject {
 
     private var ownerName: String { archive.settings.ownerName }
 
-    func memberName(_ agent: AgentKind) -> String {
-        archive.members.first(where: { $0.agent == agent })?.name ?? agent.rawValue
-    }
+    func memberName(_ agent: MemberID) -> String { archive.memberName(agent) }
 
     /// The member's memory and life settings, as sent with their persona.
-    func memberProfile(_ agent: AgentKind) -> String {
-        archive.members.first(where: { $0.agent == agent })?.profile(team: archive.members, ownerName: ownerName) ?? ""
+    func memberProfile(_ agent: MemberID) -> String {
+        guard let card = archive.members.first(where: { $0.agent == agent }) else { return "" }
+        // Several members can run on one program: each must know which one they are.
+        let identity = "【名字】你在 AIROOM 裡的名字是「\(card.name)」，由 \(card.executor.rawValue) 執行；自我介紹時用這個名字。"
+        let profile = card.profile(team: archive.members, ownerName: ownerName)
+        return profile.isEmpty ? identity : identity + "\n" + profile
     }
 
     // MARK: Workstation: login, stop-all, attention
@@ -757,7 +805,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     /// Opens the official CLI's own login in Terminal; AIROOM never sees credentials.
-    func openOfficialLogin(for agent: AgentKind) {
+    func openOfficialLogin(for agent: Executor) {
         do {
             let binary = try CommandPlan.resolveExecutable(agent: agent, settings: archive.settings)
             let folder = FileManager.default.temporaryDirectory.appendingPathComponent("airoom-login", isDirectory: true)
@@ -772,7 +820,7 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
-    private func dispatchRoomMessage(roomID: UUID, question: String, target: AgentKind?,
+    private func dispatchRoomMessage(roomID: UUID, question: String, target: MemberID?,
                                      displayName: String, answering: UUID? = nil) {
         guard storageAvailable, !liveActive,
               let roomIndex = archive.rooms.firstIndex(where: { $0.id == roomID }) else { return }
@@ -863,7 +911,7 @@ final class WorkbenchModel: ObservableObject {
                 let reply = LoungeEngine.parseReply(text)
                 let questionsBefore = archive.rooms[current].lounge.pendingQuestions.count
                 let outcome = LoungeEngine.apply(reply, from: speaker, present: present,
-                                                 state: &archive.rooms[current].lounge, entryID: entryID)
+                                                 state: &archive.rooms[current].lounge, entryID: entryID, names: memberNames)
                 if archive.rooms[current].lounge.pendingQuestions.count > questionsBefore {
                     Notifier.post("\(member.name) \(t("問你"))", reply.body)
                 }
@@ -992,7 +1040,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     /// Host picks who adds something after hands went up (nil = nobody).
-    func pickHand(_ agent: AgentKind?, in roomID: UUID? = nil) {
+    func pickHand(_ agent: MemberID?, in roomID: UUID? = nil) {
         guard !roomRunning, let index = roomID.flatMap({ id in archive.rooms.firstIndex(where: { $0.id == id }) }) ?? activeRoomIndex,
               archive.rooms[index].lounge.phase == .awaitingHost else { return }
         if let agent {
@@ -1024,7 +1072,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     /// Ends the meeting: one member writes conclusions, disagreements and next steps.
-    func writeMinutes(by agent: AgentKind, in roomID: UUID? = nil) {
+    func writeMinutes(by agent: MemberID, in roomID: UUID? = nil) {
         guard storageAvailable, !roomRunning,
               let index = roomID.flatMap({ id in archive.rooms.firstIndex(where: { $0.id == id }) }) ?? activeRoomIndex,
               let member = presentMembers(in: index).first(where: { $0.agent == agent }) else { return }
@@ -1145,7 +1193,7 @@ final class WorkbenchModel: ObservableObject {
     /// Adds a schedule, or replaces the one with `id`. Daily fires at hour:minute, once at `onceAt`,
     /// interval every `intervalMinutes` starting that long from now.
     func saveSchedule(id: UUID? = nil, name: String, text: String, kind: ScheduleKind = .daily, hour: Int, minute: Int,
-                      onceAt: Date? = nil, intervalMinutes: Int = 60, action: ScheduleAction, target: AgentKind?) {
+                      onceAt: Date? = nil, intervalMinutes: Int = 60, action: ScheduleAction, target: MemberID?) {
         let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let message = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard storageAvailable, (0...23).contains(hour), (0...59).contains(minute),
@@ -1253,7 +1301,7 @@ final class WorkbenchModel: ObservableObject {
             archive.members.contains(where: { $0.enabled && $0.agent == agent })
         }
         let quotaOK = enabledMembers.allSatisfy { agent in
-            guard let quota = accountQuotas[agent], quota.status == .ready,
+            guard let quota = quota(of: agent), quota.status == .ready,
                   quota.isFresh(at: now) else { return true } // unknown is not zero
             return !quota.windows.contains(where: \.exhausted)
         }
@@ -1278,7 +1326,7 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
-    func setRoomParticipant(_ agent: AgentKind, included: Bool) {
+    func setRoomParticipant(_ agent: MemberID, included: Bool) {
         guard !roomRunning, !liveActive, let index = activeRoomIndex else { return }
         archive.rooms[index].participants.removeAll(where: { $0 == agent })
         if included { archive.rooms[index].participants.append(agent) }
@@ -1407,7 +1455,7 @@ final class WorkbenchModel: ObservableObject {
                   let speaker = LiveShowPolicy.nextSpeaker(participants: eligible, last: liveLastSpeaker) else { break }
             // A confirmed fresh 100% sample is an actual rate limit. Unknown quota
             // is NOT interpreted as 0%; bounded manual live sessions may continue.
-            if let quota = accountQuotas[speaker], quota.status == .ready, quota.isFresh(),
+            if let quota = quota(of: speaker), quota.status == .ready, quota.isFresh(),
                quota.windows.contains(where: \.exhausted) {
                 statusMessage = "\(speaker.rawValue) 的官方額度已用盡，直播已暫停。"
                 break
@@ -1419,7 +1467,7 @@ final class WorkbenchModel: ObservableObject {
                 body: "準備發言……", delivery: .inProgress))
             persist()
             let performs = archive.liveStage.performs
-            let prompt = LiveShowPolicy.prompt(room: archive.rooms[index], speaker: speaker,
+            let prompt = LiveShowPolicy.prompt(room: archive.rooms[index], speaker: speaker, speakerName: memberName(speaker),
                 topic: config.topic, summary: archive.liveShow.summary, language: settings.language,
                 cues: performs)
             do {
@@ -1481,7 +1529,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     /// Sliders pass `persist: false` while dragging and save once on release.
-    func updateStageCharacter(_ agent: AgentKind, persist save: Bool = true,
+    func updateStageCharacter(_ agent: MemberID, persist save: Bool = true,
                               _ change: (inout LiveCharacterStage) -> Void) {
         archive.liveStage.updateCharacter(agent, change)
         if save { persist() }
@@ -1489,7 +1537,7 @@ final class WorkbenchModel: ObservableObject {
 
     func saveLiveStage() { persist() }
 
-    func connectVTubeStudio(_ agent: AgentKind) {
+    func connectVTubeStudio(_ agent: MemberID) {
         guard storageAvailable else { return }
         let character = archive.liveStage.character(agent)
         stage.connect(agent, port: character.vtsPort, token: character.vtsToken) { [weak self] token in
@@ -1497,12 +1545,12 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
-    func forgetVTubeStudioToken(_ agent: AgentKind) {
+    func forgetVTubeStudioToken(_ agent: MemberID) {
         stage.disconnect(agent)
         updateStageCharacter(agent) { $0.vtsToken = "" }
     }
 
-    func rehearseStage(_ agent: AgentKind) {
+    func rehearseStage(_ agent: MemberID) {
         guard !liveActive else { return }
         let name = archive.members.first(where: { $0.agent == agent })?.name ?? agent.shortName
         stage.rehearse(agent, name: name, stage: archive.liveStage, language: archive.settings.language)
@@ -1545,20 +1593,18 @@ final class WorkbenchModel: ObservableObject {
     private var flowActivities: [UUID: String] = [:]
     /// A round to pick up again once the current flow job ends (a ruling arrived meanwhile).
     private var pendingFlowRun: UUID?
-    var roundtableNames: [AgentKind: String] {
-        Dictionary(uniqueKeysWithValues: AgentKind.allCases.map { ($0, memberName($0)) })
+    var roundtableNames: [MemberID: String] {
+        Dictionary(memberIDs.map { ($0, memberName($0)) }, uniquingKeysWith: { first, _ in first })
     }
 
     private func topicIndex(_ id: UUID) -> Int? { archive.roundtableTopics.firstIndex(where: { $0.id == id }) }
 
     func openRoundtable(title: String, kind: RoundtableKind, material: String, attachments: [ChatAttachment],
-                        members: [AgentKind], lead: AgentKind, peerReview: Bool) {
+                        members: [MemberID], lead: MemberID, peerReview: Bool) {
         guard storageAvailable, !roundtableRunning else { return }
         let text = material.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty else { statusMessage = t("請寫下材料或要求。"); return }
-        let chosen = AgentKind.allCases.filter { agent in
-            members.contains(agent) && archive.members.contains(where: { $0.agent == agent && $0.enabled })
-        }
+        let chosen = enabledMemberIDs.filter(members.contains)
         guard chosen.count >= 2 else { statusMessage = t("圓桌至少需要兩位已啟用的成員。"); return }
         do { try PrivacyGuard.validatePrompt(text) } catch { statusMessage = error.localizedDescription; return }
         let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1595,7 +1641,7 @@ final class WorkbenchModel: ObservableObject {
                     guard let member = archive.members.first(where: { $0.agent == agent }) else { continue }
                     let prompt = RoundtableFlow.preparePrompt(material, member: member, ownerName: archive.settings.ownerName,
                                                               team: archive.members)
-                    let files = agent == .codex ? prepared.files.filter { $0.attachment.kind != .pdf } : prepared.files
+                    let files = executor(of: agent) == .codex ? prepared.files.filter { $0.attachment.kind != .pdf } : prepared.files
                     group.addTask { @MainActor [self] in
                         cancelRoundtableQueue ? nil : await roundtableCall(id, agent: agent, prompt: prompt, files: files)
                     }
@@ -1699,14 +1745,14 @@ final class WorkbenchModel: ObservableObject {
         dispatchRoomMessage(roomID: roomID, question: value, target: nil, displayName: t("你"))
     }
 
-    func adoptCandidate(_ id: UUID, agent: AgentKind?) {
+    func adoptCandidate(_ id: UUID, agent: MemberID?) {
         guard let index = topicIndex(id), archive.roundtableTopics[index].kind.hasCandidates else { return }
         if let agent, !(archive.roundtableTopics[index].submission(agent)?.succeeded ?? false) { return }
         archive.roundtableTopics[index].adopted = agent
         persist()
     }
 
-    func concludeRoundtable(_ id: UUID, by agent: AgentKind) {
+    func concludeRoundtable(_ id: UUID, by agent: MemberID) {
         guard let index = topicIndex(id), let roomID = archive.roundtableTopics[index].roomID else { return }
         writeMinutes(by: agent, in: roomID)
     }
@@ -1754,7 +1800,7 @@ final class WorkbenchModel: ObservableObject {
         persist()
     }
 
-    private func roundtableCall(_ id: UUID, agent: AgentKind, prompt: String,
+    private func roundtableCall(_ id: UUID, agent: MemberID, prompt: String,
                                 files: [PreparedAttachment]) async -> RoundtableSubmission {
         let runID = UUID()
         roundtableRunIDs.insert(runID)
@@ -1809,7 +1855,7 @@ final class WorkbenchModel: ObservableObject {
         guard storageAvailable, !roundtableRunning, !roundtableReviewRunning,
               let index = archive.roundtables.firstIndex(where: { $0.id == id }) else { return }
         let round = archive.roundtables[index]
-        let eligible = AgentKind.allCases.filter { RoundtableDecision.eligible(round.results, agent: $0) }
+        let eligible = round.results.map(\.agent).filter { RoundtableDecision.eligible(round.results, agent: $0) }
         guard eligible.count >= 2 else { statusMessage = "需要兩份完整回答才能互評。"; return }
         roundtableReviewRunning = true
         let settings = archive.settings
@@ -1853,7 +1899,7 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
-    func adoptRoundtable(id: UUID, candidate: AgentKind) {
+    func adoptRoundtable(id: UUID, candidate: MemberID) {
         guard let idx = archive.roundtables.firstIndex(where: { $0.id == id }),
               RoundtableDecision.eligible(archive.roundtables[idx].results, agent: candidate) else { return }
         archive.roundtables[idx].adopted = candidate
@@ -1869,7 +1915,7 @@ final class WorkbenchModel: ObservableObject {
               archive.roundtables[r].handoffProjectID == nil else { return }
         let addition = """
 
-        [圓桌採用 \(agent.rawValue)]
+        [圓桌採用 \(memberName(agent))]
         \(archive.roundtables[r].question.prefix(2_000))
         \(proposal.prefix(8_000))
         """
@@ -1936,7 +1982,7 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
-    func chooseWorkflowLeader(id: UUID, agent: AgentKind) {
+    func chooseWorkflowLeader(id: UUID, agent: MemberID) {
         guard let index = archive.teamWorkflows.firstIndex(where: { $0.id == id }) else { return }
         do { try TeamProjectCoordinator.chooseLeader(&archive.teamWorkflows[index], agent: agent); persist() }
         catch { statusMessage = "目前階段無法選擇負責人。" }
@@ -1974,7 +2020,7 @@ final class WorkbenchModel: ObservableObject {
     func approveWorkflowAndRun(id: UUID) {
         guard let index = archive.teamWorkflows.firstIndex(where: { $0.id == id }),
               let project = archive.projects.first(where: { $0.id == id }),
-              project.agent == .codex,
+              executor(of: project.agent) == .codex,
               !project.task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !projectBusy else { return }
         do {
@@ -2014,7 +2060,7 @@ final class WorkbenchModel: ObservableObject {
         guard !project.task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             statusMessage = t("請先填寫工作需求"); return
         }
-        guard project.agent == .codex else { statusMessage = t("目前只有 Codex 支援工作副本寫入"); return }
+        guard executor(of: project.agent) == .codex else { statusMessage = t("目前只有 Codex 支援工作副本寫入"); return }
         guard let storage = persistence?.root.appendingPathComponent("projects", isDirectory: true) else { return }
         let staged: WorkspaceStaging
         let working: URL
@@ -2215,7 +2261,7 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
-    private func updateReply(agent: AgentKind, replyID: UUID, text: String, force: Bool = false) {
+    private func updateReply(agent: MemberID, replyID: UUID, text: String, force: Bool = false) {
         guard let index = index(of: agent),
               let replyIndex = archive.conversations[index].messages.firstIndex(where: { $0.id == replyID }) else { return }
         let old = archive.conversations[index].messages[replyIndex].body
@@ -2226,7 +2272,7 @@ final class WorkbenchModel: ObservableObject {
         archive.conversations[index].updatedAt = .now
     }
 
-    private func index(of agent: AgentKind) -> Int? {
+    private func index(of agent: MemberID) -> Int? {
         archive.conversations.lastIndex(where: { $0.agent == agent && !$0.archived })
     }
 
@@ -2244,18 +2290,16 @@ extension WorkbenchModel {
     private func flowWorkspace(_ id: UUID) -> ProjectWorkspace? {
         persistence.flatMap { try? ProjectWorkspace(root: $0.root, flowID: id) }
     }
-    var memberNames: [AgentKind: String] { roundtableNames }
+    var memberNames: [MemberID: String] { roundtableNames }
 
-    func createFlow(title: String, folder: String, members: [AgentKind], reviewLevel: ReviewLevel) {
+    func createFlow(title: String, folder: String, members: [MemberID], reviewLevel: ReviewLevel) {
         guard storageAvailable else { return }
         let path = (folder as NSString).expandingTildeInPath
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
             statusMessage = t("請選擇存在的專案資料夾。"); return
         }
-        let chosen = AgentKind.allCases.filter { agent in
-            members.contains(agent) && archive.members.contains(where: { $0.agent == agent && $0.enabled })
-        }
+        let chosen = enabledMemberIDs.filter(members.contains)
         guard chosen.count >= 2 else { statusMessage = t("專案至少需要兩位已啟用的成員。"); return }
         let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
         var flow = ProjectFlow(title: name.isEmpty ? (path as NSString).lastPathComponent : name,
@@ -2274,7 +2318,7 @@ extension WorkbenchModel {
     /// Step 1: talk it through. Members may read the project files but not change them.
     /// A line in the project's meeting room: the plan, the owner's decisions and the round
     /// reports are recorded there as the original does, so the room reads as one history.
-    private func postFlowRecord(_ id: UUID, from agent: AgentKind?, _ text: String) {
+    private func postFlowRecord(_ id: UUID, from agent: MemberID?, _ text: String) {
         guard let index = flowIndex(id), let roomID = archive.projectFlows[index].roomID,
               let room = archive.rooms.firstIndex(where: { $0.id == roomID }) else { return }
         let entry = agent.map { RoomEntry(speaker: .assistant, agent: $0, displayName: memberName($0), body: text) }
@@ -2292,7 +2336,7 @@ extension WorkbenchModel {
     }
 
     /// Step 2 → 3: the chosen lead drafts the plan.
-    func chooseFlowLead(_ id: UUID, agent: AgentKind) {
+    func chooseFlowLead(_ id: UUID, agent: MemberID) {
         guard let index = flowIndex(id), !flowRunning, archive.projectFlows[index].members.contains(agent) else { return }
         archive.projectFlows[index].lead = agent
         archive.projectFlows[index].step = .leader
@@ -2375,7 +2419,7 @@ extension WorkbenchModel {
     func resumeFlow(_ id: UUID) {
         guard let index = flowIndex(id), !flowRunning else { return }
         archive.projectFlows[index].paused = false
-        for wait in archive.projectFlows[index].quotaWaits { refreshQuota(for: wait.agent) }
+        for executor in Set(archive.projectFlows[index].quotaWaits.map { executor(of: $0.agent) }) { refreshQuota(for: executor) }
         archive.projectFlows[index].quotaWaits = []
         // A round report that stopped part-way is written again from the finished tasks.
         if archive.projectFlows[index].activeRound?.status == .checking {
@@ -2468,11 +2512,14 @@ extension WorkbenchModel {
     }
 
     /// Members who get no new task: out of quota (a wait not yet recovered, or a fresh sample at 100%).
-    private func unavailableMembers(_ id: UUID) -> Set<AgentKind> {
+    private func unavailableMembers(_ id: UUID) -> Set<MemberID> {
         guard let index = flowIndex(id) else { return [] }
         let waits = archive.projectFlows[index].quotaWaits
+        // Members on the same program share its account, so one member's wait holds them all.
+        let waiting = Set(waits.filter { !$0.ready }.map { executor(of: $0.agent) })
         var out = Set(waits.filter { !$0.ready }.map(\.agent))
-        for agent in archive.projectFlows[index].members where !out.contains(agent) && QuotaSignal.blocks(accountQuotas[agent]) {
+        out.formUnion(archive.projectFlows[index].members.filter { waiting.contains(executor(of: $0)) })
+        for agent in archive.projectFlows[index].members where !out.contains(agent) && QuotaSignal.blocks(quota(of: agent)) {
             if !waits.contains(where: { $0.agent == agent }) {
                 addQuotaWait(id, agent: agent, stage: t("派新任務前"), message: t("最新的官方額度顯示已用完，沒有派新任務給 TA。"))
             }
@@ -2572,7 +2619,7 @@ extension WorkbenchModel {
     }
 
     /// 換人接手: the member out of quota hands their unfinished tasks in this round to another member.
-    func handOverQuotaWork(_ id: UUID, from agent: AgentKind, to other: AgentKind) {
+    func handOverQuotaWork(_ id: UUID, from agent: MemberID, to other: MemberID) {
         guard let index = flowIndex(id), agent != other, archive.projectFlows[index].members.contains(other),
               let round = archive.projectFlows[index].activeRound, var plan = archive.projectFlows[index].plan else { return }
         for t in plan.tasks.indices where plan.tasks[t].roundKey == round.key && plan.tasks[t].member == agent
@@ -2596,9 +2643,9 @@ extension WorkbenchModel {
         if flowRunning { pendingFlowRun = id } else { runRound(id) }
     }
 
-    private func addQuotaWait(_ id: UUID, agent: AgentKind, stage: String, message: String) {
+    private func addQuotaWait(_ id: UUID, agent: MemberID, stage: String, message: String) {
         guard let index = flowIndex(id) else { return }
-        let reset = QuotaSignal.resetHint(message) ?? QuotaSignal.resetAt(accountQuotas[agent])
+        let reset = QuotaSignal.resetHint(message) ?? QuotaSignal.resetAt(quota(of: agent))
         let wait = FlowQuotaWait(agent: agent, stage: stage, resetAt: reset, message: message)
         archive.projectFlows[index].quotaWaits.removeAll { $0.agent == agent }
         archive.projectFlows[index].quotaWaits.append(wait)
@@ -2607,10 +2654,11 @@ extension WorkbenchModel {
         guard reset == nil else { return }
         // Ask the official quota when it resets (no prompt is sent).
         let settings = archive.settings
+        let executor = executor(of: agent)
         Task { [weak self] in
             guard let self else { return }
-            let latest = await self.quotaReader.query(agent: agent, settings: settings)
-            self.accountQuotas[agent] = latest
+            let latest = await self.quotaReader.query(agent: executor, settings: settings)
+            self.accountQuotas[executor] = latest
             guard let reset = QuotaSignal.resetAt(latest), let f = self.flowIndex(id),
                   let w = self.archive.projectFlows[f].quotaWaits.firstIndex(where: { $0.id == wait.id }) else { return }
             self.archive.projectFlows[f].quotaWaits[w].resetAt = reset
@@ -2624,7 +2672,7 @@ extension WorkbenchModel {
         for f in archive.projectFlows.indices {
             for w in archive.projectFlows[f].quotaWaits.indices where !archive.projectFlows[f].quotaWaits[w].ready {
                 let wait = archive.projectFlows[f].quotaWaits[w]
-                guard QuotaSignal.recovered(wait, quota: accountQuotas[wait.agent], now: now) else { continue }
+                guard QuotaSignal.recovered(wait, quota: quota(of: wait.agent), now: now) else { continue }
                 archive.projectFlows[f].quotaWaits[w].ready = true
                 changed = true
                 Notifier.post(t("\(memberName(wait.agent)) 的額度應該恢復了"),
@@ -2748,7 +2796,7 @@ extension WorkbenchModel {
     }
 
     /// @ a member at work: 只是問問 / 安排新任務 / 補充到他目前的任務.
-    func addFlowTask(_ id: UUID, member: AgentKind, goal: String) {
+    func addFlowTask(_ id: UUID, member: MemberID, goal: String) {
         guard let index = flowIndex(id), var plan = archive.projectFlows[index].plan,
               let round = archive.projectFlows[index].activeRound, round.status != .accepted else { return }
         let text = goal.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2759,7 +2807,7 @@ extension WorkbenchModel {
         persist()
     }
 
-    func supplementFlowTask(_ id: UUID, member: AgentKind, text: String) {
+    func supplementFlowTask(_ id: UUID, member: MemberID, text: String) {
         guard let index = flowIndex(id), let plan = archive.projectFlows[index].plan,
               let target = plan.tasks.first(where: { $0.member == member && [.running, .fixing, .reviewing].contains($0.status) })
                 ?? plan.tasks.first(where: { $0.member == member && $0.status == .pending }) else {
@@ -2769,7 +2817,7 @@ extension WorkbenchModel {
     }
 
     /// 成員匯報: ask a member about their work (read-only, no task changes).
-    func askFlowMember(_ id: UUID, member: AgentKind, question: String, answer: @escaping (String) -> Void) {
+    func askFlowMember(_ id: UUID, member: MemberID, question: String, answer: @escaping (String) -> Void) {
         guard let flow = flowIndex(id).map({ archive.projectFlows[$0] }), !flowRunning else { return }
         flowTask(id, activity: t("\(memberName(member)) 正在回答……")) { [self] in
             answer(try await flowCall(id, agent: member, prompt: ProjectFlowEngine.askMemberPrompt(question, member: member, flow: flow, names: memberNames),
@@ -2814,7 +2862,7 @@ extension WorkbenchModel {
         }
     }
 
-    private func flowCall(_ id: UUID, agent: AgentKind, prompt: String, folder: String,
+    private func flowCall(_ id: UUID, agent: MemberID, prompt: String, folder: String,
                           access: ExecutionAccess, inPlace: Bool = false, stage: String = "") async throws -> String {
         if cancelFlow { throw NativeCLIError.processFailed(t("已停止")) }
         let runID = UUID()
@@ -2840,11 +2888,11 @@ extension WorkbenchModel {
 
 // MARK: Member memory and daily life
 extension WorkbenchModel {
-    private func memberIndex(_ agent: AgentKind) -> Int? { archive.members.firstIndex(where: { $0.agent == agent }) }
+    private func memberIndex(_ agent: MemberID) -> Int? { archive.members.firstIndex(where: { $0.agent == agent }) }
 
     /// Applies a change to a member's memory entries; refused (with a reason) when it breaks the limits.
     @discardableResult
-    func editMemories(_ agent: AgentKind, _ change: (inout [MemoryEntry]) -> Void) -> Bool {
+    func editMemories(_ agent: MemberID, _ change: (inout [MemoryEntry]) -> Void) -> Bool {
         guard storageAvailable, let index = memberIndex(agent) else { return false }
         var entries = archive.members[index].memories
         change(&entries)
@@ -2856,13 +2904,13 @@ extension WorkbenchModel {
         return true
     }
 
-    func addMemory(_ agent: AgentKind, text: String) -> Bool {
+    func addMemory(_ agent: MemberID, text: String) -> Bool {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return false }
         return editMemories(agent) { $0.append(MemoryEntry(text: text, source: .manual)) }
     }
 
-    func updateMemory(_ agent: AgentKind, id: UUID, text: String) -> Bool {
+    func updateMemory(_ agent: MemberID, id: UUID, text: String) -> Bool {
         editMemories(agent) { entries in
             guard let i = entries.firstIndex(where: { $0.id == id }) else { return }
             let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2872,7 +2920,7 @@ extension WorkbenchModel {
         }
     }
 
-    func importMemories(_ agent: AgentKind, _ candidates: [MemoryCandidate]) {
+    func importMemories(_ agent: MemberID, _ candidates: [MemoryCandidate]) {
         guard storageAvailable, let index = memberIndex(agent) else { return }
         var entries = archive.members[index].memories
         do {
@@ -2914,7 +2962,7 @@ extension WorkbenchModel {
         }
     }
 
-    func resolveProposal(_ agent: AgentKind, id: UUID, keep: Bool) {
+    func resolveProposal(_ agent: MemberID, id: UUID, keep: Bool) {
         guard let index = memberIndex(agent),
               let proposal = archive.members[index].memoryProposals.first(where: { $0.id == id }) else { return }
         if keep {
@@ -2927,7 +2975,7 @@ extension WorkbenchModel {
     }
 
     /// Routine, quirks, relations and talkativeness, trimmed to their limits.
-    func updateLife(_ agent: AgentKind, _ change: (inout MemberCard) -> Void) {
+    func updateLife(_ agent: MemberID, _ change: (inout MemberCard) -> Void) {
         guard storageAvailable, let index = memberIndex(agent) else { return }
         var card = archive.members[index]
         change(&card)
@@ -2939,7 +2987,7 @@ extension WorkbenchModel {
         var seen = Set<String>()
         card.quirks = card.quirks.map { MemberLife.clean($0, max: MemberLife.quirkLimit) }
             .filter { !$0.isEmpty && seen.insert($0).inserted }.prefix(MemberLife.quirksMax).map { $0 }
-        var related = Set<AgentKind>()
+        var related = Set<MemberID>()
         card.relations = card.relations.map { MemberRelation(agent: $0.agent, text: String($0.text.replacingOccurrences(of: "\n", with: " ").prefix(MemberLife.relationLimit))) }
             .filter { $0.agent != agent && !$0.text.trimmingCharacters(in: .whitespaces).isEmpty && related.insert($0.agent).inserted }
         archive.members[index] = card
@@ -3042,7 +3090,7 @@ extension WorkbenchModel {
     /// Codex can draw here: a visible lounge room, Codex enabled and present, nothing else running.
     var canGenerateImage: Bool {
         guard storageAvailable, !roomRunning, !liveActive, let index = activeRoomIndex, archive.rooms[index].isLounge else { return false }
-        return presentMembers(in: index).contains { $0.agent == .codex }
+        return presentMembers(in: index).contains { $0.executor == .codex }
     }
 
     /// Stores a picked picture as a reference for an image request (PNG, JPG or WebP, up to 5 MB).
@@ -3064,17 +3112,17 @@ extension WorkbenchModel {
 
     func imageData(_ image: RoomImage) -> Data? { try? persistence?.loadAttachment(id: image.attachment.id) }
 
-    /// Asks the Codex member for one picture. A failed or stopped request is never re-sent.
+    /// Asks a member who runs on Codex for one picture. A failed or stopped request is never re-sent.
     func generateImage(request: String, references: [RoomImage]) {
         let request = request.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canGenerateImage, let index = activeRoomIndex, !request.isEmpty, request.count <= 4_000,
-              let member = presentMembers(in: index).first(where: { $0.agent == .codex }) else { return }
+              let member = presentMembers(in: index).first(where: { $0.executor == .codex }) else { return }
         do { try PrivacyGuard.validatePrompt(request) }
         catch { statusMessage = error.localizedDescription; return }
         let roomID = archive.rooms[index].id, entryID = UUID(), runID = UUID()
         archive.rooms[index].entries.append(RoomEntry(speaker: .user, displayName: t("你"), body: request,
                                                       isImageRequest: true, images: references))
-        archive.rooms[index].entries.append(RoomEntry(id: entryID, speaker: .assistant, agent: .codex, displayName: member.name,
+        archive.rooms[index].entries.append(RoomEntry(id: entryID, speaker: .assistant, agent: member.agent, displayName: member.name,
                                                       body: t("正在畫圖……"), delivery: .inProgress, isImageRequest: true))
         archive.rooms[index].updatedAt = .now
         if archive.rooms[index].entries.count == 2 { archive.rooms[index].title = TopicNaming.title(from: request) }
@@ -3094,7 +3142,7 @@ extension WorkbenchModel {
             do {
                 let prepared = try prepareAttachments(references.map(\.attachment))
                 scratch = prepared.scratch
-                let result = try await runner.runDetailed(id: runID, agent: .codex, prompt: prompt, settings: settings,
+                let result = try await runner.runDetailed(id: runID, agent: member.agent, prompt: prompt, settings: settings,
                     fallbackWorkspace: workspace, access: .readOnly,
                     options: CLIRunOptions(attachments: prepared.files, imageGeneration: true), onUpdate: { _ in })
                 guard !cancelRoomQueue else { return } // Stop already settled the bubble.
@@ -3106,7 +3154,7 @@ extension WorkbenchModel {
                    let entry = archive.rooms[room].entries.firstIndex(where: { $0.id == entryID }) {
                     archive.rooms[room].entries[entry].images = images
                     // Codex's continued room conversation never sees its own lines; start it afresh.
-                    archive.rooms[room].sessions[AgentKind.codex.rawValue] = nil
+                    archive.rooms[room].sessions[member.agent.rawValue] = nil
                 }
                 Notifier.post(t("\(member.name) 畫好了"), text)
             } catch {

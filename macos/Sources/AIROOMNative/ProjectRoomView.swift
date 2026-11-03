@@ -395,8 +395,8 @@ struct FlowQuotaBanner: View {
                     }
                     .disabled(!hasWorkToHand)
                 }
-                Button(t("重新查詢額度", "Check quota")) { model.refreshQuota(for: wait.agent) }
-                    .disabled(model.quotaRefreshing.contains(wait.agent))
+                Button(t("重新查詢額度", "Check quota")) { model.refreshQuota(for: model.executor(of: wait.agent)) }
+                    .disabled(model.quotaRefreshing.contains(model.executor(of: wait.agent)))
             }
         }
         .padding(10)
@@ -413,7 +413,7 @@ struct FlowRoom: View {
     @State private var purpose = 0
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, model.archive.settings.language) }
     private var room: TeamRoom? { flow.roomID.flatMap { id in model.archive.rooms.first { $0.id == id } } }
-    private var mentioned: AgentKind? {
+    private var mentioned: MemberID? {
         LoungeEngine.mentions(in: draft, members: model.archive.members.filter { flow.members.contains($0.agent) }).first
     }
     private var working: Bool { flow.step == .executing || flow.step == .acceptance }
@@ -530,8 +530,8 @@ struct FlowBoard: View {
 struct FlowReports: View {
     @EnvironmentObject private var model: WorkbenchModel
     let flow: ProjectFlow
-    @State private var questions: [AgentKind: String] = [:]
-    @State private var answers: [AgentKind: String] = [:]
+    @State private var questions: [MemberID: String] = [:]
+    @State private var answers: [MemberID: String] = [:]
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, model.archive.settings.language) }
 
     var body: some View {
@@ -573,7 +573,7 @@ struct NewFlowSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
     @State private var folder = ""
-    @State private var members = Set(AgentKind.allCases)
+    @State private var members = Set(MemberID.builtIn)
     @State private var level: ReviewLevel = .standard
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, model.archive.settings.language) }
 
@@ -591,7 +591,7 @@ struct NewFlowSheet: View {
             TextField(t("專案名稱（可留空，用資料夾名稱）", "Name (optional)"), text: $title).textFieldStyle(.roundedBorder)
             HStack(spacing: 14) {
                 Text(t("參加成員（至少兩位）", "Members (at least two)"))
-                ForEach(AgentKind.allCases) { agent in
+                ForEach(model.enabledMemberIDs) { agent in
                     Toggle(model.memberName(agent), isOn: Binding(get: { members.contains(agent) },
                         set: { if $0 { members.insert(agent) } else { members.remove(agent) } }))
                 }

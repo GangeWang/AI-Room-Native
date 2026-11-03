@@ -19,8 +19,8 @@ public final class DeskWorkspace {
         staging = try WorkspaceStaging(storage: self.root.appendingPathComponent("copies", isDirectory: true))
     }
 
-    public func personalFolder(_ agent: AgentKind) throws -> URL {
-        let folder = root.appendingPathComponent("members/\(agent.executableName)/home", isDirectory: true)
+    public func personalFolder(_ agent: MemberID) throws -> URL {
+        let folder = root.appendingPathComponent("members/\(agent.handle)/home", isDirectory: true)
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
     }
@@ -28,7 +28,7 @@ public final class DeskWorkspace {
     public func hasCopy(topic: UUID) -> Bool { fm.fileExists(atPath: staging.workingDirectory(topic).path) }
 
     /// The folder the CLI works in for this topic (creating the task copy on first use).
-    public func workingFolder(topic: UUID, agent: AgentKind, original: String) throws -> URL {
+    public func workingFolder(topic: UUID, agent: MemberID, original: String) throws -> URL {
         guard !original.isEmpty else { return try personalFolder(agent) }
         if hasCopy(topic: topic) { return staging.workingDirectory(topic) }
         return try staging.prepare(id: topic, source: URL(fileURLWithPath: original))
@@ -48,7 +48,7 @@ public final class DeskWorkspace {
     public func canUndo(topic: UUID) -> Bool { fm.fileExists(atPath: roundDirectory(topic).path) }
 
     /// Snapshot before a writing round; replaces the previous round's snapshot.
-    public func beginRound(topic: UUID, agent: AgentKind, original: String) throws {
+    public func beginRound(topic: UUID, agent: MemberID, original: String) throws {
         let round = roundDirectory(topic)
         if fm.fileExists(atPath: round.path) { try fm.removeItem(at: round) }
         try fm.createDirectory(at: round, withIntermediateDirectories: true)
@@ -93,7 +93,7 @@ public final class DeskWorkspace {
     /// Restores the state from before the last writing round. If that round
     /// was written back, the original files are restored as well — but only
     /// when they still hold exactly what AIROOM wrote.
-    public func undoRound(topic: UUID, agent: AgentKind, original: String) throws {
+    public func undoRound(topic: UUID, agent: MemberID, original: String) throws {
         let round = roundDirectory(topic)
         guard fm.fileExists(atPath: round.path) else { throw WorkspaceError.invalidPhase }
         let manifest = round.appendingPathComponent(manifestName)

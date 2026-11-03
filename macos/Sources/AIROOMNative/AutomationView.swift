@@ -12,7 +12,7 @@ struct AutomationView: View {
     @State private var onceAt = Date.now.addingTimeInterval(3_600)
     @State private var interval = 60
     @State private var action: ScheduleAction = .reminder
-    @State private var target: AgentKind?
+    @State private var target: MemberID?
     /// The schedule being edited; nil adds a new one.
     @State private var editing: UUID?
 
@@ -79,8 +79,8 @@ struct AutomationView: View {
                             }
                             if action == .roomMessage {
                                 Picker(t("回覆成員", "Responder"), selection: $target) {
-                                    Text(t("所有在場成員", "All present")).tag(nil as AgentKind?)
-                                    ForEach(AgentKind.allCases) { agent in
+                                    Text(t("所有在場成員", "All present")).tag(nil as MemberID?)
+                                    ForEach(model.enabledMemberIDs) { agent in
                                         Text(agent.shortName).tag(Optional(agent))
                                     }
                                 }.frame(maxWidth: 200)

@@ -4,7 +4,7 @@ import XCTest
 
 final class WorkflowFeatureTests: XCTestCase {
     func testLiveNextSpeakerAlternatesAndDeduplicates() {
-        let roster: [AgentKind] = [.claude, .codex, .claude]
+        let roster: [MemberID] = [.claude, .codex, .claude]
         XCTAssertEqual(LiveShowPolicy.nextSpeaker(participants: roster, last: nil), .claude)
         XCTAssertEqual(LiveShowPolicy.nextSpeaker(participants: roster, last: .claude), .codex)
         XCTAssertEqual(LiveShowPolicy.nextSpeaker(participants: roster, last: .codex), .claude)

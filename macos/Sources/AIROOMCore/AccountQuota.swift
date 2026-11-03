@@ -19,11 +19,11 @@ public struct QuotaWindow: Equatable, Sendable, Identifiable {
 
 public struct AccountQuota: Equatable, Sendable {
     public enum Status: String, Equatable, Sendable { case ready, unavailable }
-    public let agent: AgentKind
+    public let agent: Executor
     public let checkedAt: Date
     public let status: Status
     public let windows: [QuotaWindow]
-    public init(agent: AgentKind, checkedAt: Date = .now, windows: [QuotaWindow]) {
+    public init(agent: Executor, checkedAt: Date = .now, windows: [QuotaWindow]) {
         self.agent = agent
         self.checkedAt = checkedAt
         self.windows = windows
@@ -89,14 +89,14 @@ public enum QuotaProjection {
 /// A small, read-only protocol state machine. It explicitly verifies Claude's
 /// built-in /usage command before sending it, and refuses tool requests.
 public struct QuotaWire {
-    public let agent: AgentKind
+    public let agent: Executor
     public private(set) var windows: [QuotaWindow] = []
     public private(set) var finished = false
     public private(set) var failed = false
     public private(set) var sentQuery = false
     public let requestID: String
 
-    public init(agent: AgentKind, requestID: String = UUID().uuidString) {
+    public init(agent: Executor, requestID: String = UUID().uuidString) {
         self.agent = agent
         self.requestID = requestID
     }
@@ -148,7 +148,7 @@ public struct QuotaWire {
 public final class AccountQuotaReader {
     public init() { _ = signal(SIGPIPE, SIG_IGN) }
 
-    public func query(agent: AgentKind, settings: NativeSettings,
+    public func query(agent: Executor, settings: NativeSettings,
                       timeout: TimeInterval = 15) async -> AccountQuota {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
@@ -158,7 +158,7 @@ public final class AccountQuotaReader {
         }
     }
 
-    private func queryBlocking(agent: AgentKind, settings: NativeSettings, timeout: TimeInterval) throws -> [QuotaWindow] {
+    private func queryBlocking(agent: Executor, settings: NativeSettings, timeout: TimeInterval) throws -> [QuotaWindow] {
         let binary = try CommandPlan.resolveExecutable(agent: agent, settings: settings)
         let task = Process()
         task.executableURL = binary

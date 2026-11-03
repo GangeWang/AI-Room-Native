@@ -2,7 +2,7 @@ import SwiftUI
 import AIROOMCore
 
 private enum StudioRoute: Hashable {
-    case home, chat(AgentKind), room, roundtable, projects, members, attention, quota, automation, stage, settings
+    case home, chat(MemberID), room, roundtable, projects, members, attention, quota, automation, stage, settings
 }
 
 struct ContentView: View {
@@ -11,7 +11,7 @@ struct ContentView: View {
     @AppStorage("airoom.ui.appearance") private var appearance = "system"
     @State private var route: StudioRoute = .home
     @State private var selectedProjectID: UUID?
-    @State private var memberSheet: AgentKind?
+    @State private var memberSheet: MemberID?
     @State private var searchVisible = false
     @State private var searchText = ""
     private var lang: InterfaceLanguage { model.archive.settings.language }
@@ -121,7 +121,7 @@ struct ContentView: View {
                                         }
                                     }
                                     Spacer(minLength: 0)
-                                    StudioQuotaCompact(quota: model.accountQuotas[agent])
+                                    StudioQuotaCompact(quota: model.quota(of: agent))
                                 }
                                 .studioSidebarHitTarget()
                             }.buttonStyle(.plain)
@@ -131,7 +131,7 @@ struct ContentView: View {
                             }
                             .buttonStyle(.plain)
                             .help(t("前往成員工位", "Open member desk"))
-                            .accessibilityLabel(t("開啟", "Open") + " \(agent.rawValue)")
+                            .accessibilityLabel(t("開啟", "Open") + " \(agent.shortName)")
                         }
                         .studioSelected(route == .chat(agent), accent: agent.studioColor, scheme: scheme)
                     }
@@ -251,7 +251,7 @@ struct ContentView: View {
     private var routeTitle: String {
         switch route {
         case .home: return t("首頁", "Home")
-        case .chat(let agent): return agent.rawValue
+        case .chat(let agent): return agent.shortName
         case .room: return t("茶歇室", "Lounge")
         case .roundtable: return t("圓桌", "Roundtable")
         case .projects: return t("專案工作區", "Projects")

@@ -10,27 +10,27 @@ final class LiveStageController: ObservableObject {
         case off, connecting, connected(model: String), failed(String)
     }
 
-    @Published private(set) var connections: [AgentKind: Connection] = [:]
-    @Published private(set) var hotkeys: [AgentKind: [VTSHotkey]] = [:]
-    @Published private(set) var speaking: AgentKind?
+    @Published private(set) var connections: [MemberID: Connection] = [:]
+    @Published private(set) var hotkeys: [MemberID: [VTSHotkey]] = [:]
+    @Published private(set) var speaking: MemberID?
     @Published private(set) var subtitle = ""
     @Published private(set) var lastWarning: String?
 
-    private var clients: [AgentKind: VTubeStudioClient] = [:]
+    private var clients: [MemberID: VTubeStudioClient] = [:]
     private let speech = SpeechPlayer()
     /// Expression hotkey currently switched on per model (VTS expressions toggle).
-    private var activeExpression: [AgentKind: String] = [:]
+    private var activeExpression: [MemberID: String] = [:]
     private var stopped = false
 
-    func connection(_ agent: AgentKind) -> Connection { connections[agent] ?? .off }
-    func hotkeys(_ agent: AgentKind) -> [VTSHotkey] { hotkeys[agent] ?? [] }
-    func isConnected(_ agent: AgentKind) -> Bool {
+    func connection(_ agent: MemberID) -> Connection { connections[agent] ?? .off }
+    func hotkeys(_ agent: MemberID) -> [VTSHotkey] { hotkeys[agent] ?? [] }
+    func isConnected(_ agent: MemberID) -> Bool {
         if case .connected = connection(agent) { return true } else { return false }
     }
 
     // MARK: VTube Studio
 
-    func connect(_ agent: AgentKind, port: Int, token: String, onNewToken: @escaping (String) -> Void) {
+    func connect(_ agent: MemberID, port: Int, token: String, onNewToken: @escaping (String) -> Void) {
         let client = clients[agent] ?? VTubeStudioClient()
         clients[agent] = client
         activeExpression[agent] = nil
@@ -47,14 +47,14 @@ final class LiveStageController: ObservableObject {
         }
     }
 
-    func disconnect(_ agent: AgentKind) {
+    func disconnect(_ agent: MemberID) {
         activeExpression[agent] = nil
         hotkeys[agent] = nil
         connections[agent] = .off
         if let client = clients[agent] { Task { await client.disconnect() } }
     }
 
-    func refreshHotkeys(_ agent: AgentKind) async {
+    func refreshHotkeys(_ agent: MemberID) async {
         guard let client = clients[agent] else { return }
         do { hotkeys[agent] = try await client.hotkeys() }
         catch { lastWarning = error.localizedDescription }
@@ -95,7 +95,7 @@ final class LiveStageController: ObservableObject {
         }
     }
 
-    func rehearse(_ agent: AgentKind, name: String, stage: LiveStageSettings, language: InterfaceLanguage) {
+    func rehearse(_ agent: MemberID, name: String, stage: LiveStageSettings, language: InterfaceLanguage) {
         let line = language == .english
             ? "[happy] Hi everyone, I'm \(name)! [thinking] This is a voice and expression test. [surprised] Can you see my mouth move?"
             : "[happy] 大家好，我是\(name)！[thinking] 這是聲音和表情的測試。[surprised] 有看到我的嘴巴在動嗎？"

@@ -29,13 +29,20 @@ struct StudioQuotaView: View {
             VStack(alignment: .leading, spacing: 17) {
                 StudioPageHeading(eyebrow: "USAGE", title: t("用量與額度", "Usage & Quotas"),
                     subtitle: t("直接查詢官方執行端回報的訂閱限制。不是 Token 推算，也不是 ChatGPT／Claude App 的帳單。", "Subscription limits from official executable reports, not estimates derived from tokens or billing."))
-                ForEach(AgentKind.allCases) { agent in
+                ForEach(Executor.allCases) { agent in
                     StudioPanel {
                         VStack(alignment: .leading, spacing: 13) {
                             HStack(spacing: 10) {
-                                StudioAvatar(agent: agent, size: 37)
+                                Image(systemName: agent.symbol)
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .frame(width: 37, height: 37)
+                                    .background(.quaternary, in: Circle())
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(agent.rawValue).font(.headline)
+                                    let names = model.archive.members.filter { $0.executor == agent }.map(\.name)
+                                    if !names.isEmpty {
+                                        Text(t("成員：", "Members: ") + names.joined(separator: "、")).font(.caption).foregroundStyle(.secondary)
+                                    }
                                     Text(agent == .codex ? "Codex App Server · account/rateLimits/read" : "Claude Code · /usage")
                                         .font(.caption2.monospaced()).foregroundStyle(.secondary)
                                 }
@@ -49,9 +56,9 @@ struct StudioQuotaView: View {
                                 if model.quotaRefreshing.contains(agent) { ProgressView().controlSize(.small) }
                             }
                             VStack(alignment: .leading, spacing: 3) {
-                                Label(t("今天：", "Today: ") + model.archive.calls.usage(agent, day: LocalAutomation.dayKey(tick.date)).label(lang),
+                                Label(t("今天：", "Today: ") + model.callUsage(agent, day: LocalAutomation.dayKey(tick.date)).label(lang),
                                       systemImage: "arrow.up.arrow.down.circle").font(.caption)
-                                Text(t("近 60 天：", "Last 60 days: ") + model.archive.calls.usage(agent).label(lang))
+                                Text(t("近 60 天：", "Last 60 days: ") + model.callUsage(agent).label(lang))
                                     .font(.caption2).foregroundStyle(.secondary)
                             }
                             if let quota = model.accountQuotas[agent] {

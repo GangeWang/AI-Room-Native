@@ -36,9 +36,9 @@ enum StudioI18n {
     }
 }
 
-/// Colors chosen on member cards; kept current by WorkbenchModel.
-enum MemberColors {
-    nonisolated(unsafe) static var chosen: [AgentKind: Color] = [:]
+/// Every member's card, for views that only know a MemberID; kept current by WorkbenchModel.
+enum MemberDirectory {
+    nonisolated(unsafe) static var cards: [MemberID: MemberCard] = [:]
 }
 
 extension Color {
@@ -56,9 +56,26 @@ extension Color {
     }
 }
 
-extension AgentKind {
-    var studioColor: Color { MemberColors.chosen[self] ?? builtInColor }
-    var builtInColor: Color { self == .claude ? StudioTheme.orange : StudioTheme.violet }
+extension MemberID {
+    private var card: MemberCard? { MemberDirectory.cards[self] }
+    var studioColor: Color { card.flatMap { Color(hex: $0.color) } ?? builtInColor }
+    /// The template's color, else the two classic studio colors.
+    var builtInColor: Color {
+        if let hex = card?.look?.color ?? MemberTemplate.builtIn(for: self)?.color, let color = Color(hex: hex) { return color }
+        return self == .codex ? StudioTheme.violet : StudioTheme.orange
+    }
+    /// The card's name; the id when the card is gone.
+    var shortName: String { card?.name ?? rawValue }
+    /// The program this member runs on.
+    var executor: Executor { card?.executor ?? builtInExecutor ?? .claude }
+    /// The built-in artwork file, if the card uses a template that has one.
+    var templateArt: String? { (card?.look ?? (card == nil ? MemberTemplate.builtIn(for: self) : nil))?.art }
+    /// Shown when there is no artwork: the name's first letter.
+    var initial: String { shortName.first.map { String($0).uppercased() } ?? "?" }
+}
+
+extension Executor {
+    /// "Claude" / "Codex", for labels that name the program.
     var shortName: String { self == .claude ? "Claude" : "Codex" }
 }
 
@@ -100,7 +117,7 @@ struct StudioBrandMark: View {
 /// preserve its aspect ratio and align the original artwork's measured face anchor.
 struct StudioFaceArtwork: View {
     @EnvironmentObject private var model: WorkbenchModel
-    let agent: AgentKind
+    let agent: MemberID
     let size: CGFloat
     /// Supplied by the editor for live preview; otherwise read the saved card.
     var previewAnchor: PortraitFaceAnchor? = nil
@@ -120,8 +137,8 @@ struct StudioFaceArtwork: View {
                     .frame(width: CGFloat(crop.imageWidth), height: CGFloat(crop.imageHeight))
                     .position(x: CGFloat(crop.centerX), y: CGFloat(crop.centerY))
             } else {
-                Image(systemName: agent == .claude ? "sparkle" : "curlybraces")
-                    .font(.system(size: geometry.size.width * 0.42, weight: .semibold))
+                Text(agent.initial)
+                    .font(.system(size: geometry.size.width * 0.46, weight: .bold, design: .rounded))
                     .foregroundStyle(agent.studioColor)
                     .frame(width: geometry.size.width, height: geometry.size.height)
             }
@@ -148,17 +165,25 @@ struct AvatarSource {
 }
 
 extension WorkbenchModel {
-    func card(_ agent: AgentKind) -> MemberCard? { archive.members.first { $0.agent == agent } }
+    func card(_ agent: MemberID) -> MemberCard? { archive.members.first { $0.agent == agent } }
+
+    /// Every member, in card order.
+    var memberIDs: [MemberID] { archive.members.map(\.agent) }
+
+    /// Members who can be asked to take part (their card is switched on).
+    var enabledMemberIDs: [MemberID] { archive.members.filter(\.enabled).map(\.agent) }
 
     /// Members whose card shows on the home page and in the sidebar.
-    var visibleAgents: [AgentKind] { AgentKind.allCases.filter { card($0)?.cardHidden != true } }
+    var visibleAgents: [MemberID] { archive.members.filter { !$0.cardHidden }.map(\.agent) }
+
+    func executor(of agent: MemberID) -> Executor { card(agent)?.executor ?? agent.builtInExecutor ?? .claude }
 
     /// The uploaded portrait, else the built-in art.
-    func portraitImage(_ agent: AgentKind) -> NSImage? {
-        memberImage(card(agent)?.portrait) ?? StudioAsset.image(StudioAsset.portrait(for: agent))
+    func portraitImage(_ agent: MemberID) -> NSImage? {
+        memberImage(card(agent)?.portrait) ?? agent.templateArt.flatMap(StudioAsset.image)
     }
 
-    func avatarSource(_ agent: AgentKind) -> AvatarSource? {
+    func avatarSource(_ agent: MemberID) -> AvatarSource? {
         let card = card(agent)
         if let image = memberImage(card?.avatar), image.size.width > 0, image.size.height > 0 {
             // An uploaded avatar always covers the circle.
@@ -172,14 +197,15 @@ extension WorkbenchModel {
             return AvatarSource(image: image, anchor: card?.avatarCrop ?? fallback, defaultAnchor: fallback,
                                 zoomRange: 1...8, isUploadedAvatar: false)
         }
-        guard let image = StudioAsset.image(StudioAsset.portrait(for: agent)) else { return nil }
-        return AvatarSource(image: image, anchor: card?.avatarCrop ?? agent.portraitFaceAnchor, defaultAnchor: agent.portraitFaceAnchor,
+        guard let image = agent.templateArt.flatMap(StudioAsset.image) else { return nil }
+        let face = card?.look?.face ?? MemberTemplate.initialFace
+        return AvatarSource(image: image, anchor: card?.avatarCrop ?? face, defaultAnchor: face,
                             zoomRange: 2.5...7, isUploadedAvatar: false)
     }
 }
 
 struct StudioAvatar: View {
-    let agent: AgentKind
+    let agent: MemberID
     var size: CGFloat = 40
     var running = false
     var body: some View {

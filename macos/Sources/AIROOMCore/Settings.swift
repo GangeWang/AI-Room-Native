@@ -41,7 +41,7 @@ public struct NativeSettings: Codable, Equatable, Sendable {
         return name.isEmpty ? (language == .english ? "the user" : "使用者") : name
     }
 
-    public func configuredPath(for agent: AgentKind) -> String {
+    public func configuredPath(for agent: Executor) -> String {
         agent == .claude ? claudePath : codexPath
     }
 }
@@ -137,7 +137,7 @@ public enum CommandPlan {
         }
     }
 
-    public static func resolveExecutable(agent: AgentKind, settings: NativeSettings,
+    public static func resolveExecutable(agent: Executor, settings: NativeSettings,
                                          environment: [String: String] = ProcessInfo.processInfo.environment,
                                          home: String = NSHomeDirectory()) throws -> URL {
         let configured = settings.configuredPath(for: agent).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -174,7 +174,7 @@ public enum CommandPlan {
         throw NativeCLIError.executableMissing(agent.executableName)
     }
 
-    public static func arguments(for agent: AgentKind, access: ExecutionAccess = .readOnly,
+    public static func arguments(for agent: Executor, access: ExecutionAccess = .readOnly,
                                  options: CLIRunOptions = CLIRunOptions()) -> [String] {
         switch agent {
         case .codex:

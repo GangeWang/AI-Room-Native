@@ -26,11 +26,11 @@ final class AvatarCropEditorTests: XCTestCase {
         XCTAssertEqual(restored.id, card.id)
         XCTAssertEqual(restored.persona, "Developer")
         XCTAssertNil(restored.avatarCrop)
-        XCTAssertEqual(restored.agent.portraitFaceAnchor, AgentKind.codex.portraitFaceAnchor)
+        XCTAssertEqual(MemberTemplate.builtIn(for: restored.agent)!.face, MemberTemplate.builtIn(for: MemberID.codex)!.face)
     }
 
     func testDraggingRightAndDownMovesImageRightAndDown() throws {
-        let start = AgentKind.claude.portraitFaceAnchor
+        let start = MemberTemplate.builtIn(for: MemberID.claude)!.face
         let changed = start.translated(dragX: 18, dragY: 24, diameter: 230,
                                        sourceWidth: sourceWidth, sourceHeight: sourceHeight)
         XCTAssertLessThan(changed.x, start.x)
@@ -44,7 +44,7 @@ final class AvatarCropEditorTests: XCTestCase {
     }
 
     func testDraggingCannotExposeOutsideOfArtwork() throws {
-        let start = AgentKind.codex.portraitFaceAnchor
+        let start = MemberTemplate.builtIn(for: MemberID.codex)!.face
         let changed = start.translated(dragX: 100_000, dragY: -100_000, diameter: 230,
                                        sourceWidth: sourceWidth, sourceHeight: sourceHeight)
         let crop = try XCTUnwrap(PortraitCropLayout.make(diameter: 230, sourceWidth: sourceWidth,

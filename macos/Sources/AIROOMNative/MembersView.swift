@@ -4,11 +4,13 @@ import AIROOMCore
 struct MembersView: View {
     @EnvironmentObject private var model: WorkbenchModel
     @Environment(\.colorScheme) private var scheme
-    @State private var selected: AgentKind = .claude
+    @State private var selected: MemberID = .claude
     @State private var editingCrop = false
     @State private var importing = false
     @State private var personaFile: PersonaFile?
     @State private var confirmingReset = false
+    @State private var confirmingRemove = false
+    @State private var adding = false
     private var lang: InterfaceLanguage { model.archive.settings.language }
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, lang) }
     private func memberBinding(_ member: MemberCard) -> Binding<MemberCard> {
@@ -28,15 +30,17 @@ struct MembersView: View {
                 StudioPageHeading(eyebrow: "MEMBERS",
                     title: t("團隊與人物卡", "Team & Member Cards"),
                     subtitle: t("人物形象與個性在這裡設定；登入資料由官方 CLI 管理。", "Customize each member's appearance and persona. Authentication remains with the official CLI."))
-                HStack(alignment: .top, spacing: 16) {
-                    ForEach(AgentKind.allCases) { agent in
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 260), spacing: 16, alignment: .top)],
+                          alignment: .leading, spacing: 16) {
+                    ForEach(model.memberIDs) { agent in
                         let name = model.archive.members.first(where: { $0.agent == agent })?.name ?? agent.shortName
                         Button { selected = agent } label: {
                             VStack(alignment: .leading, spacing: 8) {
                                 StudioPortrait(agent: agent)
                                     .frame(height: 190).clipped()
                                 Text(name).font(.headline)
-                                Text(agent.rawValue + (model.card(agent)?.cardHidden == true ? t(" · 人物卡已隱藏", " · Card hidden") : ""))
+                                let hidden = model.card(agent)?.cardHidden == true
+                                Text(agent.executor.rawValue + (hidden ? t(" · 人物卡已隱藏", " · Card hidden") : ""))
                                     .font(.caption).foregroundStyle(.secondary)
                                 if let motto = model.card(agent)?.motto, !motto.isEmpty {
                                     Text("「\(motto)」").font(.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -50,6 +54,20 @@ struct MembersView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    Button { adding = true } label: {
+                        VStack(spacing: 10) {
+                            Image(systemName: "person.crop.circle.badge.plus").font(.system(size: 34, weight: .light))
+                            Text(t("新增成員", "Add member")).font(.headline)
+                            Text(t("可套用 DS、Gemini、Kimi、GLM 等形象", "Start from DS, Gemini, Kimi, GLM and more"))
+                                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        }
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 250)
+                        .background(StudioTheme.surface(scheme), in: RoundedRectangle(cornerRadius: 15))
+                        .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(StudioTheme.border(scheme), style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!model.storageAvailable)
                 }
                 if let member = current {
                     StudioPanel {
@@ -58,7 +76,7 @@ struct MembersView: View {
                                 StudioAvatar(agent: selected, size: 42)
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(t("編輯人物卡", "Edit Member Card")).font(.headline)
-                                    Text(selected.rawValue).font(.caption).foregroundStyle(.secondary)
+                                    Text(member.executor.rawValue).font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
                                 Button {
@@ -93,16 +111,17 @@ struct MembersView: View {
                                     .textFieldStyle(.roundedBorder)
                             }
                             MemberColorPicker(member: member, color: memberBinding(member).color)
+                            MemberExecutorPicker(member: member)
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack {
                                     Text(t("人物性格與分工提示", "Persona & Role Instructions")).font(.subheadline.weight(.semibold))
                                     Spacer()
                                     Button {
-                                        if let file = PersonaFile.read(for: member.agent) { personaFile = file }
-                                        else { model.statusMessage = t("沒有找到 \(PersonaFile.location(for: member.agent).path)，或檔案是空的。",
-                                                                       "\(PersonaFile.location(for: member.agent).path) was not found or is empty.") }
+                                        if let file = PersonaFile.read(for: member.executor) { personaFile = file }
+                                        else { model.statusMessage = t("沒有找到 \(PersonaFile.location(for: member.executor).path)，或檔案是空的。",
+                                                                       "\(PersonaFile.location(for: member.executor).path) was not found or is empty.") }
                                     } label: {
-                                        Label(t("從 \(member.agent == .claude ? "CLAUDE.md" : "AGENTS.md") 匯入…", "Import from \(member.agent == .claude ? "CLAUDE.md" : "AGENTS.md")…"),
+                                        Label(t("從 \(member.executor == .claude ? "CLAUDE.md" : "AGENTS.md") 匯入…", "Import from \(member.executor == .claude ? "CLAUDE.md" : "AGENTS.md")…"),
                                               systemImage: "square.and.arrow.down")
                                     }
                                     .buttonStyle(.borderless).font(.caption)
@@ -128,6 +147,12 @@ struct MembersView: View {
                                     Label(t("恢復預設資料", "Restore defaults"), systemImage: "arrow.counterclockwise")
                                 }
                                 .disabled(!model.storageAvailable)
+                                if !member.agent.isBuiltIn {
+                                    Button(role: .destructive) { confirmingRemove = true } label: {
+                                        Label(t("刪除成員", "Remove member"), systemImage: "trash")
+                                    }
+                                    .disabled(!model.storageAvailable || model.busyAgents.contains(member.agent))
+                                }
                                 Spacer()
                                 Text(t("修改會直接儲存，下一次呼叫生效。", "Changes save as you type and apply from the next call."))
                                     .font(.caption).foregroundStyle(.secondary)
@@ -163,6 +188,19 @@ struct MembersView: View {
         } message: {
             Text(t("人設、稱呼、介紹、代表色、預設模型、記憶、日常生活和上傳的圖片都會清除；啟用狀態保留。",
                    "Persona, address, intro, color, default model, memories, daily life and uploaded pictures are cleared; enabled stays."))
+        }
+        .confirmationDialog(t("刪除 \(current?.name ?? "")？", "Remove \(current?.name ?? "")?"), isPresented: $confirmingRemove) {
+            Button(t("刪除成員", "Remove member"), role: .destructive) {
+                let agent = selected
+                model.removeMember(agent)
+                if model.card(agent) == nil { selected = .claude }
+            }
+        } message: {
+            Text(t("人物卡和 TA 的工位話題會一起刪除，無法復原。茶歇室、圓桌和專案裡 TA 說過的話會保留。",
+                   "The card and their desk topics are deleted for good. What they said in rooms, roundtables and projects stays."))
+        }
+        .sheet(isPresented: $adding) {
+            AddMemberSheet { agent in selected = agent }.environmentObject(model)
         }
         .sheet(isPresented: $editingCrop) {
             if let member = current {
@@ -202,7 +240,7 @@ private struct MemoryEditor: View {
                     .font(.caption).foregroundStyle(activeCount > MemberLife.activeLimit * 9 / 10 ? .orange : .secondary)
                 Spacer()
                 Button { importing = true } label: {
-                    Label(t("從 \(member.agent.shortName) 匯入", "Import from \(member.agent.shortName)"), systemImage: "square.and.arrow.down")
+                    Label(t("從 \(member.executor.shortName) 匯入", "Import from \(member.executor.shortName)"), systemImage: "square.and.arrow.down")
                 }
             }
             Text(t("啟用的記憶會隨人物設定一起送給這位成員（書桌、茶歇室、圓桌、專案）。關掉的條目保留但不送出。",
@@ -279,7 +317,7 @@ private struct MemoryEditor: View {
 private struct MemoryImportSheet: View {
     @EnvironmentObject private var model: WorkbenchModel
     @Environment(\.dismiss) private var dismiss
-    let agent: AgentKind
+    let agent: MemberID
     @State private var sources: [MemoryImportSource] = []
     @State private var source: String?
     @State private var candidates: [MemoryCandidate] = []
@@ -290,8 +328,8 @@ private struct MemoryImportSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(t("匯入 \(agent.shortName) 的記憶", "Import \(agent.shortName) memories")).font(.title3.weight(.semibold))
-            Text(agent == .codex
+            Text(t("匯入 \(agent.executor.shortName) 的記憶", "Import \(agent.executor.shortName) memories")).font(.title3.weight(.semibold))
+            Text(agent.executor == .codex
                  ? t("只讀取 ~/.codex/memories/memory_summary.md 中關於你的段落（使用者畫像、偏好）。",
                      "Only the sections about you in ~/.codex/memories/memory_summary.md are read.")
                  : t("只讀取 ~/.claude/projects/*/memory/ 裡的記憶檔，不讀登入資料或對話紀錄。",
@@ -357,12 +395,12 @@ private struct MemoryImportSheet: View {
         }
         .padding(22)
         .frame(width: 560)
-        .onAppear { sources = MemoryImport.sources(for: agent) }
+        .onAppear { sources = MemoryImport.sources(for: agent.executor) }
         .onChange(of: source) { _, id in
             candidates = []; picked = []; error = nil
             guard let id else { return }
             do {
-                candidates = try MemoryImport.candidates(for: agent, source: id)
+                candidates = try MemoryImport.candidates(for: agent.executor, source: id)
                 if candidates.isEmpty { error = t("這個來源沒有可匯入的條目。", "Nothing to import from this source.") }
             } catch { self.error = error.localizedDescription }
         }
@@ -504,7 +542,7 @@ private struct MemberDefaultsPicker: View {
         let choices = model.modelChoices(for: member.agent)
         let current = member.defaultModel
         let chosen = current.isEmpty ? choices.first(where: \.isDefault) : choices.first(where: { $0.id == current })
-        let efforts = chosen?.efforts ?? (member.agent == .claude ? ModelCatalog.claudeEfforts : [])
+        let efforts = chosen?.efforts ?? (member.executor == .claude ? ModelCatalog.claudeEfforts : [])
         VStack(alignment: .leading, spacing: 6) {
             Text(t("這位成員預設的模型與思考程度", "This member's default model and effort")).font(.subheadline.weight(.semibold))
             HStack(spacing: 8) {
@@ -520,8 +558,8 @@ private struct MemberDefaultsPicker: View {
                     if !current.isEmpty && !choices.contains(where: { $0.id == current }) { Text(current).tag(current) }
                 }
                 .labelsHidden().frame(width: 230)
-                Button { model.refreshModelCatalogs([member.agent]) } label: {
-                    if model.modelCatalogLoading.contains(member.agent) { ProgressView().controlSize(.mini) }
+                Button { model.refreshModelCatalogs([member.executor]) } label: {
+                    if model.modelCatalogLoading.contains(member.executor) { ProgressView().controlSize(.mini) }
                     else { Image(systemName: "arrow.clockwise") }
                 }
                 .buttonStyle(.borderless)
@@ -663,5 +701,119 @@ private struct PersonaImportSheet: View {
         }
         .padding(22)
         .frame(width: 600)
+    }
+}
+
+/// Which program a member runs on. Changing it starts their CLI conversations afresh.
+struct MemberExecutorPicker: View {
+    @EnvironmentObject private var model: WorkbenchModel
+    let member: MemberCard
+    private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, model.archive.settings.language) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(t("使用的程式", "Runs on")).font(.subheadline.weight(.semibold))
+            Picker("", selection: Binding(get: { member.executor }, set: { model.setExecutor($0, for: member.agent) })) {
+                ForEach(Executor.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 280)
+            .disabled(!model.storageAvailable || model.busyAgents.contains(member.agent))
+            Text(note).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var note: String {
+        if let planned = member.look?.plannedProgram {
+            return t("這個形象原本是給 \(planned) 的；AIROOM 接上 \(planned) 之前，先由上面選的程式代跑。換程式後，TA 的對話會從頭開始（會帶上完整的前情）。",
+                     "This look is meant for \(planned); until AIROOM supports it, the program above runs it. Switching programs starts their conversations afresh (with full context).")
+        }
+        return t("同一個程式可以給好幾位成員用，額度也一起算。換程式後，TA 的對話會從頭開始（會帶上完整的前情）。",
+                 "Several members can share a program and its quota. Switching programs starts their conversations afresh (with full context).")
+    }
+}
+
+/// A new member: pick a look, a program and a name.
+struct AddMemberSheet: View {
+    @EnvironmentObject private var model: WorkbenchModel
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var scheme
+    let added: (MemberID) -> Void
+    @State private var template: MemberTemplate? = MemberTemplate.named("deepseek")
+    @State private var executor: Executor = .claude
+    @State private var name = "DS"
+    private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, model.archive.settings.language) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(t("新增成員", "Add member")).font(.title3.weight(.semibold))
+            Text(t("先選一個形象（之後都能改），再選 TA 用哪個程式。", "Pick a look (all editable later), then the program they run on."))
+                .font(.caption).foregroundStyle(.secondary)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 10)], spacing: 10) {
+                ForEach(MemberTemplate.all) { option in tile(option) }
+                tile(nil)
+            }
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(t("名字", "Name")).font(.subheadline.weight(.semibold))
+                    TextField(t("名字", "Name"), text: $name).textFieldStyle(.roundedBorder).frame(width: 200)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(t("使用的程式", "Runs on")).font(.subheadline.weight(.semibold))
+                    Picker("", selection: $executor) { ForEach(Executor.allCases) { Text($0.rawValue).tag($0) } }
+                        .pickerStyle(.segmented).labelsHidden().frame(width: 240)
+                }
+            }
+            if let planned = template?.plannedProgram {
+                StudioNotice(message: t("\(template?.name ?? "") 原本是給 \(planned) 的形象。AIROOM 還沒接上 \(planned)，先由 \(executor.rawValue) 代跑；接上之後可以在人物卡改過去。",
+                                        "\(template?.name ?? "") is meant for \(planned). AIROOM doesn't run \(planned) yet, so \(executor.rawValue) stands in; switch on the card once it does."))
+            }
+            HStack {
+                Spacer()
+                Button(t("取消", "Cancel")) { dismiss() }
+                Button(t("新增", "Add")) {
+                    if let agent = model.addMember(template: template, executor: executor, name: name) { added(agent) }
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(22)
+        .frame(width: 620)
+    }
+
+    private func tile(_ option: MemberTemplate?) -> some View {
+        let chosen = option?.id == template?.id
+        let color = option.flatMap { Color(hex: $0.color) } ?? .secondary
+        return Button {
+            template = option
+            name = option?.name ?? ""
+            executor = option?.suggestedExecutor ?? .claude
+        } label: {
+            VStack(spacing: 6) {
+                ZStack {
+                    Circle().fill(color.opacity(0.15))
+                    if let art = option?.art, let image = StudioAsset.image(art),
+                       let crop = PortraitCropLayout.make(diameter: 56, sourceWidth: Double(image.size.width),
+                                                          sourceHeight: Double(image.size.height), anchor: option!.face) {
+                        Image(nsImage: image).resizable().interpolation(.high)
+                            .frame(width: CGFloat(crop.imageWidth), height: CGFloat(crop.imageHeight))
+                            .position(x: CGFloat(crop.centerX), y: CGFloat(crop.centerY))
+                    } else {
+                        Text(option.map { String($0.name.prefix(1)) } ?? "+")
+                            .font(.system(size: 24, weight: .bold, design: .rounded)).foregroundStyle(color)
+                    }
+                }
+                .frame(width: 56, height: 56).clipShape(Circle())
+                Text(option?.name ?? t("空白", "Blank")).font(.caption.weight(.semibold))
+                Text(option?.plannedProgram ?? (option == nil ? t("自己設定", "Your own") : option!.suggestedExecutor.rawValue))
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity)
+            .background(StudioTheme.surface(scheme), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(chosen ? color : StudioTheme.border(scheme), lineWidth: chosen ? 2 : 1))
+        }
+        .buttonStyle(.plain)
     }
 }

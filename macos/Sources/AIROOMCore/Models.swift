@@ -1,12 +1,67 @@
 import Foundation
 
-public enum AgentKind: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
+/// The official program a member runs on. Several members may share one.
+public enum Executor: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
     case claude = "Claude Code"
     case codex = "Codex"
 
     public var id: String { rawValue }
     public var executableName: String { self == .claude ? "claude" : "codex" }
     public var symbol: String { self == .claude ? "brain.head.profile" : "chevron.left.forwardslash.chevron.right" }
+}
+
+/// Who a member is, independent of the program they run on. The two
+/// built-in members keep the ids they always had ("Claude Code", "Codex"),
+/// so state saved before members and executors were separated reads unchanged.
+public struct MemberID: RawRepresentable, Codable, Hashable, Identifiable, Sendable {
+    public let rawValue: String
+    public init(rawValue: String) { self.rawValue = rawValue }
+
+    public static let claude = MemberID(rawValue: Executor.claude.rawValue)
+    public static let codex = MemberID(rawValue: Executor.codex.rawValue)
+    public static let builtIn: [MemberID] = [.claude, .codex]
+
+    /// A fresh id for an added member, short enough to use as its handle.
+    public static func make() -> MemberID {
+        MemberID(rawValue: "m-" + UUID().uuidString.prefix(6).lowercased())
+    }
+
+    public var id: String { rawValue }
+    public var isBuiltIn: Bool { MemberID.builtIn.contains(self) }
+    /// The key used in prompts, plans and folder names: "claude" / "codex"
+    /// for the built-in members, as before; the id itself for added members.
+    public var handle: String {
+        switch self {
+        case .claude: return "claude"
+        case .codex: return "codex"
+        default: return rawValue
+        }
+    }
+    /// Words that name this member besides the card's name: the id and handle,
+    /// and "Claude" / "Codex" for the built-in members.
+    public var aliases: [String] {
+        switch self {
+        case .claude: return [rawValue, handle, "Claude"]
+        case .codex: return [rawValue, handle]
+        default: return [rawValue]
+        }
+    }
+    /// What the built-in members always ran on; added members say so on their card.
+    public var builtInExecutor: Executor? {
+        switch self {
+        case .claude: return .claude
+        case .codex: return .codex
+        default: return nil
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        rawValue = try decoder.singleValueContainer().decode(String.self)
+    }
+    public func encode(to encoder: Encoder) throws {
+        var box = encoder.singleValueContainer()
+        try box.encode(rawValue)
+    }
 }
 
 public enum MessageRole: String, Codable, Sendable { case user, assistant }
@@ -46,7 +101,7 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
 /// archives it, and any archived topic can be reopened later.
 public struct Conversation: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
-    public var agent: AgentKind
+    public var agent: MemberID
     public var title: String
     public var messages: [ChatMessage]
     public var updatedAt: Date
@@ -69,7 +124,7 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
     /// Fingerprint of the persona and memory that conversation was last given.
     public var sessionProfile: String?
 
-    public init(id: UUID = UUID(), agent: AgentKind, title: String = TopicNaming.defaultTitle,
+    public init(id: UUID = UUID(), agent: MemberID, title: String = TopicNaming.defaultTitle,
                 messages: [ChatMessage] = [], updatedAt: Date = .now, archived: Bool = false,
                 titleLocked: Bool = false, model: String = "", effort: String = "",
                 draft: String = "", draftAttachments: [ChatAttachment] = [], workFolder: String = "") {
@@ -98,7 +153,7 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
         id = try box.decode(UUID.self, forKey: .id)
-        agent = try box.decode(AgentKind.self, forKey: .agent)
+        agent = try box.decode(MemberID.self, forKey: .agent)
         title = try box.decode(String.self, forKey: .title)
         messages = try box.decode([ChatMessage].self, forKey: .messages)
         updatedAt = try box.decode(Date.self, forKey: .updatedAt)
@@ -123,11 +178,11 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
 
 public struct RoundtableResult: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
-    public var agent: AgentKind
+    public var agent: MemberID
     public var text: String
     public var error: String?
 
-    public init(id: UUID = UUID(), agent: AgentKind, text: String = "", error: String? = nil) {
+    public init(id: UUID = UUID(), agent: MemberID, text: String = "", error: String? = nil) {
         self.id = id
         self.agent = agent
         self.text = text

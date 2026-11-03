@@ -20,7 +20,7 @@ struct LiveStageView: View {
                                 "Speak every co-host line and drive Live2D expressions and lip sync through VTube Studio. One speaker at a time."))
                 speechPanel
                 vtsPanel
-                ForEach(AgentKind.allCases) { agent in characterPanel(agent) }
+                ForEach(model.enabledMemberIDs) { agent in characterPanel(agent) }
                 StudioNotice(message: t("AI 只能從固定的 8 種情緒中選擇；App 只觸發你在下方對應、且目前模型確實存在的熱鍵。VTube Studio 授權 Token 只存在本機加密資料中。聲音從系統預設輸出播放，OBS 擷取桌面音訊即可。",
                                         "Agents can only pick one of 8 fixed emotions; the app only fires hotkeys you mapped below that exist on the loaded model. The VTube Studio token stays in the local encrypted state. Audio plays on the default output for OBS desktop capture."))
             }
@@ -63,7 +63,7 @@ struct LiveStageView: View {
         }
     }
 
-    private func vtsControls(_ agent: AgentKind, _ character: LiveCharacterStage) -> some View {
+    private func vtsControls(_ agent: MemberID, _ character: LiveCharacterStage) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Text(t("VTS 連接埠", "VTS port"))
@@ -88,7 +88,7 @@ struct LiveStageView: View {
         }
     }
 
-    @ViewBuilder private func connectionStatus(_ agent: AgentKind) -> some View {
+    @ViewBuilder private func connectionStatus(_ agent: MemberID) -> some View {
         switch stage.connection(agent) {
         case .off:
             Label(t("未連線", "Not connected"), systemImage: "circle").font(.caption).foregroundStyle(.secondary)
@@ -104,7 +104,7 @@ struct LiveStageView: View {
         }
     }
 
-    private func characterPanel(_ agent: AgentKind) -> some View {
+    private func characterPanel(_ agent: MemberID) -> some View {
         let character = settings.character(agent)
         let name = model.archive.members.first(where: { $0.agent == agent })?.name ?? agent.shortName
         return StudioPanel {
@@ -153,7 +153,7 @@ struct LiveStageView: View {
         }
     }
 
-    private func emotionGrid(_ agent: AgentKind, _ character: LiveCharacterStage) -> some View {
+    private func emotionGrid(_ agent: MemberID, _ character: LiveCharacterStage) -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 12)], alignment: .leading, spacing: 8) {
             ForEach(LiveEmotion.allCases.filter { $0 != .neutral }) { emotion in
                 Picker(english ? emotion.rawValue : emotion.zhTitle, selection: Binding(

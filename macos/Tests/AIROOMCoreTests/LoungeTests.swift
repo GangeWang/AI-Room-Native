@@ -2,7 +2,7 @@ import XCTest
 @testable import AIROOMCore
 
 final class LoungeTests: XCTestCase {
-    let both: [AgentKind] = [.claude, .codex]
+    let both: [MemberID] = [.claude, .codex]
     let cards = [MemberCard(agent: .claude, name: "克勞蒂亞"), MemberCard(agent: .codex, name: "GPT娘")]
 
     private func reply(_ action: LoungeAction, _ body: String = "", emoji: String? = nil) -> LoungeReply {
@@ -39,7 +39,7 @@ final class LoungeTests: XCTestCase {
         LoungeEngine.humanSpoke(&state, mentions: [], present: both, entryID: UUID())
         _ = LoungeEngine.apply(reply(.propose, "先這樣吧"), from: .claude, present: both, state: &state, entryID: UUID())
         XCTAssertEqual(state.phase, .talking, "too early: treated as a remark")
-        for speaker in [AgentKind.codex, .claude, .codex] {
+        for speaker in [MemberID.codex, .claude, .codex] {
             _ = LoungeEngine.apply(reply(.speak, "嗯"), from: speaker, present: both, state: &state, entryID: UUID())
         }
         _ = LoungeEngine.apply(reply(.propose, "今天聊得差不多了"), from: .claude, present: both, state: &state, entryID: UUID())

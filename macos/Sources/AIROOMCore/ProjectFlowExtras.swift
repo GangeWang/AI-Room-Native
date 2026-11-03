@@ -50,7 +50,7 @@ public struct FlowReview: Equatable, Sendable {
 /// A member whose quota ran out while working on this flow.
 public struct FlowQuotaWait: Codable, Equatable, Identifiable, Sendable {
     public var id: UUID
-    public var agent: AgentKind
+    public var agent: MemberID
     /// What was being done (e.g. 執行任務「…」).
     public var stage: String
     public var since: Date
@@ -59,7 +59,7 @@ public struct FlowQuotaWait: Codable, Equatable, Identifiable, Sendable {
     /// The reset time passed (or a fresh quota sample shows room); the owner was told.
     public var ready: Bool
     public var message: String
-    public init(id: UUID = UUID(), agent: AgentKind, stage: String, since: Date = .now, resetAt: Date? = nil, message: String) {
+    public init(id: UUID = UUID(), agent: MemberID, stage: String, since: Date = .now, resetAt: Date? = nil, message: String) {
         self.id = id; self.agent = agent; self.stage = String(stage.prefix(200)); self.since = since
         self.resetAt = resetAt; ready = false
         // The `|<unix seconds>` reset hint is read into resetAt; it isn't for reading.
@@ -134,7 +134,7 @@ extension ProjectFlowEngine {
     /// Tasks that can start now next to `active`: their dependencies are done, their member
     /// isn't busy or out of quota, and their files don't overlap anything running.
     public static func readyTasks(in round: FlowRound, plan: FlowPlan, active: Set<UUID>, maxParallel: Int,
-                                  unavailable: Set<AgentKind> = []) -> [FlowTask] {
+                                  unavailable: Set<MemberID> = []) -> [FlowTask] {
         let done = Set(plan.tasks.filter { $0.status == .done }.map(\.key))
         var running = plan.tasks.filter { active.contains($0.id) }
         var picked: [FlowTask] = []

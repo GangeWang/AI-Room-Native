@@ -50,14 +50,14 @@ public struct CallLedger: Codable, Equatable, Sendable {
     public var days: [String: [String: CallUsage]] = [:] // agent → day → usage
     public init() {}
 
-    public mutating func record(_ event: CallEvent, agent: AgentKind, day: String, keepDays: Int = 60) {
+    public mutating func record(_ event: CallEvent, agent: MemberID, day: String, keepDays: Int = 60) {
         days[agent.rawValue, default: [:]][day, default: CallUsage()].record(event)
         if let byDay = days[agent.rawValue], byDay.count > keepDays {
             for key in byDay.keys.sorted().prefix(byDay.count - keepDays) { days[agent.rawValue]?[key] = nil }
         }
     }
 
-    public func usage(_ agent: AgentKind, day: String? = nil) -> CallUsage {
+    public func usage(_ agent: MemberID, day: String? = nil) -> CallUsage {
         let byDay = days[agent.rawValue] ?? [:]
         if let day { return byDay[day] ?? CallUsage() }
         return byDay.values.reduce(CallUsage(), +)
@@ -70,7 +70,7 @@ public struct CallLedger: Codable, Equatable, Sendable {
 public enum AttentionKind: String, Sendable { case question, decision, unknown, login, missing, acceptance }
 
 public struct AttentionItem: Identifiable, Equatable, Sendable {
-    public enum Target: Equatable, Sendable { case room(UUID), roundtable(UUID), project(UUID), settings, member(AgentKind), memberCard(AgentKind) }
+    public enum Target: Equatable, Sendable { case room(UUID), roundtable(UUID), project(UUID), settings, member(MemberID), memberCard(MemberID) }
     public var id: String
     public var kind: AttentionKind
     public var title: String
@@ -96,16 +96,20 @@ public enum AttentionBuilder {
         return next
     }
 
-    public static func items(state: SavedState, cli: [AgentKind: OfficialCLIStatus]) -> [AttentionItem] {
+    public static func items(state: SavedState, cli: [Executor: OfficialCLIStatus]) -> [AttentionItem] {
         var items: [AttentionItem] = []
-        let name = { (agent: AgentKind) in state.members.first(where: { $0.agent == agent })?.name ?? agent.rawValue }
-        for agent in AgentKind.allCases where state.members.contains(where: { $0.agent == agent && $0.enabled }) {
-            switch cli[agent] {
+        let name = { (agent: MemberID) in state.members.first(where: { $0.agent == agent })?.name ?? agent.rawValue }
+        // One reminder per program, naming every enabled member who runs on it.
+        for executor in Executor.allCases {
+            let names = state.members.filter { $0.executor == executor && $0.enabled }.map(\.name)
+            guard !names.isEmpty else { continue }
+            let who = names.joined(separator: "、")
+            switch cli[executor] {
             case .notLoggedIn:
-                items.append(AttentionItem(id: "login-\(agent.rawValue)", kind: .login, title: "\(name(agent)) 需要登入",
+                items.append(AttentionItem(id: "login-\(executor.rawValue)", kind: .login, title: "\(who) 需要登入",
                     detail: "官方 CLI 尚未登入，成員暫時無法回覆。", target: .settings))
             case .missingExecutable:
-                items.append(AttentionItem(id: "missing-\(agent.rawValue)", kind: .missing, title: "\(name(agent)) 缺少程式",
+                items.append(AttentionItem(id: "missing-\(executor.rawValue)", kind: .missing, title: "\(who) 缺少程式",
                     detail: "找不到官方 CLI，請在設定指定路徑或安裝。", target: .settings))
             default: break
             }
@@ -179,7 +183,7 @@ public enum AttentionBuilder {
 public enum LoginScript {
     /// A `.command` file Terminal runs. It contains only the CLI's own login
     /// command; AIROOM never sees or stores what the user types.
-    public static func contents(agent: AgentKind, executable: URL) -> String {
+    public static func contents(agent: Executor, executable: URL) -> String {
         let quoted = "'" + executable.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
         let command = agent == .claude ? "\(quoted) auth login" : "\(quoted) login"
         return """

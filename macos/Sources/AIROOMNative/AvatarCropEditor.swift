@@ -9,7 +9,7 @@ struct AvatarCropEditor: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
 
-    let agent: AgentKind
+    let agent: MemberID
     let source: AvatarSource
     /// The new crop, nil for the default; saved to the uploaded avatar or the portrait, as `source` says.
     let onSave: (PortraitFaceAnchor?) -> Void
@@ -19,7 +19,7 @@ struct AvatarCropEditor: View {
 
     private let previewSize: CGFloat = 230
 
-    init(agent: AgentKind, source: AvatarSource, onSave: @escaping (PortraitFaceAnchor?) -> Void) {
+    init(agent: MemberID, source: AvatarSource, onSave: @escaping (PortraitFaceAnchor?) -> Void) {
         self.agent = agent
         self.source = source
         self.onSave = onSave
@@ -63,7 +63,7 @@ struct AvatarCropEditor: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(t("調整頭像", "Adjust Avatar"))
                         .font(.title2.bold())
-                    Text(agent.rawValue)
+                    Text(agent.shortName)
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer()

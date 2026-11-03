@@ -112,9 +112,9 @@ public enum Talkativeness: String, Codable, CaseIterable, Identifiable, Sendable
 
 /// How a member relates to a teammate; part of the persona.
 public struct MemberRelation: Codable, Equatable, Sendable {
-    public var agent: AgentKind
+    public var agent: MemberID
     public var text: String
-    public init(agent: AgentKind, text: String) { self.agent = agent; self.text = text }
+    public init(agent: MemberID, text: String) { self.agent = agent; self.text = text }
 }
 
 public enum MemoryLimitError: Error, LocalizedError, Equatable {
@@ -265,7 +265,7 @@ public enum MemberLife {
     // MARK: Daily opening and member chat
 
     /// Rotates who greets: the member after the last one, in team order.
-    public static func nextGreeter(_ members: [AgentKind], last: AgentKind?) -> AgentKind? {
+    public static func nextGreeter(_ members: [MemberID], last: MemberID?) -> MemberID? {
         guard let last, let index = members.firstIndex(of: last) else { return members.first }
         return members[(index + 1) % members.count]
     }
@@ -287,7 +287,7 @@ public enum MemberLife {
         let profile = profile(member, team: team, ownerName: ownerName)
         let recap = facts.map { "【\($0.speaker)】\($0.text)" }.joined(separator: "\n")
         return """
-        [\(ownerName)開啟了每日開場] 今天是 \(today)。你是 \(member.name)（\(member.agent.rawValue)），今天輪到你在茶歇室問候\(ownerName)。
+        [\(ownerName)開啟了每日開場] 今天是 \(today)。你是 \(member.name)（\(member.executor.rawValue)），今天輪到你在茶歇室問候\(ownerName)。
         你的人物設定：\(String(member.persona.prefix(1_500)))
         \(profile)
         只說一次簡短問候，最多三句話，問問今天想做什麼；不要分派任務或安排其他成員。
@@ -332,11 +332,11 @@ public struct PersonaFile: Identifiable, Equatable, Sendable {
     public var truncated: Bool
 
     /// Codex keeps ~/.codex/AGENTS.md; Claude Code keeps ~/.claude/CLAUDE.md.
-    public static func location(for agent: AgentKind, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+    public static func location(for agent: Executor, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         agent == .claude ? home.appendingPathComponent(".claude/CLAUDE.md") : home.appendingPathComponent(".codex/AGENTS.md")
     }
 
-    public static func read(for agent: AgentKind, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> PersonaFile? {
+    public static func read(for agent: Executor, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> PersonaFile? {
         let url = location(for: agent, home: home)
         guard let data = try? Data(contentsOf: url, options: .mappedIfSafe), data.count <= 1_048_576 else { return nil }
         let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -386,7 +386,7 @@ public enum MemoryImport {
     /// "-Users-me-project" back to a readable path; only a label, never opened.
     static func projectLabel(_ name: String) -> String { name.replacingOccurrences(of: "-", with: "/") }
 
-    public static func sources(for agent: AgentKind, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [MemoryImportSource] {
+    public static func sources(for agent: Executor, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [MemoryImportSource] {
         switch agent {
         case .codex:
             return FileManager.default.fileExists(atPath: codexSummary(home).path)
@@ -401,7 +401,7 @@ public enum MemoryImport {
         }
     }
 
-    public static func candidates(for agent: AgentKind, source: String,
+    public static func candidates(for agent: Executor, source: String,
                                   home: URL = FileManager.default.homeDirectoryForCurrentUser) throws -> [MemoryCandidate] {
         if agent == .codex, source == "codex-summary" { return codexCandidates(try read(codexSummary(home))) }
         guard agent == .claude, source.hasPrefix("claude:") else { throw MemoryImportError.notFound }
@@ -479,8 +479,8 @@ public struct DailyOpeningSettings: Codable, Equatable, Sendable {
     /// The last day the window was opened, whether or not a greeting ran; a
     /// relaunch, a clock rollback or switching the feature on never replays it.
     public var lastDay: String?
-    public var lastAgent: AgentKind?
-    public init(enabled: Bool = false, roomID: UUID? = nil, lastDay: String? = nil, lastAgent: AgentKind? = nil) {
+    public var lastAgent: MemberID?
+    public init(enabled: Bool = false, roomID: UUID? = nil, lastDay: String? = nil, lastAgent: MemberID? = nil) {
         self.enabled = enabled; self.roomID = roomID; self.lastDay = lastDay; self.lastAgent = lastAgent
     }
 

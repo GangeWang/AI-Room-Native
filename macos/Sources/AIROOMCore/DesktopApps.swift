@@ -17,7 +17,7 @@ public enum DesktopAppHandoff {
     /// No prompt, transcript, API key, session token, or account identifier is
     /// ever added to these URLs. Workspace handoff only happens after the user
     /// explicitly chooses a folder and presses the corresponding button.
-    public static func newCodeSession(agent: AgentKind, selectedWorkspace: String = "") throws -> URL {
+    public static func newCodeSession(agent: Executor, selectedWorkspace: String = "") throws -> URL {
         let destination = agent == .codex ? "codex://threads/new" : "claude://code/new"
         guard var components = URLComponents(string: destination) else {
             preconditionFailure("Invalid hardcoded official application URL")
@@ -48,7 +48,7 @@ public enum OfficialCLIStatus: String, Equatable, Sendable {
 /// into the same account or that GUI threads are shared with AIROOM.
 public enum OfficialCLIProbe {
     public static func check(
-        agent: AgentKind, settings: NativeSettings,
+        agent: Executor, settings: NativeSettings,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         home: String = NSHomeDirectory(), timeout: TimeInterval = 8
     ) -> OfficialCLIStatus {

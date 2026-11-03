@@ -14,7 +14,7 @@ struct SettingsView: View {
     @AppStorage("airoom.ui.appearance") private var appearance = "system"
     private var lang: InterfaceLanguage { model.archive.settings.language }
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, lang) }
-    private func cliPath(for agent: AgentKind) -> Binding<String> {
+    private func cliPath(for agent: Executor) -> Binding<String> {
         Binding(get: { model.archive.settings.configuredPath(for: agent) },
                 set: { value in
                     model.updateSettings { settings in
@@ -92,11 +92,14 @@ struct SettingsView: View {
 
     private var connections: some View {
         VStack(spacing: 15) {
-            ForEach(AgentKind.allCases) { agent in
+            ForEach(Executor.allCases) { agent in
                 StudioPanel {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 12) {
-                            StudioAvatar(agent: agent, size: 41)
+                            Image(systemName: agent.symbol)
+                                .font(.system(size: 19, weight: .semibold))
+                                .frame(width: 41, height: 41)
+                                .background(.quaternary, in: Circle())
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(agent.rawValue).font(.headline)
                                 Text(agent == .codex
@@ -113,7 +116,7 @@ struct SettingsView: View {
                             Button(t("選取…", "Browse…")) { chooseExecutable(for: agent) }
                         }
                         HStack(spacing: 11) {
-                            Button { model.openVendorDesktop(for: agent) } label: {
+                            Button { model.openVendorDesktop(executor: agent) } label: {
                                 Label(t("開啟官方桌面 App", "Open Official Desktop App"), systemImage: "arrow.up.forward.app")
                             }
                             Button { model.checkVendorCLIAccount(for: agent) } label: {
@@ -194,7 +197,7 @@ struct SettingsView: View {
         }
     }
 
-    private func chooseExecutable(for agent: AgentKind) {
+    private func chooseExecutable(for agent: Executor) {
         let picker = NSOpenPanel()
         picker.canChooseFiles = true
         picker.canChooseDirectories = false

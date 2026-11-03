@@ -2,7 +2,7 @@ import XCTest
 @testable import AIROOMCore
 
 final class ProjectFlowTests: XCTestCase {
-    let both: [AgentKind] = [.claude, .codex]
+    let both: [MemberID] = [.claude, .codex]
     let plan = #"""
     ```json
     {"objective":"做開場白頁","scope":"只改 index.html","deliverables":["index.html"],"acceptance":["打開能看到開場白"],

@@ -7,7 +7,9 @@ extension WorkbenchModel {
     /// Opens the vendor desktop application's official *new Code session* flow.
     /// AIROOM's conversation text, local encrypted state and credentials are
     /// intentionally never forwarded, and this does not claim session sync.
-    func openVendorDesktop(for agent: AgentKind) {
+    func openVendorDesktop(for member: MemberID) { openVendorDesktop(executor: executor(of: member)) }
+
+    func openVendorDesktop(executor agent: Executor) {
         do {
             let url = try DesktopAppHandoff.newCodeSession(
                 agent: agent,
@@ -29,11 +31,11 @@ extension WorkbenchModel {
         }
     }
 
-    private func recordOfficialCLIStatus(_ status: OfficialCLIStatus, for agent: AgentKind) {
+    private func recordOfficialCLIStatus(_ status: OfficialCLIStatus, for agent: Executor) {
         officialCLIStatuses[agent] = status
     }
 
-    func checkVendorCLIAccount(for agent: AgentKind) {
+    func checkVendorCLIAccount(for agent: Executor) {
         guard officialCLIStatuses[agent] != .checking else { return }
         officialCLIStatuses[agent] = .checking
         let settings = archive.settings

@@ -24,24 +24,29 @@ public final class CLIProcessRunner {
     private let codexServer = CodexAppServerRunner()
     /// Receives one attempt, at most one delivered, then completed / notSent /
     /// unknown for every request. Called from background threads.
-    public var observer: (@Sendable (AgentKind, CallEvent) -> Void)?
+    public var observer: (@Sendable (MemberID, CallEvent) -> Void)?
 
-    /// Each member's default model and effort, used where a call doesn't choose.
-    private var memberDefaults: [AgentKind: (model: String, effort: String)] = [:]
+    /// Each member's program, default model and effort (used where a call doesn't choose).
+    private var memberDefaults: [MemberID: (executor: Executor, model: String, effort: String)] = [:]
 
     public init() {}
 
-    public func setDefaults(_ agent: AgentKind, model: String, effort: String) {
-        lock.lock(); memberDefaults[agent] = (model, effort); lock.unlock()
+    public func setDefaults(_ agent: MemberID, executor: Executor? = nil, model: String, effort: String) {
+        lock.lock()
+        memberDefaults[agent] = (executor ?? memberDefaults[agent]?.executor ?? agent.builtInExecutor ?? .claude, model, effort)
+        lock.unlock()
     }
 
-    private func defaults(for agent: AgentKind) -> (model: String, effort: String) {
+    private func defaults(for agent: MemberID) -> (executor: Executor, model: String, effort: String) {
         lock.lock(); defer { lock.unlock() }
-        return memberDefaults[agent] ?? ("", "")
+        return memberDefaults[agent] ?? (agent.builtInExecutor ?? .claude, "", "")
     }
+
+    /// The program a member runs on.
+    public func executor(for agent: MemberID) -> Executor { defaults(for: agent).executor }
 
     public func run(
-        id: UUID = UUID(), agent: AgentKind, prompt: String, settings: NativeSettings,
+        id: UUID = UUID(), agent: MemberID, prompt: String, settings: NativeSettings,
         fallbackWorkspace: URL, access: ExecutionAccess = .readOnly, onUpdate: @escaping (String) -> Void
     ) async throws -> String {
         try await runDetailed(id: id, agent: agent, prompt: prompt, settings: settings,
@@ -51,7 +56,7 @@ public final class CLIProcessRunner {
     /// Like `run`, with per-topic model/effort, image/PDF attachments, and the
     /// model the CLI reported back.
     public func runDetailed(
-        id: UUID = UUID(), agent: AgentKind, prompt: String, settings: NativeSettings,
+        id: UUID = UUID(), agent: MemberID, prompt: String, settings: NativeSettings,
         fallbackWorkspace: URL, access: ExecutionAccess = .readOnly, options: CLIRunOptions = CLIRunOptions(),
         onUpdate: @escaping (String) -> Void
     ) async throws -> CLIRunResult {
@@ -75,7 +80,7 @@ public final class CLIProcessRunner {
         }
     }
 
-    private func runObserved(id: UUID, agent: AgentKind, prompt: String, settings: NativeSettings,
+    private func runObserved(id: UUID, agent: MemberID, prompt: String, settings: NativeSettings,
                              fallbackWorkspace: URL, access: ExecutionAccess, options: CLIRunOptions,
                              onUpdate: @escaping (String) -> Void) async throws -> CLIRunResult {
         let observer = self.observer
@@ -99,13 +104,14 @@ public final class CLIProcessRunner {
         }
     }
 
-    private func perform(id: UUID, agent: AgentKind, prompt: String, settings: NativeSettings,
+    private func perform(id: UUID, agent: MemberID, prompt: String, settings: NativeSettings,
                          fallbackWorkspace: URL, access: ExecutionAccess, options: CLIRunOptions,
                          delivered: @escaping @Sendable () -> Void,
                          onUpdate: @escaping (String) -> Void) async throws -> CLIRunResult {
-        let binary = try CommandPlan.resolveExecutable(agent: agent, settings: settings)
+        let executor = executor(for: agent)
+        let binary = try CommandPlan.resolveExecutable(agent: executor, settings: settings)
         let cwd = try CommandPlan.workingDirectory(settings: settings, fallback: fallbackWorkspace)
-        if agent == .codex {
+        if executor == .codex {
             if let pdf = options.attachments.first(where: { $0.attachment.kind == .pdf }) {
                 throw AttachmentError.pdfNotSupported(pdf.attachment.fileName)
             }
@@ -116,7 +122,7 @@ public final class CLIProcessRunner {
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let result = try self.runBlocking(id: id, agent: agent, binary: binary, cwd: cwd, prompt: prompt,
+                    let result = try self.runBlocking(id: id, agent: executor, binary: binary, cwd: cwd, prompt: prompt,
                                                       access: access, options: options, delivered: delivered,
                                                       onUpdate: onUpdate)
                     continuation.resume(returning: result)
@@ -127,7 +133,7 @@ public final class CLIProcessRunner {
         }
     }
 
-    private func runBlocking(id: UUID, agent: AgentKind, binary: URL, cwd: URL, prompt: String,
+    private func runBlocking(id: UUID, agent: Executor, binary: URL, cwd: URL, prompt: String,
                              access: ExecutionAccess, options: CLIRunOptions, delivered: () -> Void,
                              onUpdate: (String) -> Void) throws -> CLIRunResult {
         let process = Process()

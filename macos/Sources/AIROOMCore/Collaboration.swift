@@ -3,7 +3,12 @@ import Foundation
 /// Persisted user-defined agent cards, separate from the vendor's CLI credentials.
 public struct MemberCard: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
-    public var agent: AgentKind
+    /// Who this is. Built-in members keep "Claude Code" / "Codex"; added members get their own.
+    public var agent: MemberID
+    /// The program this member runs on.
+    public var executor: Executor
+    /// The built-in look this card started from (MemberTemplate.id); nil shows the name's initial.
+    public var template: String?
     public var name: String
     public var persona: String
     public var enabled: Bool
@@ -43,11 +48,13 @@ public struct MemberCard: Identifiable, Codable, Equatable, Sendable {
     public static let personaLimit = 8_000
     public static let portraitScaleRange = 0.6...1.6
 
-    public init(id: UUID = UUID(), agent: AgentKind, name: String? = nil,
-                persona: String = "", enabled: Bool = true,
+    public init(id: UUID = UUID(), agent: MemberID, executor: Executor? = nil, template: String? = nil,
+                name: String? = nil, persona: String = "", enabled: Bool = true,
                 avatarCrop: PortraitFaceAnchor? = nil) {
         self.id = id
         self.agent = agent
+        self.executor = executor ?? agent.builtInExecutor ?? .claude
+        self.template = template ?? MemberTemplate.builtIn(for: agent)?.id
         self.name = name ?? agent.rawValue
         self.persona = persona
         self.enabled = enabled
@@ -58,7 +65,7 @@ public struct MemberCard: Identifiable, Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, agent, name, persona, enabled, avatarCrop, memories, memoryProposals, routine, quirks, relations, talkativeness
+        case id, agent, executor, template, name, persona, enabled, avatarCrop, memories, memoryProposals, routine, quirks, relations, talkativeness
         case userTitle, motto, color, defaultModel, defaultEffort, portrait, portraitScale, portraitOffset, avatar, avatarImageCrop, cardHidden
     }
 
@@ -66,7 +73,10 @@ public struct MemberCard: Identifiable, Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decode(UUID.self, forKey: .id)
-        agent = try values.decode(AgentKind.self, forKey: .agent)
+        agent = try values.decode(MemberID.self, forKey: .agent)
+        // Cards saved before members and executors were separated: the id was the executor.
+        executor = (try? values.decodeIfPresent(Executor.self, forKey: .executor)) ?? agent.builtInExecutor ?? .claude
+        template = (try? values.decodeIfPresent(String.self, forKey: .template)) ?? MemberTemplate.builtIn(for: agent)?.id
         name = try values.decode(String.self, forKey: .name)
         persona = try values.decode(String.self, forKey: .persona)
         enabled = try values.decode(Bool.self, forKey: .enabled)
@@ -118,7 +128,20 @@ public struct MemberCard: Identifiable, Codable, Equatable, Sendable {
         MemberLife.profile(self, team: team, ownerName: ownerName)
     }
 
-    public static var defaults: [MemberCard] { AgentKind.allCases.map { MemberCard(agent: $0) } }
+    public static var defaults: [MemberCard] { MemberID.builtIn.map { MemberCard(agent: $0) } }
+
+    /// A new member from a template (or blank), with its own id.
+    public static func added(from template: MemberTemplate?, executor: Executor) -> MemberCard {
+        var card = MemberCard(agent: .make(), executor: executor, template: template?.id,
+                              name: template?.name ?? "新成員")
+        if template == nil { card.template = nil }
+        card.motto = template?.motto ?? ""
+        card.color = template?.color ?? ""
+        return card
+    }
+
+    /// The built-in look, if this card uses one.
+    public var look: MemberTemplate? { MemberTemplate.named(template) }
 }
 
 /// Portrait shift from its default framing, as fractions of the frame's width and height.
@@ -142,7 +165,7 @@ public enum RoomDelivery: String, Codable, Equatable, Sendable {
 public struct RoomEntry: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var speaker: Speaker
-    public var agent: AgentKind?
+    public var agent: MemberID?
     public var displayName: String
     public var body: String
     public var createdAt: Date
@@ -156,7 +179,7 @@ public struct RoomEntry: Identifiable, Codable, Equatable, Sendable {
     /// Pictures on this entry: generated images, or references the owner attached to a request.
     public var images: [RoomImage]
 
-    public init(id: UUID = UUID(), speaker: Speaker, agent: AgentKind? = nil,
+    public init(id: UUID = UUID(), speaker: Speaker, agent: MemberID? = nil,
                 displayName: String, body: String, createdAt: Date = .now,
                 delivery: RoomDelivery = .completed, isReaction: Bool = false, isMinutes: Bool = false,
                 isImageRequest: Bool = false, images: [RoomImage] = []) {
@@ -174,7 +197,7 @@ public struct RoomEntry: Identifiable, Codable, Equatable, Sendable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decode(UUID.self, forKey: .id)
         speaker = try values.decode(Speaker.self, forKey: .speaker)
-        agent = try values.decodeIfPresent(AgentKind.self, forKey: .agent)
+        agent = try values.decodeIfPresent(MemberID.self, forKey: .agent)
         displayName = try values.decode(String.self, forKey: .displayName)
         body = try values.decode(String.self, forKey: .body)
         createdAt = try values.decode(Date.self, forKey: .createdAt)
@@ -200,7 +223,7 @@ public struct TeamRoom: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var title: String
     public var entries: [RoomEntry]
-    public var participants: [AgentKind]
+    public var participants: [MemberID]
     public var updatedAt: Date
     public var lounge: LoungeState
     /// Compressed context: prompts use this summary plus entries after `summaryThroughEntryID`.
@@ -218,7 +241,7 @@ public struct TeamRoom: Identifiable, Codable, Equatable, Sendable {
     /// Each member's own CLI conversation in this room, and the last entry it has seen.
     public var sessions: [String: RoomSession]
 
-    public init(id: UUID = UUID(), title: String = "茶歇室", entries: [RoomEntry] = [], participants: [AgentKind] = AgentKind.allCases,
+    public init(id: UUID = UUID(), title: String = "茶歇室", entries: [RoomEntry] = [], participants: [MemberID] = MemberID.builtIn,
                 updatedAt: Date = .now, lounge: LoungeState = LoungeState(), summary: String = "",
                 summaryThroughEntryID: UUID? = nil, carriedSummary: String = "",
                 roundtableID: UUID? = nil, briefing: String = "", projectID: UUID? = nil, readFolder: String = "") {
@@ -241,7 +264,7 @@ public struct TeamRoom: Identifiable, Codable, Equatable, Sendable {
         id = try box.decode(UUID.self, forKey: .id)
         title = try box.decode(String.self, forKey: .title)
         entries = try box.decode([RoomEntry].self, forKey: .entries)
-        participants = try box.decode([AgentKind].self, forKey: .participants)
+        participants = try box.decode([MemberID].self, forKey: .participants)
         updatedAt = try box.decode(Date.self, forKey: .updatedAt)
         lounge = try box.decodeIfPresent(LoungeState.self, forKey: .lounge) ?? LoungeState()
         summary = try box.decodeIfPresent(String.self, forKey: .summary) ?? ""
@@ -267,12 +290,12 @@ public struct ProjectRecord: Identifiable, Codable, Equatable, Sendable {
     public var title: String
     public var originalFolder: String
     public var task: String
-    public var agent: AgentKind
+    public var agent: MemberID
     public var phase: ProjectPhase
     public var report: String
     public var reviewNotes: String?
     public var createdAt: Date
-    public init(id: UUID = UUID(), title: String, originalFolder: String, task: String = "", agent: AgentKind = .codex, phase: ProjectPhase = .draft, report: String = "", reviewNotes: String? = nil, createdAt: Date = .now) {
+    public init(id: UUID = UUID(), title: String, originalFolder: String, task: String = "", agent: MemberID = .codex, phase: ProjectPhase = .draft, report: String = "", reviewNotes: String? = nil, createdAt: Date = .now) {
         self.id = id; self.title = title; self.originalFolder = originalFolder; self.task = task; self.agent = agent; self.phase = phase; self.report = report; self.reviewNotes = reviewNotes; self.createdAt = createdAt
     }
 }
@@ -283,11 +306,11 @@ public struct StoredRoundtable: Identifiable, Codable, Equatable, Sendable {
     public var results: [RoundtableResult]
     public var createdAt: Date
     public var reviews: [CandidateReview]
-    public var adopted: AgentKind?
+    public var adopted: MemberID?
     public var handoffProjectID: UUID?
     public init(id: UUID = UUID(), question: String, results: [RoundtableResult],
                 createdAt: Date = .now, reviews: [CandidateReview] = [],
-                adopted: AgentKind? = nil, handoffProjectID: UUID? = nil) {
+                adopted: MemberID? = nil, handoffProjectID: UUID? = nil) {
         self.id = id; self.question = question; self.results = results
         self.createdAt = createdAt; self.reviews = reviews
         self.adopted = adopted; self.handoffProjectID = handoffProjectID
@@ -302,7 +325,7 @@ public struct StoredRoundtable: Identifiable, Codable, Equatable, Sendable {
         results = try box.decode([RoundtableResult].self, forKey: .results)
         createdAt = try box.decode(Date.self, forKey: .createdAt)
         reviews = try box.decodeIfPresent([CandidateReview].self, forKey: .reviews) ?? []
-        adopted = try box.decodeIfPresent(AgentKind.self, forKey: .adopted)
+        adopted = try box.decodeIfPresent(MemberID.self, forKey: .adopted)
         handoffProjectID = try box.decodeIfPresent(UUID.self, forKey: .handoffProjectID)
     }
 }

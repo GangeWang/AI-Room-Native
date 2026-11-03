@@ -42,12 +42,12 @@ public struct LiveEvent: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var turnID: UUID
     public var sequence: Int
-    public var speaker: AgentKind
+    public var speaker: MemberID
     public var utterance: String
     public var emotion: LiveEmotion
     public var timestamp: Date
 
-    public init(id: UUID = UUID(), turnID: UUID, sequence: Int, speaker: AgentKind,
+    public init(id: UUID = UUID(), turnID: UUID, sequence: Int, speaker: MemberID,
                 utterance: String, emotion: LiveEmotion, timestamp: Date = .now) {
         self.id = id; self.turnID = turnID; self.sequence = sequence; self.speaker = speaker
         self.utterance = utterance; self.emotion = emotion; self.timestamp = timestamp
@@ -114,7 +114,7 @@ public enum LiveCueParser {
         return ParsedLiveReply(cleanText: normalizeSpacing(clean), segments: segments)
     }
 
-    public static func events(from parsed: ParsedLiveReply, speaker: AgentKind,
+    public static func events(from parsed: ParsedLiveReply, speaker: MemberID,
                               turnID: UUID = UUID(), now: Date = .now) -> [LiveEvent] {
         parsed.segments.enumerated().map { index, segment in
             LiveEvent(turnID: turnID, sequence: index, speaker: speaker,
@@ -151,7 +151,7 @@ public enum LiveSpeechText {
 // MARK: Persisted stage configuration (inside the encrypted state file)
 
 public struct LiveCharacterStage: Codable, Equatable, Sendable {
-    public var agent: AgentKind
+    public var agent: MemberID
     /// AVSpeechSynthesisVoice identifier; empty means the system voice for the UI language.
     public var voiceIdentifier: String
     /// AVSpeechUtterance rate (0.3–0.65; 0.5 is the system default).
@@ -170,7 +170,7 @@ public struct LiveCharacterStage: Codable, Equatable, Sendable {
     /// currently loaded model are ever triggered.
     public var emotionHotkeys: [String: String]
 
-    public init(agent: AgentKind, voiceIdentifier: String = "", speechRate: Double = 0.5,
+    public init(agent: MemberID, voiceIdentifier: String = "", speechRate: Double = 0.5,
                 pitch: Double = 1.0, drivesAvatar: Bool = false, vtsPort: Int? = nil, vtsToken: String = "",
                 mouthParameter: String = "MouthOpen", emotionHotkeys: [String: String] = [:]) {
         self.agent = agent
@@ -190,10 +190,11 @@ public struct LiveCharacterStage: Codable, Equatable, Sendable {
     }
 
     /// GPT's model went live first, so its VTS instance usually owns 8001.
-    public static func defaultPort(_ agent: AgentKind) -> Int { agent == .codex ? 8001 : 8002 }
+    /// Each VTube Studio instance takes the next port; added members start at 8003.
+    public static func defaultPort(_ agent: MemberID) -> Int { agent == .codex ? 8001 : agent == .claude ? 8002 : 8003 }
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(agent: try box.decode(AgentKind.self, forKey: .agent),
+        self.init(agent: try box.decode(MemberID.self, forKey: .agent),
                   voiceIdentifier: try box.decodeIfPresent(String.self, forKey: .voiceIdentifier) ?? "",
                   speechRate: try box.decodeIfPresent(Double.self, forKey: .speechRate) ?? 0.5,
                   pitch: try box.decodeIfPresent(Double.self, forKey: .pitch) ?? 1.0,
@@ -215,7 +216,7 @@ public struct LiveStageSettings: Codable, Equatable, Sendable {
         self.vtsEnabled = vtsEnabled
         var unique: [LiveCharacterStage] = []
         for item in characters where !unique.contains(where: { $0.agent == item.agent }) { unique.append(item) }
-        for agent in AgentKind.allCases where !unique.contains(where: { $0.agent == agent }) {
+        for agent in MemberID.builtIn where !unique.contains(where: { $0.agent == agent }) {
             unique.append(LiveCharacterStage(agent: agent, drivesAvatar: true))
         }
         self.characters = unique
@@ -231,11 +232,12 @@ public struct LiveStageSettings: Codable, Equatable, Sendable {
 
     public var performs: Bool { speechEnabled || vtsEnabled }
 
-    public func character(_ agent: AgentKind) -> LiveCharacterStage {
+    public func character(_ agent: MemberID) -> LiveCharacterStage {
         characters.first(where: { $0.agent == agent }) ?? LiveCharacterStage(agent: agent)
     }
 
-    public mutating func updateCharacter(_ agent: AgentKind, _ change: (inout LiveCharacterStage) -> Void) {
+    public mutating func updateCharacter(_ agent: MemberID, _ change: (inout LiveCharacterStage) -> Void) {
+        if !characters.contains(where: { $0.agent == agent }) { characters.append(LiveCharacterStage(agent: agent, drivesAvatar: true)) }
         guard let index = characters.firstIndex(where: { $0.agent == agent }) else { return }
         change(&characters[index])
         let edited = characters[index]

@@ -61,7 +61,7 @@ final class LiveStageSettingsTests: XCTestCase {
         XCTAssertFalse(restored.liveStage.performs)
         XCTAssertEqual(restored.liveStage.character(.codex).vtsPort, 8001)
         XCTAssertEqual(restored.liveStage.character(.claude).vtsPort, 8002)
-        XCTAssertEqual(Set(restored.liveStage.characters.map(\.agent)), Set(AgentKind.allCases))
+        XCTAssertEqual(Set(restored.liveStage.characters.map(\.agent)), Set(MemberID.builtIn))
     }
 
     func testCharacterValuesAreClampedAndSanitised() {

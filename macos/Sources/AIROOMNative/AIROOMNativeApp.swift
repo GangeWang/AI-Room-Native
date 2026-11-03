@@ -51,7 +51,7 @@ struct StudioMenuBar: View {
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, model.archive.settings.language) }
 
     var body: some View {
-        ForEach(AgentKind.allCases) { agent in
+        ForEach(model.memberIDs) { agent in
             Text("\(model.memberName(agent))：" + (model.busyAgents.contains(agent) ? t("工作中", "Working") : t("空閒", "Idle")))
         }
         if model.roomRunning { Text(t("茶歇室討論中", "Lounge is talking")) }

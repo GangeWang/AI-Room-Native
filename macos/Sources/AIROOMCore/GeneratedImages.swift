@@ -105,7 +105,7 @@ public enum GeneratedImages {
     /// What the Codex member is asked; reference images go with the turn as local images.
     public static func prompt(request: String, member: MemberCard, team: [MemberCard], ownerName: String, references: Int) -> String {
         """
-        你是 \(member.name)（\(member.agent.rawValue)），在 AIROOM 茶歇室。\(ownerName)請你畫圖。
+        你是 \(member.name)（\(member.executor.rawValue)），在 AIROOM 茶歇室。\(ownerName)請你畫圖。
         你的人物設定：\(String(member.persona.prefix(1_200)))
         \(member.profile(team: team, ownerName: ownerName))
         請用你的圖片生成工具產生一張圖片\(references > 0 ? "；附上的 \(references) 張圖片是參考或要修改的原圖" : "")。只畫一張，不要執行命令、讀寫檔案或上網搜尋。

@@ -91,7 +91,7 @@ final class MemberLifeTests: XCTestCase {
     }
 
     func testOldCardsDecodeWithoutLifeFields() throws {
-        let json = #"{"id":"\#(UUID().uuidString)","agent":"\#(AgentKind.claude.rawValue)","name":"C","persona":"p","enabled":true}"#
+        let json = #"{"id":"\#(UUID().uuidString)","agent":"\#(MemberID.claude.rawValue)","name":"C","persona":"p","enabled":true}"#
         let card = try JSONDecoder().decode(MemberCard.self, from: Data(json.utf8))
         XCTAssertTrue(card.memories.isEmpty && card.quirks.isEmpty && card.routine.isEmpty)
         XCTAssertEqual(card.talkativeness, .normal)

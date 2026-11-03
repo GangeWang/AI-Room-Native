@@ -57,16 +57,6 @@ public extension PortraitFaceAnchor {
     }
 }
 
-public extension AgentKind {
-    /// Source: offAice/src/renderer/members.tsx, BUILTIN_ART (pinned upstream artwork).
-    var portraitFaceAnchor: PortraitFaceAnchor {
-        switch self {
-        case .claude: return PortraitFaceAnchor(x: 0.500, y: 0.123, zoom: 3.6)
-        case .codex: return PortraitFaceAnchor(x: 0.487, y: 0.113, zoom: 3.6)
-        }
-    }
-}
-
 /// Geometry for placing the original, undistorted portrait behind a circular clipping mask.
 /// The selected point in the source image lands exactly at the circle's center.
 public struct PortraitCropLayout: Equatable, Sendable {

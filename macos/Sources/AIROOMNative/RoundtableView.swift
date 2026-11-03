@@ -446,8 +446,8 @@ struct NewRoundtableSheet: View {
     @State private var kind: RoundtableKind = .proposals
     @State private var material = ""
     @State private var attachments: [ChatAttachment] = []
-    @State private var members = Set(AgentKind.allCases)
-    @State private var lead: AgentKind = .claude
+    @State private var members = Set(MemberID.builtIn)
+    @State private var lead: MemberID = .claude
     @State private var peerReview = true
     @State private var importing = false
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, model.archive.settings.language) }
@@ -473,14 +473,14 @@ struct NewRoundtableSheet: View {
             }
             HStack(spacing: 14) {
                 Text(t("參加成員", "Members")).font(.subheadline)
-                ForEach(AgentKind.allCases) { agent in
+                ForEach(model.enabledMemberIDs) { agent in
                     Toggle(model.memberName(agent), isOn: Binding(
                         get: { members.contains(agent) },
                         set: { if $0 { members.insert(agent) } else { members.remove(agent) } }))
                 }
                 Spacer()
                 Picker(t("匯總成員", "Lead"), selection: $lead) {
-                    ForEach(AgentKind.allCases.filter(members.contains)) { Text(model.memberName($0)).tag($0) }
+                    ForEach(model.memberIDs.filter(members.contains)) { Text(model.memberName($0)).tag($0) }
                 }.frame(width: 220)
             }.toggleStyle(.checkbox)
             Toggle(t("公開後互評（每人只看別人的版本並提意見）", "Peer review after reveal (each sees only the others)"), isOn: $peerReview)

@@ -22,6 +22,8 @@ public struct SavedState: Codable, Equatable, Sendable {
     public var schedulesPaused: Bool
     /// Recent schedule triggers, newest last (kept short).
     public var scheduleRuns: [ScheduleRun]
+    /// Names of removed members, by id, so their old lines still say who wrote them.
+    public var formerMembers: [String: String]
     public init(settings: NativeSettings = NativeSettings(), conversations: [Conversation] = [],
                 members: [MemberCard] = MemberCard.defaults, rooms: [TeamRoom] = [TeamRoom()],
                 projects: [ProjectRecord] = [], roundtables: [StoredRoundtable] = [],
@@ -48,8 +50,9 @@ public struct SavedState: Codable, Equatable, Sendable {
         attentionDismissals = [:]
         schedulesPaused = false
         scheduleRuns = []
+        formerMembers = [:]
     }
-    private enum CodingKeys: String, CodingKey { case settings, conversations, members, rooms, projects, roundtables, schedules, autoChat, teamWorkflows, liveShow, liveStage, calls, roundtableTopics, projectFlows, dailyOpening, attentionDismissals, schedulesPaused, scheduleRuns }
+    private enum CodingKeys: String, CodingKey { case settings, conversations, members, rooms, projects, roundtables, schedules, autoChat, teamWorkflows, liveShow, liveStage, calls, roundtableTopics, projectFlows, dailyOpening, attentionDismissals, schedulesPaused, scheduleRuns, formerMembers }
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         settings = try container.decodeIfPresent(NativeSettings.self, forKey: .settings) ?? NativeSettings()
@@ -70,6 +73,7 @@ public struct SavedState: Codable, Equatable, Sendable {
         attentionDismissals = (try? container.decodeIfPresent([String: String].self, forKey: .attentionDismissals)) ?? [:]
         schedulesPaused = (try? container.decodeIfPresent(Bool.self, forKey: .schedulesPaused)) ?? false
         scheduleRuns = (try? container.decodeIfPresent([ScheduleRun].self, forKey: .scheduleRuns)) ?? []
+        formerMembers = (try? container.decodeIfPresent([String: String].self, forKey: .formerMembers)) ?? [:]
     }
 }
 

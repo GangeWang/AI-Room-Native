@@ -5,7 +5,7 @@ import AIROOMCore
 struct ChatView: View {
     @EnvironmentObject private var model: WorkbenchModel
     @Environment(\.colorScheme) private var scheme
-    let agent: AgentKind
+    let agent: MemberID
     @State private var importing = false
     @State private var renaming = false
     @State private var renameText = ""
@@ -61,7 +61,7 @@ struct ChatView: View {
             StudioAvatar(agent: agent, size: 40, running: busy)
             VStack(alignment: .leading, spacing: 3) {
                 Text(memberName).font(.headline)
-                Text(t("成員工位 · ", "Member Desk · ") + agent.rawValue)
+                Text(t("成員工位 · ", "Member Desk · ") + agent.executor.rawValue)
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -69,7 +69,7 @@ struct ChatView: View {
             folderMenu
             topicMenu
             Button { model.openVendorDesktop(for: agent) } label: {
-                Label(agent == .codex ? t("在 Codex App 開新工作階段", "New session in Codex App") : t("在 Claude App 開新工作階段", "New session in Claude App"), systemImage: "arrow.up.forward.app")
+                Label(agent.executor == .codex ? t("在 Codex App 開新工作階段", "New session in Codex App") : t("在 Claude App 開新工作階段", "New session in Claude App"), systemImage: "arrow.up.forward.app")
             }
             .help(t("僅開啟官方桌面 App；不傳送 AIROOM 對話、Token 或工作紀錄。若設定了工作目錄，將交由 App 自行確認存取。", "Opens the official desktop app only. Does not copy AIROOM conversations or credentials. An explicitly configured workspace may be offered to the app."))
             Button { model.newTopic(for: agent) } label: { Label(t("開新話題", "New Topic"), systemImage: "plus.bubble") }
@@ -318,7 +318,7 @@ struct ChatView: View {
         let effective = current.isEmpty ? inherited : current
         // Efforts follow the chosen model (or the CLI default); some models report none.
         let selected = effective.isEmpty ? choices.first(where: \.isDefault) : choices.first(where: { $0.id == effective })
-        let efforts = selected?.efforts ?? (agent == .claude ? ModelCatalog.claudeEfforts : [])
+        let efforts = selected?.efforts ?? (agent.executor == .claude ? ModelCatalog.claudeEfforts : [])
         let inheritedEffort = current.isEmpty ? card?.defaultEffort ?? "" : ""
         return HStack(spacing: 6) {
             Picker(t("模型", "Model"), selection: Binding(get: { current },
@@ -333,8 +333,8 @@ struct ChatView: View {
                 if !current.isEmpty && !choices.contains(where: { $0.id == current }) { Text(current).tag(current) }
             }
             .labelsHidden().frame(width: 190)
-            Button { model.refreshModelCatalogs([agent]) } label: {
-                if model.modelCatalogLoading.contains(agent) { ProgressView().controlSize(.mini) }
+            Button { model.refreshModelCatalogs([agent.executor]) } label: {
+                if model.modelCatalogLoading.contains(agent.executor) { ProgressView().controlSize(.mini) }
                 else { Image(systemName: "arrow.clockwise") }
             }
             .buttonStyle(.borderless)

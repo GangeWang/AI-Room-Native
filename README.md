@@ -26,6 +26,7 @@
 其他：
 
 - **人物卡**：名字、稱呼、一句話介紹、代表色、預設模型與思考程度、自訂立繪與頭像、長期記憶、作息與小習慣、成員關係。
+- **新增成員**：可從 Claudia、GPTia、DS、Gemini、Kimi、GLM 等形象模板新增成員；好幾位成員可以共用同一個程式，各有各的人設與記憶。
 - **待你處理**：成員的問題、待你決定的事、待驗收的成果集中在一處，可逐則忽略。
 - **排程**：每天、一次或固定間隔的提醒與成員發言；全部暫停、最近觸發紀錄。
 - **用量與額度**：向官方查詢 5 小時與每週剩餘額度，並統計 AIROOM 自己的呼叫次數。
@@ -37,7 +38,7 @@
 ## 和原版的差別
 
 - **macOS 原生**：SwiftUI／AppKit，沒有 Electron 或 Node.js；只支援 Apple Silicon。原版是 Windows 的 Electron 程式。
-- **成員只有 Claude 和 Codex**：原版還支援 DeepSeek、Qwen、Kimi、GLM 等執行端，這裡暫未支援。
+- **執行端只有 Claude Code 和 Codex**：原版還支援 DeepSeek、Qwen、Kimi、GLM 等執行端，這裡暫未支援；DS、Gemini、Kimi、GLM 形象目前由 Claude Code 或 Codex 代跑。
 - **沒有自動更新、未經公證**：更新請到 Releases 下載新版 DMG。
 - **加密方式不同**：資料以這台 Mac 鑰匙圈裡的金鑰加密，備份無法直接拿到另一台 Mac 還原。
 
@@ -71,7 +72,7 @@ swift test                     # 單元測試
 
 ## 素材與授權
 
-- **圖片素材**：人物立繪（Claudia、GPTia 等）、茶歇室背景與程式圖示都沿用原版 AIROOM，作者是 Bilibili 的 ZipZipPipe，依 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hant)（姓名標示－非商業性－相同方式分享）授權。
+- **圖片素材**：人物立繪（Claudia、GPTia 等）、茶歇室背景與程式圖示都沿用原版 AIROOM，作者是 Bilibili 的 ZipZipPipe，依 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hant)（姓名標示－非商業性－相同方式分享）授權。其中鯨魚娘（DS，`ds.webp`）是 ZipZipPipe 以 @上善无形 的原創角色所做的二次創作。
   - 本專案未修改這些圖片，只用於免費、非商業的用途。
   - 任何人使用或再散布這些圖片，都必須標示作者、不得用於商業用途；以它們改作的作品也必須以 CC BY-NC-SA 4.0 公開分享。
   - 這個授權只適用於圖片，不適用於本專案的程式碼。

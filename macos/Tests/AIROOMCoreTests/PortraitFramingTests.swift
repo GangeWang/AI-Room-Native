@@ -7,9 +7,9 @@ final class PortraitFramingTests: XCTestCase {
     private let portraitHeight = 1720.0
 
     func testFaceAnchorCenteredForBothAgentsAcrossAvatarSizes() throws {
-        for agent in AgentKind.allCases {
+        for agent in MemberID.builtIn {
             for diameter in [26.0, 33.0, 42.0, 66.0, 128.0] {
-                let anchor = agent.portraitFaceAnchor
+                let anchor = MemberTemplate.builtIn(for: agent)!.face
                 let crop = try XCTUnwrap(PortraitCropLayout.make(
                     diameter: diameter, sourceWidth: portraitWidth,
                     sourceHeight: portraitHeight, anchor: anchor))
@@ -25,14 +25,14 @@ final class PortraitFramingTests: XCTestCase {
     }
 
     func testSourceAnchorsMatchOriginalUI() {
-        XCTAssertEqual(AgentKind.claude.portraitFaceAnchor,
+        XCTAssertEqual(MemberTemplate.builtIn(for: MemberID.claude)!.face,
                        PortraitFaceAnchor(x: 0.500, y: 0.123, zoom: 3.6))
-        XCTAssertEqual(AgentKind.codex.portraitFaceAnchor,
+        XCTAssertEqual(MemberTemplate.builtIn(for: MemberID.codex)!.face,
                        PortraitFaceAnchor(x: 0.487, y: 0.113, zoom: 3.6))
     }
 
     func testRejectInvalidDimensionsAndCoordinates() {
-        let anchor = AgentKind.claude.portraitFaceAnchor
+        let anchor = MemberTemplate.builtIn(for: MemberID.claude)!.face
         XCTAssertNil(PortraitCropLayout.make(diameter: 0, sourceWidth: 960,
                                              sourceHeight: 1720, anchor: anchor))
         XCTAssertNil(PortraitCropLayout.make(diameter: 40, sourceWidth: 0,
@@ -45,7 +45,7 @@ final class PortraitFramingTests: XCTestCase {
     }
 
     func testCodexFaceIsSlightlyRightOfCenterInSource() throws {
-        let anchor = AgentKind.codex.portraitFaceAnchor
+        let anchor = MemberTemplate.builtIn(for: MemberID.codex)!.face
         let crop = try XCTUnwrap(PortraitCropLayout.make(diameter: 40,
                 sourceWidth: portraitWidth, sourceHeight: portraitHeight, anchor: anchor))
         XCTAssertGreaterThan(crop.centerX, 20) // source focus x=0.487

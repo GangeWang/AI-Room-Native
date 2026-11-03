@@ -54,6 +54,7 @@ macos/
 | `Roundtable.swift` | 圓桌：各自準備、互評、問題清單、審議、結論 |
 | `ProjectFlow.swift`、`ProjectFlowExtras.swift` | 專案會議室：方案、分輪執行、複核、異議裁定、額度等待、驗收 |
 | `Collaboration.swift`、`MemberLife.swift`、`PortraitFraming.swift` | 人物卡、長期記憶、作息、立繪與頭像取景 |
+| `Models.swift`（`MemberID`、`Executor`）、`TeamRoster.swift`、`MemberTemplates.swift` | 成員與執行端分開：新增、刪除、換程式，以及形象模板 |
 | `Workstation.swift`、`WorkflowFeatures.swift` | 待你處理、排程 |
 | `AccountQuota.swift` | 向官方 CLI 查詢 5 小時與每週額度 |
 | `LocalState.swift`、`KeychainStateProtector.swift` | 加密存檔、備份與還原 |

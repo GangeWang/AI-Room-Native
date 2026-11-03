@@ -465,7 +465,7 @@ final class SharedRoomContextTests: XCTestCase {
         let offsets = ordered.compactMap { transcript.range(of: $0)?.lowerBound }
         XCTAssertEqual(offsets.count, ordered.count)
         XCTAssertEqual(offsets, offsets.sorted())
-        for agent in AgentKind.allCases {
+        for agent in MemberID.builtIn {
             let member = MemberCard(agent: agent)
             let prompt = RoomPromptBuilder.build(room: room, member: member, question: "Can we combine them?", language: .english)
             for item in ordered { XCTAssertTrue(prompt.contains(item), "Missing \(item) for \(agent)") }
@@ -535,7 +535,7 @@ final class SharedRoomContextTests: XCTestCase {
 
     func testDesktopAppLinksContainNoConversationOrToken() throws {
         let folder = FileManager.default.temporaryDirectory
-        for agent in AgentKind.allCases {
+        for agent in Executor.allCases {
             let link = try DesktopAppHandoff.newCodeSession(agent: agent, selectedWorkspace: folder.path)
             XCTAssertTrue(["codex", "claude"].contains(link.scheme ?? ""))
             XCTAssertFalse(link.absoluteString.contains("transcript"))
