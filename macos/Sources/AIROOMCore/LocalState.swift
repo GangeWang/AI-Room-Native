@@ -16,6 +16,8 @@ public struct SavedState: Codable, Equatable, Sendable {
     public var roundtableTopics: [RoundtableTopic]
     public var projectFlows: [ProjectFlow]
     public var dailyOpening: DailyOpeningSettings
+    /// Needs-attention items the owner ignored, by id, with the version ignored.
+    public var attentionDismissals: [String: String]
     public init(settings: NativeSettings = NativeSettings(), conversations: [Conversation] = [],
                 members: [MemberCard] = MemberCard.defaults, rooms: [TeamRoom] = [TeamRoom()],
                 projects: [ProjectRecord] = [], roundtables: [StoredRoundtable] = [],
@@ -39,8 +41,9 @@ public struct SavedState: Codable, Equatable, Sendable {
         self.roundtableTopics = roundtableTopics
         self.projectFlows = projectFlows
         self.dailyOpening = dailyOpening
+        attentionDismissals = [:]
     }
-    private enum CodingKeys: String, CodingKey { case settings, conversations, members, rooms, projects, roundtables, schedules, autoChat, teamWorkflows, liveShow, liveStage, calls, roundtableTopics, projectFlows, dailyOpening }
+    private enum CodingKeys: String, CodingKey { case settings, conversations, members, rooms, projects, roundtables, schedules, autoChat, teamWorkflows, liveShow, liveStage, calls, roundtableTopics, projectFlows, dailyOpening, attentionDismissals }
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         settings = try container.decodeIfPresent(NativeSettings.self, forKey: .settings) ?? NativeSettings()
@@ -58,6 +61,7 @@ public struct SavedState: Codable, Equatable, Sendable {
         roundtableTopics = (try? container.decodeIfPresent([RoundtableTopic].self, forKey: .roundtableTopics)) ?? []
         projectFlows = (try? container.decodeIfPresent([ProjectFlow].self, forKey: .projectFlows)) ?? []
         dailyOpening = (try? container.decodeIfPresent(DailyOpeningSettings.self, forKey: .dailyOpening)) ?? DailyOpeningSettings()
+        attentionDismissals = (try? container.decodeIfPresent([String: String].self, forKey: .attentionDismissals)) ?? [:]
     }
 }
 

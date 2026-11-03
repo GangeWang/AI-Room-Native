@@ -232,9 +232,19 @@ struct StudioAttentionView: View {
                                 Text(item.detail).font(.caption).foregroundStyle(.secondary).lineLimit(3)
                             }
                             Spacer()
+                            Button(t("忽略", "Ignore")) { model.ignoreAttention(item) }
+                                .help(t("只隱藏這則提醒，原本的工作和狀態都保留；內容有變化時會再出現。",
+                                        "Only hides this reminder; the work stays as it is. It comes back if it changes."))
+                                .disabled(!model.storageAvailable)
                             Button(t("前往", "Open")) { onOpen(item.target) }
                         }
                     }
+                }
+                if model.ignoredAttentionCount > 0 {
+                    Button(t("重新顯示已忽略的 \(model.ignoredAttentionCount) 則", "Show \(model.ignoredAttentionCount) ignored")) {
+                        model.showIgnoredAttention()
+                    }
+                    .buttonStyle(.borderless).font(.caption)
                 }
                 StudioNotice(message: t("這個頁面只負責帶你過去；不會自動回答、批准寫回或重送任何請求。", "This page only takes you there; it never answers, approves writeback or resends anything."))
             }.padding(26).frame(maxWidth: 900).frame(maxWidth: .infinity)

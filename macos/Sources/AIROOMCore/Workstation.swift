@@ -76,9 +76,26 @@ public struct AttentionItem: Identifiable, Equatable, Sendable {
     public var title: String
     public var detail: String
     public var target: Target
+
+    /// The version shown now. An ignored item comes back once this changes.
+    public var fingerprint: String { "\(kind.rawValue)|\(title)|\(detail)" }
 }
 
 public enum AttentionBuilder {
+    /// Items not ignored in their current version.
+    public static func visible(_ items: [AttentionItem], dismissed: [String: String]) -> [AttentionItem] {
+        items.filter { dismissed[$0.id] != $0.fingerprint }
+    }
+
+    /// Ignoring only hides the reminder; the work it points to is unchanged. Records of
+    /// items that no longer exist are dropped.
+    public static func dismissing(_ item: AttentionItem, among items: [AttentionItem], dismissed: [String: String]) -> [String: String] {
+        let live = Set(items.map(\.id))
+        var next = dismissed.filter { live.contains($0.key) }
+        if live.contains(item.id) { next[item.id] = item.fingerprint }
+        return next
+    }
+
     public static func items(state: SavedState, cli: [AgentKind: OfficialCLIStatus]) -> [AttentionItem] {
         var items: [AttentionItem] = []
         let name = { (agent: AgentKind) in state.members.first(where: { $0.agent == agent })?.name ?? agent.rawValue }

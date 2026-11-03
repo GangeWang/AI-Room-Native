@@ -724,7 +724,22 @@ final class WorkbenchModel: ObservableObject {
     }
 
     // MARK: Workstation: login, stop-all, attention
-    var attentionItems: [AttentionItem] { AttentionBuilder.items(state: archive, cli: officialCLIStatuses) }
+    var attentionItems: [AttentionItem] { AttentionBuilder.visible(allAttentionItems, dismissed: archive.attentionDismissals) }
+    private var allAttentionItems: [AttentionItem] { AttentionBuilder.items(state: archive, cli: officialCLIStatuses) }
+    /// Ignored reminders that would otherwise still show.
+    var ignoredAttentionCount: Int { allAttentionItems.count - attentionItems.count }
+
+    /// Hides one reminder until its content changes; nothing it points to is answered or changed.
+    func ignoreAttention(_ item: AttentionItem) {
+        guard storageAvailable else { return }
+        archive.attentionDismissals = AttentionBuilder.dismissing(item, among: allAttentionItems, dismissed: archive.attentionDismissals)
+        persist()
+    }
+
+    func showIgnoredAttention() {
+        archive.attentionDismissals = [:]
+        persist()
+    }
 
     var anythingRunning: Bool {
         !busyAgents.isEmpty || roomRunning || roundtableRunning || roundtableReviewRunning || projectBusy || liveActive
