@@ -367,6 +367,10 @@ struct FlowQuotaBanner: View {
     let flow: ProjectFlow
     let wait: FlowQuotaWait
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, model.archive.settings.language) }
+    private var hasWorkToHand: Bool {
+        guard let round = flow.activeRound, let plan = flow.plan else { return false }
+        return plan.tasks.contains { $0.roundKey == round.key && $0.member == wait.agent && [.pending, .failed, .fixing].contains($0.status) }
+    }
 
     var body: some View {
         let name = model.memberName(wait.agent)
@@ -389,6 +393,7 @@ struct FlowQuotaBanner: View {
                     Button(t("交給 \(model.memberName(other)) 接手", "Hand to \(model.memberName(other))")) {
                         model.handOverQuotaWork(flow.id, from: wait.agent, to: other)
                     }
+                    .disabled(!hasWorkToHand)
                 }
                 Button(t("重新查詢額度", "Check quota")) { model.refreshQuota(for: wait.agent) }
                     .disabled(model.quotaRefreshing.contains(wait.agent))
@@ -490,6 +495,9 @@ struct FlowBoard: View {
                                 Text(task.title).font(.caption.weight(.semibold)).lineLimit(2)
                             }
                             Text(statusTitle(task)).font(.caption2).foregroundStyle(task.status == .failed ? .orange : .secondary)
+                            if !task.files.isEmpty {
+                                Text(task.files.joined(separator: "、")).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                            }
                             if !task.findings.isEmpty { Text(task.findings).font(.caption2).foregroundStyle(.secondary).lineLimit(3) }
                             if task.waivers > 0 {
                                 Text(t("異議返還已用 \(task.waivers)/\(ProjectFlowEngine.maxWaivers) 次", "Dispute refunds \(task.waivers)/\(ProjectFlowEngine.maxWaivers)"))

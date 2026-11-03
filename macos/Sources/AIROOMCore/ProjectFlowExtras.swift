@@ -61,7 +61,9 @@ public struct FlowQuotaWait: Codable, Equatable, Identifiable, Sendable {
     public var message: String
     public init(id: UUID = UUID(), agent: AgentKind, stage: String, since: Date = .now, resetAt: Date? = nil, message: String) {
         self.id = id; self.agent = agent; self.stage = String(stage.prefix(200)); self.since = since
-        self.resetAt = resetAt; ready = false; self.message = String(message.prefix(600))
+        self.resetAt = resetAt; ready = false
+        // The `|<unix seconds>` reset hint is read into resetAt; it isn't for reading.
+        self.message = String(message.replacingOccurrences(of: #"\|\d{9,}"#, with: "", options: .regularExpression).prefix(600))
     }
 }
 
@@ -138,7 +140,9 @@ extension ProjectFlowEngine {
         var picked: [FlowTask] = []
         for task in plan.tasks(in: round) where [.pending, .fixing, .reviewing].contains(task.status) && !active.contains(task.id) {
             guard running.count < min(3, max(1, maxParallel)) else { break }
-            guard task.dependencies.allSatisfy(done.contains), !unavailable.contains(task.member),
+            // A task waiting for review needs its reviewer, not its author.
+            let worker = task.status == .reviewing ? (task.reviewer ?? task.member) : task.member
+            guard task.dependencies.allSatisfy(done.contains), !unavailable.contains(worker),
                   !running.contains(where: { $0.member == task.member }),
                   running.allSatisfy({ !filesOverlap($0.files, task.files) }) else { continue }
             picked.append(task)

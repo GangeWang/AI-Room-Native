@@ -47,6 +47,17 @@ final class ProjectFlowExtrasTests: XCTestCase {
         plan.tasks[1].status = .disputed
         XCTAssertEqual(ProjectFlowEngine.readyTasks(in: r, plan: plan, active: [], maxParallel: 3).map(\.key), ["t3", "t4"],
                        "a disputed task waits for its ruling; others go on")
+
+        plan.tasks[1].status = .reviewing
+        plan.tasks[1].reviewer = .claude
+        XCTAssertEqual(ProjectFlowEngine.readyTasks(in: r, plan: plan, active: [], maxParallel: 3, unavailable: [.claude]).map(\.key), ["t3"],
+                       "a review waits for its reviewer's quota, not its author's; t4 is Claude's")
+        XCTAssertEqual(ProjectFlowEngine.readyTasks(in: r, plan: plan, active: [], maxParallel: 3, unavailable: [.codex]).map(\.key), ["t2", "t4"])
+    }
+
+    func testWaitMessageDropsTheResetHint() {
+        let wait = FlowQuotaWait(agent: .claude, stage: "s", message: "Claude AI usage limit reached|1793665375")
+        XCTAssertEqual(wait.message, "Claude AI usage limit reached")
     }
 
     func testReviewFindingsGetIDs() {

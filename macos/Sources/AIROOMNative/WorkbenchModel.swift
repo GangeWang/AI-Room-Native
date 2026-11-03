@@ -2298,6 +2298,11 @@ extension WorkbenchModel {
             } else if let failure = failures.first {
                 archive.projectFlows[current].paused = true
                 statusMessage = "\(t("專案工作暫停")): \(failure)"
+            } else if tasks.contains(where: { $0.status != .done && $0.status != .disputed }) {
+                // Only tasks of members out of quota are left; a disputed one waits for its ruling.
+                archive.projectFlows[current].paused = true
+                let names = archive.projectFlows[current].quotaWaits.map { memberName($0.agent) }
+                statusMessage = t("專案工作暫停：等 \(Set(names).sorted().joined(separator: "、")) 的額度恢復，再按「接著做」。")
             }
         }
     }
@@ -2344,6 +2349,11 @@ extension WorkbenchModel {
         updateTask(id, taskID) { $0.error = nil; $0.failedAt = nil }
         while true {
             guard let current = task(id, taskID), let flow = flowIndex(id).map({ archive.projectFlows[$0] }) else { return }
+            if needsWork && unavailableMembers(id).contains(current.member) {
+                // Out of quota: the task waits where it stands; nothing is sent.
+                if current.status == .running { updateTask(id, taskID) { $0.status = .pending } }
+                return
+            }
             if needsWork {
                 setFlowActivity(taskID, current.status == .fixing ? t("\(memberName(current.member)) 正在修正「\(current.title)」……")
                                                                 : t("\(memberName(current.member)) 正在做「\(current.title)」……"))
@@ -2367,6 +2377,7 @@ extension WorkbenchModel {
             guard level == .deep, let checked = task(id, taskID) else { break }
             let reviewer = ProjectFlowEngine.reviewer(for: checked, lead: lead, members: members)
             updateTask(id, taskID) { $0.status = .reviewing; $0.reviewer = reviewer }
+            if unavailableMembers(id).contains(reviewer) { return }
             setFlowActivity(taskID, t("\(memberName(reviewer)) 正在複核「\(checked.title)」……"))
             let review = ProjectFlowEngine.parseReview(try await flowCall(id, agent: reviewer,
                 prompt: ProjectFlowEngine.taskReviewPrompt(checked, reviewer: reviewer, names: memberNames, ownerName: archive.settings.ownerName,
@@ -2404,14 +2415,15 @@ extension WorkbenchModel {
         guard let index = flowIndex(id), agent != other, archive.projectFlows[index].members.contains(other),
               let round = archive.projectFlows[index].activeRound, var plan = archive.projectFlows[index].plan else { return }
         for t in plan.tasks.indices where plan.tasks[t].roundKey == round.key && plan.tasks[t].member == agent
-            && [.pending, .failed].contains(plan.tasks[t].status) {
+            && [.pending, .failed, .fixing].contains(plan.tasks[t].status) {
             plan.tasks[t].member = other
-            plan.tasks[t].status = .pending
+            // A fix carries on in its copy; anything else starts over.
+            if plan.tasks[t].status != .fixing { plan.tasks[t].status = .pending }
             plan.tasks[t].failedAt = nil
             plan.tasks[t].error = nil
         }
         archive.projectFlows[index].plan = plan
-        archive.projectFlows[index].quotaWaits.removeAll { $0.agent == agent }
+        // The member is still out of quota: reviews that need them keep waiting.
         archive.projectFlows[index].paused = false
         persist()
         continueRound(id)
