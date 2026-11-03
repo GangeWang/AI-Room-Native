@@ -102,6 +102,8 @@ final class ProjectFlowExtrasTests: XCTestCase {
         XCTAssertEqual([mixed.returns, mixed.waivers], [0, 1])
         XCTAssertTrue(mixed.disputes.isEmpty)
         XCTAssertTrue(ProjectFlowEngine.fixSection(mixed, ownerName: "小明").contains("裁定維持複核"))
+        XCTAssertTrue(ProjectFlowEngine.fixSection(mixed, ownerName: "小明").contains("優先於先前的附言"),
+                      "an upheld finding outranks the round note")
         XCTAssertFalse(ProjectFlowEngine.fixSection(mixed, ownerName: "小明").contains("AIROOM_DISPUTES"), "a ruled finding can't be disputed again")
 
         var cleared = task

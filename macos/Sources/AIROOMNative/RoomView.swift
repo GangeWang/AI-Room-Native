@@ -140,6 +140,17 @@ struct RoomView: View {
                                     .textSelection(.enabled).foregroundStyle(.secondary)
                             }
                         }
+                        if !model.archive.liveShow.summary.isEmpty {
+                            // What the co-hosts are given in place of the older turns.
+                            DisclosureGroup(t("直播摘要（之後每一輪都會帶著它）", "Show summary (sent with every later turn)")) {
+                                ScrollView {
+                                    Text(model.archive.liveShow.summary).font(.caption).textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .frame(maxHeight: 180)
+                            }
+                            .font(.caption)
+                        }
                         Text(model.archive.liveStage.performs
                              ? t("已啟用直播舞台：每句話會念出並驅動 VTube Studio，念完才輪到下一位。到左側「直播舞台」調整聲音與表情。直播平台聊天室尚未串接。",
                                  "Live Stage is on: lines are spoken and drive VTube Studio; the next co-host waits until speech ends. Configure voices and expressions under Live Stage. Streaming chat ingestion is not connected yet.")

@@ -364,7 +364,8 @@ public enum ProjectFlowEngine {
         var lines = ["", "複核退回，請處理這些問題："]
         lines += disputable.map { "- " + $0.line }
         if !upheld.isEmpty {
-            lines.append("以下已由\(ownerName)裁定維持複核，必須修正，不能再提異議：")
+            // The ruling is the owner's last word: it outranks the round note and the earlier discussion.
+            lines.append("以下已由\(ownerName)裁定維持複核。這是\(ownerName)最後的決定，優先於先前的附言、討論和你自己的判斷；必須照著修改檔案，不能再提異議，也不能只用說明代替修改：")
             lines += upheld.map { "- " + $0.line }
         }
         if !disputable.isEmpty {
