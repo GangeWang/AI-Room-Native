@@ -5,26 +5,81 @@ public enum ScheduleAction: String, Codable, CaseIterable, Sendable {
     case reminder, roomMessage
 }
 
+/// When a schedule fires: every day at a time, once at a date, or every N minutes.
+public enum ScheduleKind: String, Codable, CaseIterable, Sendable {
+    case daily, once, interval
+}
+
 public struct ScheduledActivity: Codable, Identifiable, Equatable, Sendable {
     public var id: UUID
     public var name: String
     public var action: ScheduleAction
     public var text: String
+    public var kind: ScheduleKind
     public var hour: Int
     public var minute: Int
     /// ISO weekday (Monday = 1, Sunday = 7). Empty means daily.
     public var weekdays: Set<Int>
+    /// `once`: when it fires.
+    public var onceAt: Date?
+    /// `interval`: minutes between runs, and the next run.
+    public var intervalMinutes: Int
+    public var nextAt: Date?
     public var enabled: Bool
     public var roomID: UUID?
     public var target: AgentKind?
     public var lastFiredDay: String?
 
+    public static let intervalRange = 5...1_440
+
     public init(id: UUID = UUID(), name: String, action: ScheduleAction, text: String,
                 hour: Int, minute: Int, weekdays: Set<Int> = [], enabled: Bool = true,
-                roomID: UUID? = nil, target: AgentKind? = nil, lastFiredDay: String? = nil) {
+                roomID: UUID? = nil, target: AgentKind? = nil, lastFiredDay: String? = nil,
+                kind: ScheduleKind = .daily, onceAt: Date? = nil, intervalMinutes: Int = 60, nextAt: Date? = nil) {
         self.id = id; self.name = name; self.action = action; self.text = String(text.prefix(8_000))
         self.hour = hour; self.minute = minute; self.weekdays = weekdays; self.enabled = enabled
         self.roomID = roomID; self.target = target; self.lastFiredDay = lastFiredDay
+        self.kind = kind; self.onceAt = onceAt
+        self.intervalMinutes = min(Self.intervalRange.upperBound, max(Self.intervalRange.lowerBound, intervalMinutes))
+        self.nextAt = nextAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, action, text, kind, hour, minute, weekdays, onceAt, intervalMinutes, nextAt, enabled, roomID, target, lastFiredDay
+    }
+
+    /// Schedules saved before one-time and interval runs existed are daily.
+    public init(from decoder: Decoder) throws {
+        let box = try decoder.container(keyedBy: CodingKeys.self)
+        id = try box.decode(UUID.self, forKey: .id)
+        name = try box.decode(String.self, forKey: .name)
+        action = try box.decode(ScheduleAction.self, forKey: .action)
+        text = try box.decode(String.self, forKey: .text)
+        kind = (try? box.decodeIfPresent(ScheduleKind.self, forKey: .kind)) ?? .daily
+        hour = try box.decode(Int.self, forKey: .hour)
+        minute = try box.decode(Int.self, forKey: .minute)
+        weekdays = (try? box.decodeIfPresent(Set<Int>.self, forKey: .weekdays)) ?? []
+        onceAt = try? box.decodeIfPresent(Date.self, forKey: .onceAt)
+        intervalMinutes = (try? box.decodeIfPresent(Int.self, forKey: .intervalMinutes)) ?? 60
+        nextAt = try? box.decodeIfPresent(Date.self, forKey: .nextAt)
+        enabled = (try? box.decodeIfPresent(Bool.self, forKey: .enabled)) ?? true
+        roomID = try? box.decodeIfPresent(UUID.self, forKey: .roomID)
+        target = try? box.decodeIfPresent(AgentKind.self, forKey: .target)
+        lastFiredDay = try? box.decodeIfPresent(String.self, forKey: .lastFiredDay)
+    }
+}
+
+/// One trigger of a schedule, kept for the 最近觸發 list.
+public struct ScheduleRun: Codable, Identifiable, Equatable, Sendable {
+    public enum Outcome: String, Codable, Sendable { case done, skipped, failed }
+    public var id: UUID
+    public var scheduleID: UUID
+    public var name: String
+    public var at: Date
+    public var outcome: Outcome
+    public var reason: String
+    public init(id: UUID = UUID(), scheduleID: UUID, name: String, at: Date = .now, outcome: Outcome, reason: String = "") {
+        self.id = id; self.scheduleID = scheduleID; self.name = name; self.at = at; self.outcome = outcome; self.reason = reason
     }
 }
 
@@ -50,14 +105,66 @@ public enum LocalAutomation {
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
     public static func shouldFire(_ item: ScheduledActivity, now: Date, calendar: Calendar = .current) -> Bool {
-        let parts = calendar.dateComponents([.hour, .minute, .weekday], from: now)
-        let weekday = ((parts.weekday ?? 1) + 5) % 7 + 1 // Foundation Sunday=1 -> ISO Sunday=7
-        return item.enabled && (0...23).contains(item.hour) && (0...59).contains(item.minute)
-            && !item.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && item.hour == parts.hour && item.minute == parts.minute
-            && (item.weekdays.isEmpty || item.weekdays.contains(weekday))
-            && item.lastFiredDay != dayKey(now, calendar: calendar)
+        evaluate(item, now: now, calendar: calendar) == .fire
     }
+
+    /// A trigger later than this (the app was closed, the Mac slept, scheduling was paused) is skipped, never replayed.
+    public static let grace: TimeInterval = 120
+
+    public enum Due: Equatable, Sendable { case notYet, fire, missed }
+
+    /// Whether a schedule is due now. Daily schedules fire in their minute; one-time and
+    /// interval schedules fire within `grace` of their time and are otherwise missed.
+    public static func evaluate(_ item: ScheduledActivity, now: Date, calendar: Calendar = .current) -> Due {
+        guard item.enabled, !item.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .notYet }
+        switch item.kind {
+        case .daily:
+            let parts = calendar.dateComponents([.hour, .minute, .weekday], from: now)
+            let weekday = ((parts.weekday ?? 1) + 5) % 7 + 1 // Foundation Sunday=1 -> ISO Sunday=7
+            let fires = (0...23).contains(item.hour) && (0...59).contains(item.minute)
+                && item.hour == parts.hour && item.minute == parts.minute
+                && (item.weekdays.isEmpty || item.weekdays.contains(weekday))
+                && item.lastFiredDay != dayKey(now, calendar: calendar)
+            return fires ? .fire : .notYet
+        case .once, .interval:
+            guard let at = item.kind == .once ? item.onceAt : item.nextAt, now >= at else { return .notYet }
+            return now.timeIntervalSince(at) <= grace ? .fire : .missed
+        }
+    }
+
+    /// After a schedule fired or was skipped: daily remembers the day, one-time switches off,
+    /// interval moves to its next time after now.
+    public static func advance(_ item: inout ScheduledActivity, now: Date, calendar: Calendar = .current) {
+        switch item.kind {
+        case .daily:
+            item.lastFiredDay = dayKey(now, calendar: calendar)
+        case .once:
+            item.enabled = false
+        case .interval:
+            let step = TimeInterval(item.intervalMinutes * 60)
+            var next = item.nextAt ?? now.addingTimeInterval(step)
+            while next <= now { next = next.addingTimeInterval(step) }
+            item.nextAt = next
+        }
+    }
+
+    /// The next time a schedule will fire, for display.
+    public static func next(_ item: ScheduledActivity, now: Date, calendar: Calendar = .current) -> Date? {
+        guard item.enabled else { return nil }
+        switch item.kind {
+        case .once: return item.onceAt.flatMap { $0 > now ? $0 : nil }
+        case .interval: return item.nextAt
+        case .daily:
+            for offset in 0..<8 {
+                guard let day = calendar.date(byAdding: .day, value: offset, to: now),
+                      let at = calendar.date(bySettingHour: item.hour, minute: item.minute, second: 0, of: day), at > now else { continue }
+                let weekday = (calendar.component(.weekday, from: at) + 5) % 7 + 1
+                if (item.weekdays.isEmpty || item.weekdays.contains(weekday)) && item.lastFiredDay != dayKey(at, calendar: calendar) { return at }
+            }
+            return nil
+        }
+    }
+
     public static func shouldAutoChat(_ rule: AutoChatSettings, now: Date,
                                       roomExists: Bool, quotaAvailable: Bool,
                                       calendar: Calendar = .current) -> Bool {

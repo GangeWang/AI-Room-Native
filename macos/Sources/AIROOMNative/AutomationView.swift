@@ -6,22 +6,47 @@ struct AutomationView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var title = ""
     @State private var text = ""
+    @State private var kind: ScheduleKind = .daily
     @State private var hour = 12
     @State private var minute = 0
+    @State private var onceAt = Date.now.addingTimeInterval(3_600)
+    @State private var interval = 60
     @State private var action: ScheduleAction = .reminder
     @State private var target: AgentKind?
+    /// The schedule being edited; nil adds a new one.
+    @State private var editing: UUID?
 
     private var english: Bool { model.archive.settings.language == .english }
     private func t(_ zh: String, _ en: String) -> String { english ? en : zh }
+
+    private func describe(_ item: ScheduledActivity) -> String {
+        switch item.kind {
+        case .daily: return t("每天 ", "Daily ") + String(format: "%02d:%02d", item.hour, item.minute)
+        case .once: return t("一次 · ", "Once · ") + (item.onceAt?.formatted(date: .abbreviated, time: .shortened) ?? "—")
+        case .interval: return t("每 \(item.intervalMinutes) 分鐘", "Every \(item.intervalMinutes) min")
+        }
+    }
+
+    private func edit(_ item: ScheduledActivity) {
+        editing = item.id
+        title = item.name; text = item.text; kind = item.kind; hour = item.hour; minute = item.minute
+        onceAt = item.onceAt ?? Date.now.addingTimeInterval(3_600); interval = item.intervalMinutes
+        action = item.action; target = item.target
+    }
+
+    private func resetForm() {
+        editing = nil; title = ""; text = ""; kind = .daily
+        onceAt = Date.now.addingTimeInterval(3_600)
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 StudioPageHeading(eyebrow: "AUTOMATION", title: t("排程與自動對話", "Schedules & Auto Chat"),
-                    subtitle: t("只有 App 執行時才檢查；關閉期間錯過的任務不補發。", "Triggers only while the app runs; missed runs are never replayed."))
+                    subtitle: t("只有 App 執行時才檢查（關掉視窗後在選單列仍會執行）；錯過的觸發不補發。", "Checked only while the app runs (the menu bar keeps it running); missed triggers are never replayed."))
                 StudioPanel {
                     VStack(alignment: .leading, spacing: 13) {
-                        Text(t("建立每日排程", "Daily schedule")).font(.headline)
+                        Text(editing == nil ? t("建立排程", "New schedule") : t("編輯排程", "Edit schedule")).font(.headline)
                         TextField(t("排程名稱", "Task name"), text: $title)
                         Picker(t("類型", "Action"), selection: $action) {
                             Text(t("提醒", "Reminder")).tag(ScheduleAction.reminder)
@@ -29,13 +54,29 @@ struct AutomationView: View {
                         }
                         .pickerStyle(.segmented)
                         TextField(t("內容或提示詞", "Message or prompt"), text: $text)
+                        Picker(t("觸發方式", "Trigger"), selection: $kind) {
+                            Text(t("每天", "Daily")).tag(ScheduleKind.daily)
+                            Text(t("一次", "Once")).tag(ScheduleKind.once)
+                            Text(t("固定間隔", "Interval")).tag(ScheduleKind.interval)
+                        }
+                        .pickerStyle(.segmented)
                         HStack {
-                            Picker(t("小時", "Hour"), selection: $hour) {
-                                ForEach(0..<24, id: \.self) { value in Text(String(format: "%02d", value)).tag(value) }
-                            }.frame(width: 125)
-                            Picker(t("分鐘", "Minute"), selection: $minute) {
-                                ForEach(0..<60, id: \.self) { value in Text(String(format: "%02d", value)).tag(value) }
-                            }.frame(width: 125)
+                            switch kind {
+                            case .daily:
+                                Picker(t("小時", "Hour"), selection: $hour) {
+                                    ForEach(0..<24, id: \.self) { value in Text(String(format: "%02d", value)).tag(value) }
+                                }.frame(width: 125)
+                                Picker(t("分鐘", "Minute"), selection: $minute) {
+                                    ForEach(0..<60, id: \.self) { value in Text(String(format: "%02d", value)).tag(value) }
+                                }.frame(width: 125)
+                            case .once:
+                                DatePicker(t("時間", "At"), selection: $onceAt, in: Date.now..., displayedComponents: [.date, .hourAndMinute])
+                                    .frame(maxWidth: 300)
+                            case .interval:
+                                Stepper(t("每 \(interval) 分鐘", "Every \(interval) min"), value: $interval,
+                                        in: ScheduledActivity.intervalRange, step: 5)
+                                    .frame(maxWidth: 220)
+                            }
                             if action == .roomMessage {
                                 Picker(t("回覆成員", "Responder"), selection: $target) {
                                     Text(t("所有在場成員", "All present")).tag(nil as AgentKind?)
@@ -45,17 +86,31 @@ struct AutomationView: View {
                                 }.frame(maxWidth: 200)
                             }
                             Spacer()
-                            Button(t("建立排程", "Add schedule")) {
-                                model.addSchedule(name: title, text: text, hour: hour,
-                                    minute: minute, action: action, target: target)
-                                title = ""; text = ""
+                            if editing != nil {
+                                Button(t("取消編輯", "Cancel")) { resetForm() }
+                            }
+                            Button(editing == nil ? t("建立排程", "Add schedule") : t("儲存修改", "Save")) {
+                                model.saveSchedule(id: editing, name: title, text: text, kind: kind, hour: hour, minute: minute,
+                                                   onceAt: onceAt, intervalMinutes: interval, action: action, target: target)
+                                resetForm()
                             }.buttonStyle(.borderedProminent).disabled(title.isEmpty || text.isEmpty)
+                        }
+                        if action == .roomMessage {
+                            Text(t("「讓 AI 在聊天室回應」會送到建立時所在的茶歇室話題，並使用成員額度。", "AI room messages go to the lounge topic open when the schedule is made, and use member quota."))
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
                 StudioPanel {
                     VStack(alignment: .leading, spacing: 13) {
-                        Text(t("現有任務", "Schedules")).font(.headline)
+                        HStack {
+                            Text(t("現有任務", "Schedules")).font(.headline)
+                            Spacer()
+                            Toggle(t("全部暫停", "Pause all"), isOn: Binding(get: { model.archive.schedulesPaused },
+                                                                          set: { model.setSchedulesPaused($0) }))
+                                .toggleStyle(.switch)
+                                .help(t("暫停期間到點的任務會跳過，恢復後也不補發。", "Triggers that come due while paused are skipped and not replayed."))
+                        }
                         if model.archive.schedules.isEmpty {
                             Text(t("尚未建立排程", "No schedules yet")).foregroundStyle(.secondary)
                         }
@@ -66,16 +121,40 @@ struct AutomationView: View {
                                     set: { model.setSchedule(id: item.id, enabled: $0) })) {
                                     VStack(alignment: .leading) {
                                         Text(item.name).font(.subheadline.weight(.semibold))
-                                        Text(String(format: "%02d:%02d", item.hour, item.minute) + " · " + item.text)
+                                        Text(describe(item) + " · " + item.text)
                                             .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                        if let next = LocalAutomation.next(item, now: .now) {
+                                            Text(t("下次：", "Next: ") + next.formatted(date: .abbreviated, time: .shortened))
+                                                .font(.caption2).foregroundStyle(.secondary)
+                                        }
                                     }
                                 }.toggleStyle(.checkbox)
                                 Spacer()
-                                Button(role: .destructive) { model.deleteSchedule(id: item.id) } label: {
-                                    Image(systemName: "trash")
-                                }.buttonStyle(.borderless)
+                                Button(t("編輯", "Edit")) { edit(item) }.buttonStyle(.borderless)
+                                Button(role: .destructive) {
+                                    if editing == item.id { resetForm() }
+                                    model.deleteSchedule(id: item.id)
+                                } label: { Image(systemName: "trash") }.buttonStyle(.borderless)
                             }
                             Divider()
+                        }
+                    }
+                }
+                StudioPanel {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(t("最近觸發", "Recent triggers")).font(.headline)
+                        if model.archive.scheduleRuns.isEmpty {
+                            Text(t("暫無觸發記錄。", "No triggers yet.")).foregroundStyle(.secondary)
+                        }
+                        ForEach(model.archive.scheduleRuns.reversed().prefix(20)) { run in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(run.at.formatted(date: .abbreviated, time: .shortened)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                Text(run.outcome == .done ? t("已完成", "Done") : run.outcome == .skipped ? t("已跳過", "Skipped") : t("失敗", "Failed"))
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(run.outcome == .done ? .green : run.outcome == .skipped ? .secondary : .orange)
+                                Text(run.name).font(.caption)
+                                Text(run.reason).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            }
                         }
                     }
                 }

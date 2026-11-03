@@ -18,6 +18,10 @@ public struct SavedState: Codable, Equatable, Sendable {
     public var dailyOpening: DailyOpeningSettings
     /// Needs-attention items the owner ignored, by id, with the version ignored.
     public var attentionDismissals: [String: String]
+    /// Every schedule paused at once; triggers that come due meanwhile are skipped.
+    public var schedulesPaused: Bool
+    /// Recent schedule triggers, newest last (kept short).
+    public var scheduleRuns: [ScheduleRun]
     public init(settings: NativeSettings = NativeSettings(), conversations: [Conversation] = [],
                 members: [MemberCard] = MemberCard.defaults, rooms: [TeamRoom] = [TeamRoom()],
                 projects: [ProjectRecord] = [], roundtables: [StoredRoundtable] = [],
@@ -42,8 +46,10 @@ public struct SavedState: Codable, Equatable, Sendable {
         self.projectFlows = projectFlows
         self.dailyOpening = dailyOpening
         attentionDismissals = [:]
+        schedulesPaused = false
+        scheduleRuns = []
     }
-    private enum CodingKeys: String, CodingKey { case settings, conversations, members, rooms, projects, roundtables, schedules, autoChat, teamWorkflows, liveShow, liveStage, calls, roundtableTopics, projectFlows, dailyOpening, attentionDismissals }
+    private enum CodingKeys: String, CodingKey { case settings, conversations, members, rooms, projects, roundtables, schedules, autoChat, teamWorkflows, liveShow, liveStage, calls, roundtableTopics, projectFlows, dailyOpening, attentionDismissals, schedulesPaused, scheduleRuns }
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         settings = try container.decodeIfPresent(NativeSettings.self, forKey: .settings) ?? NativeSettings()
@@ -62,6 +68,8 @@ public struct SavedState: Codable, Equatable, Sendable {
         projectFlows = (try? container.decodeIfPresent([ProjectFlow].self, forKey: .projectFlows)) ?? []
         dailyOpening = (try? container.decodeIfPresent(DailyOpeningSettings.self, forKey: .dailyOpening)) ?? DailyOpeningSettings()
         attentionDismissals = (try? container.decodeIfPresent([String: String].self, forKey: .attentionDismissals)) ?? [:]
+        schedulesPaused = (try? container.decodeIfPresent(Bool.self, forKey: .schedulesPaused)) ?? false
+        scheduleRuns = (try? container.decodeIfPresent([ScheduleRun].self, forKey: .scheduleRuns)) ?? []
     }
 }
 

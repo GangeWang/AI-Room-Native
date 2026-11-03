@@ -61,7 +61,8 @@ final class WorkbenchModel: ObservableObject {
     private let runner = CLIProcessRunner()
     private let quotaReader = AccountQuotaReader()
     private var activeRuns: [AgentKind: UUID] = [:]
-    private var roundtableRunID: UUID?
+    /// Roundtable calls running now; preparation and peer review run side by side.
+    private var roundtableRunIDs: Set<UUID> = []
     private var roundtableReviewRunID: UUID?
     private var roomRunID: UUID?
     private var projectRunID: UUID?
@@ -550,7 +551,8 @@ final class WorkbenchModel: ObservableObject {
             for agent in AgentKind.allCases {
                 if cancelRoundtableQueue { break }
                 let runID = UUID()
-                roundtableRunID = runID
+                roundtableRunIDs.insert(runID)
+                defer { roundtableRunIDs.remove(runID) }
                 updateRoundtable(agent: agent, text: t("處理中……"), error: "尚未完成")
                 do {
                     let answer = try await runner.run(id: runID, agent: agent,
@@ -566,14 +568,13 @@ final class WorkbenchModel: ObservableObject {
             archive.roundtables.insert(StoredRoundtable(question: prompt, results: roundtableResults), at: 0)
             archive.roundtables = Array(archive.roundtables.prefix(100))
             persist()
-            roundtableRunID = nil
             roundtableRunning = false
         }
     }
 
     func stopRoundtable() {
         cancelRoundtableQueue = true
-        if let id = roundtableRunID { _ = runner.cancel(id: id) }
+        for id in roundtableRunIDs { _ = runner.cancel(id: id) }
     }
 
     private func updateRoundtable(agent: AgentKind, text: String, error: String? = nil, force: Bool = false) {
@@ -1140,24 +1141,51 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
-    func addSchedule(name: String, text: String, hour: Int, minute: Int,
-                     action: ScheduleAction, target: AgentKind?) {
+    /// Adds a schedule, or replaces the one with `id`. Daily fires at hour:minute, once at `onceAt`,
+    /// interval every `intervalMinutes` starting that long from now.
+    func saveSchedule(id: UUID? = nil, name: String, text: String, kind: ScheduleKind = .daily, hour: Int, minute: Int,
+                      onceAt: Date? = nil, intervalMinutes: Int = 60, action: ScheduleAction, target: AgentKind?) {
         let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let message = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard storageAvailable, (0...23).contains(hour), (0...59).contains(minute),
               !label.isEmpty, !message.isEmpty, message.count <= 8_000 else {
             statusMessage = "請填寫有效的排程名稱、時間與內容（最多 8000 字）。"; return
         }
+        if kind == .once, (onceAt ?? .distantPast) <= .now { statusMessage = t("一次性排程要選未來的時間。"); return }
         do { try PrivacyGuard.validatePrompt(message) }
         catch { statusMessage = error.localizedDescription; return }
-        archive.schedules.append(ScheduledActivity(name: label, action: action, text: message,
-            hour: hour, minute: minute, roomID: activeRoom?.id, target: target))
+        let existing = id.flatMap { id in archive.schedules.firstIndex(where: { $0.id == id }) }
+        var item = ScheduledActivity(id: existing.map { archive.schedules[$0].id } ?? UUID(), name: label, action: action, text: message,
+            hour: hour, minute: minute, enabled: existing.map { archive.schedules[$0].enabled } ?? true,
+            roomID: existing.flatMap { archive.schedules[$0].roomID } ?? activeRoom?.id, target: target,
+            kind: kind, onceAt: kind == .once ? onceAt : nil, intervalMinutes: intervalMinutes)
+        if kind == .interval { item.nextAt = Date.now.addingTimeInterval(TimeInterval(item.intervalMinutes * 60)) }
+        if kind == .once { item.enabled = true }
+        if let existing { archive.schedules[existing] = item } else { archive.schedules.append(item) }
+        persist()
+    }
+
+    /// Records a trigger and moves the schedule on.
+    private func finishSchedule(_ index: Int, _ outcome: ScheduleRun.Outcome, _ reason: String, now: Date) {
+        let item = archive.schedules[index]
+        archive.scheduleRuns.append(ScheduleRun(scheduleID: item.id, name: item.name, at: now, outcome: outcome, reason: reason))
+        archive.scheduleRuns = Array(archive.scheduleRuns.suffix(40))
+        LocalAutomation.advance(&archive.schedules[index], now: now)
+        persist()
+    }
+
+    func setSchedulesPaused(_ paused: Bool) {
+        archive.schedulesPaused = paused
         persist()
     }
 
     func setSchedule(id: UUID, enabled: Bool) {
         guard let index = archive.schedules.firstIndex(where: { $0.id == id }) else { return }
         archive.schedules[index].enabled = enabled
+        // Switching an interval back on counts from now, so nothing missed while off fires at once.
+        if enabled, archive.schedules[index].kind == .interval {
+            archive.schedules[index].nextAt = Date.now.addingTimeInterval(TimeInterval(archive.schedules[index].intervalMinutes * 60))
+        }
         persist()
     }
 
@@ -1180,10 +1208,22 @@ final class WorkbenchModel: ObservableObject {
         flowQuotaTick(now: now)
         for idx in archive.schedules.indices {
             let item = archive.schedules[idx]
-            guard LocalAutomation.shouldFire(item, now: now) else { continue }
+            let due = LocalAutomation.evaluate(item, now: now)
+            guard due != .notYet else { continue }
+            if due == .missed {
+                finishSchedule(idx, .skipped, t("約定的時間已錯過（App 關閉或 Mac 睡眠），這次跳過，不會補發。"), now: now)
+                continue
+            }
+            if archive.schedulesPaused {
+                finishSchedule(idx, .skipped, t("排程已全部暫停，這次跳過。"), now: now)
+                continue
+            }
             if item.action == .roomMessage {
-                guard let roomID = item.roomID,
-                      archive.rooms.contains(where: { $0.id == roomID }) else { continue }
+                guard let roomID = item.roomID, let room = archive.rooms.first(where: { $0.id == roomID }) else {
+                    finishSchedule(idx, .failed, t("找不到原本的聊天室，沒有送出。"), now: now)
+                    continue
+                }
+                // A busy room keeps the trigger waiting; past the grace period it counts as missed.
                 if roomRunning { continue }
                 if liveActive {
                     // During a live show a scheduled message becomes a viewer-like
@@ -1196,11 +1236,12 @@ final class WorkbenchModel: ObservableObject {
                     dispatchRoomMessage(roomID: roomID, question: item.text,
                                         target: item.target, displayName: "定時任務")
                 }
+                finishSchedule(idx, .done, t("已送到「\(room.title)」。"), now: now)
             } else {
                 statusMessage = "排程提醒 · \(item.name)：\(item.text)"
+                Notifier.post(t("排程提醒 · \(item.name)"), item.text)
+                finishSchedule(idx, .done, t("已提醒。"), now: now)
             }
-            archive.schedules[idx].lastFiredDay = LocalAutomation.dayKey(now)
-            persist()
         }
         // Occasional idle chat is distinct from the manually started, long-lived
         // co-host live show. It never resumes missed runs after app exit.
@@ -1540,24 +1581,30 @@ final class WorkbenchModel: ObservableObject {
         cancelRoundtableQueue = false
         persist()
         Task {
-            defer { roundtableRunning = false; roundtableRunID = nil; persist() }
+            defer { roundtableRunning = false; persist() }
             let prepared: (files: [PreparedAttachment], inline: String, scratch: URL?)
             do { prepared = try prepareAttachments(topic.attachments) }
             catch { statusMessage = error.localizedDescription; return }
             defer { if let scratch = prepared.scratch { try? FileManager.default.removeItem(at: scratch) } }
-            for agent in pending {
-                if cancelRoundtableQueue { break }
-                guard let member = archive.members.first(where: { $0.agent == agent }) else { continue }
-                var material = topic
-                if !prepared.inline.isEmpty { material.material += "\n\n" + prepared.inline }
-                let prompt = RoundtableFlow.preparePrompt(material, member: member, ownerName: archive.settings.ownerName,
-                                                            team: archive.members)
-                let files = agent == .codex ? prepared.files.filter { $0.attachment.kind != .pdf } : prepared.files
-                let result = await roundtableCall(id, agent: agent, prompt: prompt, files: files)
-                guard let current = topicIndex(id) else { return }
-                archive.roundtableTopics[current].submissions.removeAll { $0.agent == agent }
-                archive.roundtableTopics[current].submissions.append(result)
-                persist()
+            var material = topic
+            if !prepared.inline.isEmpty { material.material += "\n\n" + prepared.inline }
+            // Independent work: every member starts at once and none sees another's draft.
+            await withTaskGroup(of: RoundtableSubmission?.self) { group in
+                for agent in pending {
+                    guard let member = archive.members.first(where: { $0.agent == agent }) else { continue }
+                    let prompt = RoundtableFlow.preparePrompt(material, member: member, ownerName: archive.settings.ownerName,
+                                                              team: archive.members)
+                    let files = agent == .codex ? prepared.files.filter { $0.attachment.kind != .pdf } : prepared.files
+                    group.addTask { @MainActor [self] in
+                        cancelRoundtableQueue ? nil : await roundtableCall(id, agent: agent, prompt: prompt, files: files)
+                    }
+                }
+                for await result in group {
+                    guard let result, let current = topicIndex(id) else { continue }
+                    archive.roundtableTopics[current].submissions.removeAll { $0.agent == result.agent }
+                    archive.roundtableTopics[current].submissions.append(result)
+                    persist()
+                }
             }
             if let current = topicIndex(id), archive.roundtableTopics[current].allPrepared {
                 archive.roundtableTopics[current].status = .prepared
@@ -1575,18 +1622,25 @@ final class WorkbenchModel: ObservableObject {
         cancelRoundtableQueue = false
         persist()
         Task {
-            defer { roundtableRunning = false; roundtableRunID = nil; persist() }
+            defer { roundtableRunning = false; persist() }
             let names = roundtableNames
-            var topic = archive.roundtableTopics[index]
+            let topic = archive.roundtableTopics[index]
             if topic.peerReview {
-                for agent in topic.members where topic.submissions.contains(where: { $0.agent != agent && $0.succeeded }) {
-                    if cancelRoundtableQueue { return }
-                    guard let member = archive.members.first(where: { $0.agent == agent }) else { continue }
-                    let review = await roundtableCall(id, agent: agent,
-                        prompt: RoundtableFlow.peerReviewPrompt(topic, reviewer: member, names: names), files: [])
-                    topic.peerReviews.removeAll { $0.agent == agent }
-                    topic.peerReviews.append(review)
-                    if let current = topicIndex(id) { archive.roundtableTopics[current].peerReviews = topic.peerReviews; persist() }
+                // Each member reviews the others' drafts; the reviews don't depend on one another.
+                await withTaskGroup(of: RoundtableSubmission?.self) { group in
+                    for agent in topic.members where topic.submissions.contains(where: { $0.agent != agent && $0.succeeded }) {
+                        guard let member = archive.members.first(where: { $0.agent == agent }) else { continue }
+                        let prompt = RoundtableFlow.peerReviewPrompt(topic, reviewer: member, names: names)
+                        group.addTask { @MainActor [self] in
+                            cancelRoundtableQueue ? nil : await roundtableCall(id, agent: agent, prompt: prompt, files: [])
+                        }
+                    }
+                    for await review in group {
+                        guard let review, let current = topicIndex(id) else { continue }
+                        archive.roundtableTopics[current].peerReviews.removeAll { $0.agent == review.agent }
+                        archive.roundtableTopics[current].peerReviews.append(review)
+                        persist()
+                    }
                 }
             }
             guard !cancelRoundtableQueue else { return }
@@ -1618,7 +1672,7 @@ final class WorkbenchModel: ObservableObject {
         roundtableRunning = true
         cancelRoundtableQueue = false
         Task {
-            defer { roundtableRunning = false; roundtableRunID = nil; persist() }
+            defer { roundtableRunning = false; persist() }
             await compileFindings(id)
         }
     }
@@ -1702,7 +1756,8 @@ final class WorkbenchModel: ObservableObject {
     private func roundtableCall(_ id: UUID, agent: AgentKind, prompt: String,
                                 files: [PreparedAttachment]) async -> RoundtableSubmission {
         let runID = UUID()
-        roundtableRunID = runID
+        roundtableRunIDs.insert(runID)
+        defer { roundtableRunIDs.remove(runID) }
         if let index = topicIndex(id) { archive.roundtableTopics[index].calls += 1 }
         do {
             let result = try await runner.runDetailed(id: runID, agent: agent, prompt: String(prompt.prefix(30_000)),
@@ -2216,6 +2271,18 @@ extension WorkbenchModel {
     }
 
     /// Step 1: talk it through. Members may read the project files but not change them.
+    /// A line in the project's meeting room: the plan, the owner's decisions and the round
+    /// reports are recorded there as the original does, so the room reads as one history.
+    private func postFlowRecord(_ id: UUID, from agent: AgentKind?, _ text: String) {
+        guard let index = flowIndex(id), let roomID = archive.projectFlows[index].roomID,
+              let room = archive.rooms.firstIndex(where: { $0.id == roomID }) else { return }
+        let entry = agent.map { RoomEntry(speaker: .assistant, agent: $0, displayName: memberName($0), body: text) }
+            ?? RoomEntry(speaker: .user, displayName: t("你"), body: text)
+        archive.rooms[room].entries.append(entry)
+        archive.rooms[room].updatedAt = .now
+        persist()
+    }
+
     func sayInProject(_ id: UUID, text: String) {
         guard let index = flowIndex(id), let roomID = archive.projectFlows[index].roomID, !roomRunning, !flowRunning else { return }
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2266,6 +2333,7 @@ extension WorkbenchModel {
             }
             archive.projectFlows[current].plan = plan
             archive.projectFlows[current].step = .plan
+            postFlowRecord(id, from: lead, ProjectFlowEngine.planCard(plan))
             Notifier.post(t("方案寫好了"), flow.title)
         }
     }
@@ -2285,6 +2353,8 @@ extension WorkbenchModel {
         guard plan.rounds.indices.contains(roundIndex) else { return }
         plan.rounds[roundIndex].startNote = String(note.trimmingCharacters(in: .whitespacesAndNewlines).prefix(4_000))
         plan.rounds[roundIndex].status = .executing
+        postFlowRecord(id, from: nil, ProjectFlowEngine.startCard(version: plan.version, level: archive.projectFlows[index].reviewLevel,
+                                                                  round: plan.rounds[roundIndex], note: plan.rounds[roundIndex].startNote))
         archive.projectFlows[index].plan = plan
         archive.projectFlows[index].step = .executing
         archive.projectFlows[index].paused = false
@@ -2496,6 +2566,7 @@ extension WorkbenchModel {
         ProjectFlowEngine.applyRulings(&ruled, verdicts: verdicts)
         guard ruled.status != .disputed else { statusMessage = t("請逐條裁定每一項異議。"); return }
         updateTask(id, taskID) { $0 = ruled }
+        postFlowRecord(id, from: nil, ProjectFlowEngine.rulingCard(ruled, rulings: Array(ruled.rulings.dropFirst(current.rulings.count))))
         continueRound(id)
     }
 
@@ -2581,6 +2652,9 @@ extension WorkbenchModel {
         guard let current = flowIndex(id) else { return }
         archive.projectFlows[current].plan?.rounds[r].report = report
         archive.projectFlows[current].plan?.rounds[r].status = .awaitingAcceptance
+        if let reported = archive.projectFlows[current].plan?.rounds[r] {
+            postFlowRecord(id, from: lead, ProjectFlowEngine.roundReportCard(reported))
+        }
         archive.projectFlows[current].step = .acceptance
         Notifier.post(t("專案等你驗收"), "\(flow.title)：\(round.title)")
     }
@@ -2606,6 +2680,7 @@ extension WorkbenchModel {
         }
         let r = archive.projectFlows[index].currentRound
         archive.projectFlows[index].plan?.rounds[r].status = .accepted
+        postFlowRecord(id, from: nil, ProjectFlowEngine.acceptanceCard(round, accepted: true))
         let rounds = archive.projectFlows[index].plan?.rounds.count ?? 0
         if r + 1 < rounds {
             archive.projectFlows[index].currentRound = r + 1
@@ -2626,6 +2701,7 @@ extension WorkbenchModel {
         let r = archive.projectFlows[index].currentRound
         plan.rounds[r].userOpinion = String(text.prefix(4_000))
         plan.rounds[r].status = .executing
+        postFlowRecord(id, from: nil, ProjectFlowEngine.acceptanceCard(round, accepted: false, opinion: text))
         let owners = Array(Set(plan.tasks(in: round).map(\.member))).sorted { $0.rawValue < $1.rawValue }
         for (n, member) in owners.enumerated() {
             // A fix covers the files this member's tasks listed, so fixes by different members can run at once.
@@ -2651,6 +2727,7 @@ extension WorkbenchModel {
             guard let current = flowIndex(id) else { return }
             archive.projectFlows[current].completionReport = summary
             archive.projectFlows[current].step = .completed
+            postFlowRecord(id, from: lead, ProjectFlowEngine.completionCard(summary))
             Notifier.post(t("專案完成"), flow.title)
         }
     }

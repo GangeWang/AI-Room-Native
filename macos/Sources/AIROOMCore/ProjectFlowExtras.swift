@@ -217,3 +217,45 @@ extension ProjectFlowEngine {
         }
     }
 }
+
+// MARK: Meeting-room record (the original posts the plan, decisions and round reports into the room)
+
+extension ProjectFlowEngine {
+    static func clip(_ text: String, _ limit: Int) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count > limit ? String(trimmed.prefix(limit)) + "……" : trimmed
+    }
+
+    public static func planCard(_ plan: FlowPlan) -> String {
+        var parts = ["【方案 · 第 \(plan.version) 版】", clip(plan.objective, 600)]
+        if !plan.scope.isEmpty { parts.append("範圍：" + clip(plan.scope, 400)) }
+        if !plan.deliverables.isEmpty { parts.append("交付：" + clip(plan.deliverables.joined(separator: "、"), 400)) }
+        if !plan.acceptance.isEmpty { parts.append("驗收標準：" + clip(plan.acceptance.joined(separator: "；"), 400)) }
+        parts.append("\(plan.rounds.count) 輪，\(plan.tasks.count) 項任務")
+        return parts.joined(separator: "\n\n")
+    }
+
+    public static func startCard(version: Int, level: ReviewLevel, round: FlowRound, note: String) -> String {
+        var text = "【開工 · \(round.title)】確認方案第 \(version) 版，\(level.title)。"
+        if !note.isEmpty { text += "\n附言：" + clip(note, 600) }
+        return text
+    }
+
+    public static func roundReportCard(_ round: FlowRound) -> String {
+        "【\(round.title) · 輪次匯報】\n\n" + clip(round.report, 2_500)
+    }
+
+    public static func acceptanceCard(_ round: FlowRound, accepted: Bool, opinion: String = "") -> String {
+        accepted ? "【驗收 · \(round.title)】通過，已寫回專案資料夾。"
+                 : "【驗收 · \(round.title)】駁回：" + clip(opinion, 1_000)
+    }
+
+    public static func rulingCard(_ task: FlowTask, rulings: [FlowRuling]) -> String {
+        let lines = rulings.map { "- \($0.verdict == .author ? "支持作者" : "維持複核")：\(clip($0.finding.request, 200))" }
+        return "【裁定 · \(task.title)】\n" + lines.joined(separator: "\n")
+    }
+
+    public static func completionCard(_ summary: String) -> String {
+        "【整段工作總結】\n\n" + clip(summary, 2_500)
+    }
+}
