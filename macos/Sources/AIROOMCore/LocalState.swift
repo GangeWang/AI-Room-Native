@@ -151,22 +151,98 @@ public final class LocalStateStore {
     /// Backups contain conversations and metadata, never official CLI credentials.
     /// On macOS they are encrypted with the device-bound Keychain key and cannot be
     /// restored on another Mac without an explicit export/rewrapping design.
-    public func backup() throws -> URL {
-        let target = root.appendingPathComponent("backups", isDirectory: true)
+    public var backupDirectory: URL { root.appendingPathComponent("backups", isDirectory: true) }
+    static let beforeRestoreTag = "-before-restore"
+
+    public func backup(beforeRestore: Bool = false) throws -> URL {
+        let target = backupDirectory
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: target.path)
         let date = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
-        let file = target.appendingPathComponent("AIROOM-backup-\(date)\(protector == nil ? ".json" : ".airoombackup")")
+        let name = "AIROOM-backup-\(date)\(beforeRestore ? Self.beforeRestoreTag : "")"
+        let file = target.appendingPathComponent(name + (protector == nil ? ".json" : ".airoombackup"))
         try protectedWrite(try encode(load()), to: file)
         return file
     }
 
+    /// Backups in the backup folder, newest first.
+    public func backups() -> [BackupFile] {
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey]
+        let files = (try? FileManager.default.contentsOfDirectory(at: backupDirectory, includingPropertiesForKeys: keys)) ?? []
+        return files.compactMap { url -> BackupFile? in
+            guard ["airoombackup", "json"].contains(url.pathExtension), url.lastPathComponent.hasPrefix("AIROOM-backup-"),
+                  let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true, values.isSymbolicLink != true else { return nil }
+            return BackupFile(url: url, createdAt: values.creationDate ?? values.contentModificationDate ?? .distantPast,
+                              bytes: values.fileSize ?? 0,
+                              beforeRestore: url.deletingPathExtension().lastPathComponent.hasSuffix(Self.beforeRestoreTag))
+        }
+        .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// Opens a backup without changing anything. Decrypting it is the integrity check:
+    /// a damaged or altered file, or one sealed with another Mac's key, fails here.
+    public func preview(_ file: URL) throws -> BackupSummary {
+        BackupSummary(try decodeBackup(file))
+    }
+
     public func restore(from file: URL) throws -> SavedState {
-        let data = try Data(contentsOf: file)
-        guard data.count <= 50 * 1024 * 1024 else { throw WorkspaceError.exceedsLimit(file.lastPathComponent) }
-        let restored = try decode(data)
-        _ = try backup()
+        let restored = try decodeBackup(file)
+        _ = try backup(beforeRestore: true)
         try save(restored)
         return restored
+    }
+
+    /// Only a plain file directly inside the backup folder can be deleted.
+    public func deleteBackup(_ file: URL) throws {
+        let values = try file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard file.deletingLastPathComponent().standardizedFileURL.path == backupDirectory.standardizedFileURL.path,
+              values.isRegularFile == true, values.isSymbolicLink != true,
+              backups().contains(where: { $0.url.standardizedFileURL == file.standardizedFileURL }) else {
+            throw WorkspaceError.unsafeFile(file.lastPathComponent)
+        }
+        try FileManager.default.removeItem(at: file)
+    }
+
+    private func decodeBackup(_ file: URL) throws -> SavedState {
+        let data = try Data(contentsOf: file)
+        guard data.count <= 50 * 1024 * 1024 else { throw WorkspaceError.exceedsLimit(file.lastPathComponent) }
+        return try decode(data)
+    }
+}
+
+public struct BackupFile: Identifiable, Equatable, Sendable {
+    public var id: String { url.path }
+    public var url: URL
+    public var createdAt: Date
+    public var bytes: Int
+    /// Made automatically just before a restore replaced the data.
+    public var beforeRestore: Bool
+}
+
+/// What a backup holds, to look at before restoring it.
+public struct BackupSummary: Equatable, Sendable {
+    public var deskTopics: Int
+    public var deskMessages: Int
+    public var loungeTopics: Int
+    public var loungeMessages: Int
+    public var memberNames: [String]
+    public var memories: Int
+    public var roundtables: Int
+    public var projects: Int
+    public var schedules: Int
+    public var ownerName: String
+
+    public init(_ state: SavedState) {
+        deskTopics = state.conversations.count
+        deskMessages = state.conversations.reduce(0) { $0 + $1.messages.count }
+        let lounges = state.rooms.filter(\.isLounge)
+        loungeTopics = lounges.count
+        loungeMessages = lounges.reduce(0) { $0 + $1.entries.count }
+        memberNames = state.members.map(\.name)
+        memories = state.members.reduce(0) { $0 + $1.memories.count }
+        roundtables = state.roundtableTopics.count
+        projects = state.projectFlows.count + state.projects.count
+        schedules = state.schedules.count
+        ownerName = state.settings.userName
     }
 }

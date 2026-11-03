@@ -2114,14 +2114,41 @@ final class WorkbenchModel: ObservableObject {
         catch { statusMessage = "\(t("備份失敗")): \(error.localizedDescription)" }
     }
 
+    func backupFiles() -> [BackupFile] { persistence?.backups() ?? [] }
+
+    /// Reads a backup without changing anything; an error means it can't be restored here.
+    func previewBackup(_ file: URL) -> Result<BackupSummary, Error> {
+        guard let persistence else { return .failure(WorkspaceError.missing("Application Support/AIROOMNative")) }
+        let scoped = file.startAccessingSecurityScopedResource()
+        defer { if scoped { file.stopAccessingSecurityScopedResource() } }
+        return Result { try persistence.preview(file) }
+    }
+
+    func deleteBackup(_ file: URL) {
+        do { try persistence?.deleteBackup(file); statusMessage = t("備份已刪除。") }
+        catch { statusMessage = "\(t("刪除失敗")): \(error.localizedDescription)" }
+    }
+
+    var canRestore: Bool { storageAvailable && !projectBusy && !roomRunning && busyAgents.isEmpty && !flowRunning && !liveActive }
+
+    /// The current data is backed up first. Schedules and member chat are paused so nothing
+    /// from the restored data starts on its own.
     func restore(from file: URL) {
         do {
-            guard let persistence, !projectBusy, !roomRunning, busyAgents.isEmpty else { return }
-            archive = try persistence.restore(from: file)
+            guard let persistence, canRestore else { return }
+            let scoped = file.startAccessingSecurityScopedResource()
+            defer { if scoped { file.stopAccessingSecurityScopedResource() } }
+            var restored = try persistence.restore(from: file)
+            let paused = restored.autoChat.enabled || restored.schedules.contains(where: \.enabled)
+            restored.autoChat.enabled = false
+            for index in restored.schedules.indices { restored.schedules[index].enabled = false }
+            archive = restored
             if archive.rooms.isEmpty { archive.rooms = [TeamRoom()] }
             selectedRoomID = archive.rooms.first?.id
             roomTarget = nil
-            statusMessage = t("恢復完成。請重新核對各 CLI 登入狀態。")
+            persist()
+            statusMessage = t("恢復完成，原本的資料已先備份。請重新核對各 CLI 登入狀態。")
+                + (paused ? t("排程與成員閒聊已暫停，需要時到「排程與直播」重新打開。") : "")
         } catch { statusMessage = "\(t("恢復失敗")): \(error.localizedDescription)" }
     }
 
