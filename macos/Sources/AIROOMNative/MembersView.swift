@@ -185,6 +185,7 @@ struct MembersView: View {
         .confirmationDialog(t("把 \(current?.name ?? "") 恢復成預設資料？", "Restore \(current?.name ?? "") to defaults?"),
                             isPresented: $confirmingReset) {
             Button(t("恢復預設資料", "Restore defaults"), role: .destructive) { model.resetMember(selected) }
+            Button(t("取消", "Cancel"), role: .cancel) {}
         } message: {
             Text(t("人設、稱呼、介紹、代表色、預設模型、記憶、日常生活和上傳的圖片都會清除；啟用狀態保留。",
                    "Persona, address, intro, color, default model, memories, daily life and uploaded pictures are cleared; enabled stays."))
@@ -195,6 +196,7 @@ struct MembersView: View {
                 model.removeMember(agent)
                 if model.card(agent) == nil { selected = .claude }
             }
+            Button(t("取消", "Cancel"), role: .cancel) {}
         } message: {
             Text(t("人物卡和 TA 的工位話題會一起刪除，無法復原。茶歇室、圓桌和專案裡 TA 說過的話會保留。",
                    "The card and their desk topics are deleted for good. What they said in rooms, roundtables and projects stays."))

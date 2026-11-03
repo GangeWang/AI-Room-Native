@@ -28,14 +28,14 @@ public struct MemberTemplate: Identifiable, Equatable, Sendable {
                        plannedProgram: nil, suggestedExecutor: .codex),
         MemberTemplate(id: "deepseek", name: "DS", motto: "收到！馬上開工～", color: "#3c66d9",
                        art: "ds.webp", face: PortraitFaceAnchor(x: 0.533, y: 0.118, zoom: 3.3),
-                       plannedProgram: "DeepSeek", suggestedExecutor: .claude),
+                       plannedProgram: "DeepSeek Harness", suggestedExecutor: .claude),
         MemberTemplate(id: "gemini", name: "Gemini", motto: "星星還在路上，很快見。", color: "#a35bdb",
                        art: "gemini.webp", face: PortraitFaceAnchor(x: 0.490, y: 0.128, zoom: 3.6),
                        plannedProgram: "Gemini CLI", suggestedExecutor: .claude),
         MemberTemplate(id: "kimi", name: "Kimi", motto: "長篇資料交給我，讀完再說。", color: "#2f8f86",
                        art: nil, face: initialFace, plannedProgram: "Kimi CLI", suggestedExecutor: .claude),
         MemberTemplate(id: "glm", name: "GLM", motto: "先列好步驟，再一步步做完。", color: "#3d8b4f",
-                       art: nil, face: initialFace, plannedProgram: "ZCode（GLM）", suggestedExecutor: .claude),
+                       art: nil, face: initialFace, plannedProgram: "ZCode", suggestedExecutor: .claude),
     ]
 
     /// Framing for an uploaded portrait with no known face position.

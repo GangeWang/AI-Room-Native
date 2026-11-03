@@ -39,6 +39,8 @@ enum StudioI18n {
 /// Every member's card, for views that only know a MemberID; kept current by WorkbenchModel.
 enum MemberDirectory {
     nonisolated(unsafe) static var cards: [MemberID: MemberCard] = [:]
+    /// Names of removed members, by id, for their old lines.
+    nonisolated(unsafe) static var formerNames: [String: String] = [:]
 }
 
 extension Color {
@@ -64,8 +66,8 @@ extension MemberID {
         if let hex = card?.look?.color ?? MemberTemplate.builtIn(for: self)?.color, let color = Color(hex: hex) { return color }
         return self == .codex ? StudioTheme.violet : StudioTheme.orange
     }
-    /// The card's name; the id when the card is gone.
-    var shortName: String { card?.name ?? rawValue }
+    /// The card's name; a removed member's last name; else the id.
+    var shortName: String { card?.name ?? MemberDirectory.formerNames[rawValue] ?? rawValue }
     /// The program this member runs on.
     var executor: Executor { card?.executor ?? builtInExecutor ?? .claude }
     /// The built-in artwork file, if the card uses a template that has one.

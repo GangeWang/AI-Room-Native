@@ -607,6 +607,7 @@ final class WorkbenchModel: ObservableObject {
             runner.setDefaults(member.agent, executor: member.executor, model: member.defaultModel, effort: member.defaultEffort)
         }
         MemberDirectory.cards = Dictionary(archive.members.map { ($0.agent, $0) }, uniquingKeysWith: { first, _ in first })
+        MemberDirectory.formerNames = archive.formerMembers
     }
 
     /// Back to the card's starting point: persona, memories, life, pictures and defaults are
