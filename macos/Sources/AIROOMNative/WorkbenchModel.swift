@@ -266,6 +266,7 @@ final class WorkbenchModel: ObservableObject {
     func modelChoices(for agent: MemberID) -> [ModelChoice] {
         let executor = executor(of: agent)
         let live = modelCatalogs[executor] ?? []
+        if executor == .deepseek { return DeepSeekHarness.models }
         return live.isEmpty && executor == .claude ? ModelCatalog.claude : live
     }
 
@@ -273,7 +274,8 @@ final class WorkbenchModel: ObservableObject {
     /// launch and whenever the user picks "Refresh model list".
     func refreshModelCatalogs(_ agents: [Executor] = Executor.allCases) {
         let settings = archive.settings
-        for agent in agents where !modelCatalogLoading.contains(agent) {
+        // DeepSeek's two models are fixed by DeepSeek Harness's official route.
+        for agent in agents where agent != .deepseek && !modelCatalogLoading.contains(agent) {
             modelCatalogLoading.insert(agent)
             Task {
                 do {
@@ -330,6 +332,7 @@ final class WorkbenchModel: ObservableObject {
                 let data = try Data(contentsOf: url)
                 let attachment = try AttachmentPolicy.classify(fileName: url.lastPathComponent, data: data)
                 if attachment.kind == .pdf && executor(of: agent) == .codex { throw AttachmentError.pdfNotSupported(attachment.fileName) }
+                if attachment.kind != .text && executor(of: agent) == .deepseek { throw AttachmentError.filesNotSupported(attachment.fileName) }
                 try persistence.storeAttachment(data, id: attachment.id)
                 list.append(attachment)
             } catch {
@@ -367,6 +370,7 @@ final class WorkbenchModel: ObservableObject {
             if !list.contains(where: { $0.id == item.id }) { list.append(item) }
         }.suffix(AttachmentPolicy.maxPerMessage))
         if executor(of: agent) == .codex { files.removeAll { $0.kind == .pdf } }
+        if executor(of: agent) == .deepseek { files.removeAll() } // text only; texts are inlined below
         let texts = attachments.filter { $0.kind == .text }.compactMap { item in
             (try? persistence.loadAttachment(id: item.id)).map { (item, $0) }
         }
@@ -807,6 +811,8 @@ final class WorkbenchModel: ObservableObject {
 
     /// Opens the official CLI's own login in Terminal; AIROOM never sees credentials.
     func openOfficialLogin(for agent: Executor) {
+        // DeepSeek Harness keeps its API key in its own settings, not a terminal login.
+        if agent == .deepseek { openVendorDesktop(executor: .deepseek); return }
         do {
             let binary = try CommandPlan.resolveExecutable(agent: agent, settings: archive.settings)
             let folder = FileManager.default.temporaryDirectory.appendingPathComponent("airoom-login", isDirectory: true)
@@ -1642,7 +1648,8 @@ final class WorkbenchModel: ObservableObject {
                     guard let member = archive.members.first(where: { $0.agent == agent }) else { continue }
                     let prompt = RoundtableFlow.preparePrompt(material, member: member, ownerName: archive.settings.ownerName,
                                                               team: archive.members)
-                    let files = executor(of: agent) == .codex ? prepared.files.filter { $0.attachment.kind != .pdf } : prepared.files
+                    let files = executor(of: agent) == .deepseek ? []
+                        : executor(of: agent) == .codex ? prepared.files.filter { $0.attachment.kind != .pdf } : prepared.files
                     group.addTask { @MainActor [self] in
                         cancelRoundtableQueue ? nil : await roundtableCall(id, agent: agent, prompt: prompt, files: files)
                     }

@@ -331,9 +331,13 @@ public struct PersonaFile: Identifiable, Equatable, Sendable {
     public var text: String
     public var truncated: Bool
 
-    /// Codex keeps ~/.codex/AGENTS.md; Claude Code keeps ~/.claude/CLAUDE.md.
+    /// Codex keeps ~/.codex/AGENTS.md; Claude Code keeps ~/.claude/CLAUDE.md; DeepSeek Harness ~/.dsh/AGENTS.md.
     public static func location(for agent: Executor, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        agent == .claude ? home.appendingPathComponent(".claude/CLAUDE.md") : home.appendingPathComponent(".codex/AGENTS.md")
+        switch agent {
+        case .claude: return home.appendingPathComponent(".claude/CLAUDE.md")
+        case .codex: return home.appendingPathComponent(".codex/AGENTS.md")
+        case .deepseek: return home.appendingPathComponent(".dsh/AGENTS.md")
+        }
     }
 
     public static func read(for agent: Executor, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> PersonaFile? {
@@ -388,6 +392,8 @@ public enum MemoryImport {
 
     public static func sources(for agent: Executor, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [MemoryImportSource] {
         switch agent {
+        case .deepseek:
+            return []
         case .codex:
             return FileManager.default.fileExists(atPath: codexSummary(home).path)
                 ? [MemoryImportSource(id: "codex-summary", label: "Codex 記憶摘要：使用者畫像與偏好", count: 1)] : []

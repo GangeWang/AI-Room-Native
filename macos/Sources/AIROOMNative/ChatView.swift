@@ -15,6 +15,13 @@ struct ChatView: View {
 
     private var lang: InterfaceLanguage { model.archive.settings.language }
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, lang) }
+    private var vendorButtonTitle: String {
+        switch agent.executor {
+        case .codex: return t("在 Codex App 開新工作階段", "New session in Codex App")
+        case .claude: return t("在 Claude App 開新工作階段", "New session in Claude App")
+        case .deepseek: return t("打開 DeepSeek Harness", "Open DeepSeek Harness")
+        }
+    }
     private var memberName: String { model.archive.members.first(where: { $0.agent == agent })?.name ?? agent.shortName }
     private var busy: Bool { model.busyAgents.contains(agent) }
     private var topic: Conversation? { model.activeTopic(for: agent) }
@@ -69,7 +76,7 @@ struct ChatView: View {
             folderMenu
             topicMenu
             Button { model.openVendorDesktop(for: agent) } label: {
-                Label(agent.executor == .codex ? t("在 Codex App 開新工作階段", "New session in Codex App") : t("在 Claude App 開新工作階段", "New session in Claude App"), systemImage: "arrow.up.forward.app")
+                Label(vendorButtonTitle, systemImage: "arrow.up.forward.app")
             }
             .help(t("僅開啟官方桌面 App；不傳送 AIROOM 對話、Token 或工作紀錄。若設定了工作目錄，將交由 App 自行確認存取。", "Opens the official desktop app only. Does not copy AIROOM conversations or credentials. An explicitly configured workspace may be offered to the app."))
             Button { model.newTopic(for: agent) } label: { Label(t("開新話題", "New Topic"), systemImage: "plus.bubble") }

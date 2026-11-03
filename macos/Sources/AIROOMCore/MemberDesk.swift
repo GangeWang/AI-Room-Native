@@ -19,13 +19,14 @@ public struct ChatAttachment: Identifiable, Codable, Equatable, Sendable {
 }
 
 public enum AttachmentError: Error, LocalizedError, Equatable {
-    case unsupported(String), tooLarge(String), tooMany, pdfNotSupported(String)
+    case unsupported(String), tooLarge(String), tooMany, pdfNotSupported(String), filesNotSupported(String)
     public var errorDescription: String? {
         switch self {
         case .unsupported(let name): return "不支援的檔案類型：\(name)（可附圖片、PDF 或文字檔）"
         case .tooLarge(let name): return "檔案太大：\(name)"
         case .tooMany: return "每則訊息最多 \(AttachmentPolicy.maxPerMessage) 個附件。"
         case .pdfNotSupported(let name): return "Codex 目前無法讀取 PDF：\(name)。請改附文字或圖片，或交給 Claude。"
+        case .filesNotSupported(let name): return "DeepSeek Harness 目前只收文字，無法讀取圖片或 PDF：\(name)。請改附文字檔，或交給 Claude。"
         }
     }
 }

@@ -4,10 +4,23 @@ import Foundation
 public enum Executor: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
     case claude = "Claude Code"
     case codex = "Codex"
+    case deepseek = "DeepSeek Harness"
 
     public var id: String { rawValue }
-    public var executableName: String { self == .claude ? "claude" : "codex" }
-    public var symbol: String { self == .claude ? "brain.head.profile" : "chevron.left.forwardslash.chevron.right" }
+    public var executableName: String {
+        switch self {
+        case .claude: return "claude"
+        case .codex: return "codex"
+        case .deepseek: return "dsh"
+        }
+    }
+    public var symbol: String {
+        switch self {
+        case .claude: return "brain.head.profile"
+        case .codex: return "chevron.left.forwardslash.chevron.right"
+        case .deepseek: return "fish"
+        }
+    }
 }
 
 /// Who a member is, independent of the program they run on. The two

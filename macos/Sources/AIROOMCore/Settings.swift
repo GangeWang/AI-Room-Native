@@ -10,26 +10,30 @@ public enum InterfaceLanguage: String, Codable, CaseIterable, Identifiable, Send
 public struct NativeSettings: Codable, Equatable, Sendable {
     public var claudePath: String
     public var codexPath: String
+    /// The `dsh` launcher; empty finds the one inside DeepSeek Harness.app.
+    public var deepseekPath: String
     public var workspacePath: String
     public var language: InterfaceLanguage
     /// How members address the user (設定 → 個人資料). Empty = a neutral default.
     public var userName: String
 
-    public init(claudePath: String = "", codexPath: String = "", workspacePath: String = "",
+    public init(claudePath: String = "", codexPath: String = "", deepseekPath: String = "", workspacePath: String = "",
                 language: InterfaceLanguage = .zhTW, userName: String = "") {
         self.claudePath = claudePath
         self.codexPath = codexPath
+        self.deepseekPath = deepseekPath
         self.workspacePath = workspacePath
         self.language = language
         self.userName = String(userName.prefix(40))
     }
 
-    private enum CodingKeys: String, CodingKey { case claudePath, codexPath, workspacePath, language, userName }
+    private enum CodingKeys: String, CodingKey { case claudePath, codexPath, deepseekPath, workspacePath, language, userName }
 
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
         claudePath = try box.decodeIfPresent(String.self, forKey: .claudePath) ?? ""
         codexPath = try box.decodeIfPresent(String.self, forKey: .codexPath) ?? ""
+        deepseekPath = (try? box.decodeIfPresent(String.self, forKey: .deepseekPath)) ?? ""
         workspacePath = try box.decodeIfPresent(String.self, forKey: .workspacePath) ?? ""
         language = try box.decodeIfPresent(InterfaceLanguage.self, forKey: .language) ?? .zhTW
         userName = try box.decodeIfPresent(String.self, forKey: .userName) ?? ""
@@ -42,7 +46,19 @@ public struct NativeSettings: Codable, Equatable, Sendable {
     }
 
     public func configuredPath(for agent: Executor) -> String {
-        agent == .claude ? claudePath : codexPath
+        switch agent {
+        case .claude: return claudePath
+        case .codex: return codexPath
+        case .deepseek: return deepseekPath
+        }
+    }
+
+    public mutating func setPath(_ path: String, for agent: Executor) {
+        switch agent {
+        case .claude: claudePath = path
+        case .codex: codexPath = path
+        case .deepseek: deepseekPath = path
+        }
     }
 }
 
@@ -58,6 +74,9 @@ public enum NativeCLIError: Error, LocalizedError {
         case .executableMissing(let name):
             if name == "claude" {
                 return "找不到 Claude Code。請先在 Claude Desktop 開啟 Code 分頁安裝內附執行端，或在設定指定 claude 的完整執行檔路徑。"
+            }
+            if name == "dsh" {
+                return "找不到 DeepSeek Harness。請安裝 DeepSeek Harness.app，或在設定指定 dsh 的完整路徑。"
             }
             return "找不到可執行的 \(name)。可使用 ChatGPT.app / Codex.app 內附的 codex-cli，或在設定指定完整執行檔路徑。"
         case .invalidWorkspace(let directory): return "工作資料夾不存在：\(directory)"
@@ -78,6 +97,13 @@ public enum CommandPlan {
     /// macOS builds package the command inside CodexCLI.app. Prefer the vendor's
     /// launcher (which resolves its own resources) over the nested Mach-O.
     /// Do not scan arbitrary user directories or start the GUI application.
+    /// DeepSeek Harness.app ships its CLI launcher (a shell script that runs the
+    /// app's own Node runtime) inside the bundle.
+    public static func bundledDeepSeekPaths(home: String = NSHomeDirectory()) -> [String] {
+        ["/Applications/DeepSeek Harness.app", "\(home)/Applications/DeepSeek Harness.app"]
+            .map { "\($0)/Contents/Resources/runtime/cli/bin/dsh" }
+    }
+
     public static func bundledCodexPaths(home: String = NSHomeDirectory()) -> [String] {
         let apps = ["/Applications/ChatGPT.app", "\(home)/Applications/ChatGPT.app",
                     "/Applications/Codex.app", "\(home)/Applications/Codex.app"]
@@ -156,7 +182,12 @@ public enum CommandPlan {
         } else {
             let path = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
             let homeDirs = ["\(home)/.local/bin", "\(home)/bin", "\(home)/.npm-global/bin", "\(home)/.bun/bin"]
-            let bundled = agent == .codex ? bundledCodexPaths(home: home) : bundledClaudePaths(home: home)
+            let bundled: [String]
+            switch agent {
+            case .codex: bundled = bundledCodexPaths(home: home)
+            case .claude: bundled = bundledClaudePaths(home: home)
+            case .deepseek: bundled = bundledDeepSeekPaths(home: home)
+            }
             candidates = bundled + (path + fallbackPATH + homeDirs).map {
                 ($0 as NSString).appendingPathComponent(agent.executableName)
             }
@@ -175,8 +206,16 @@ public enum CommandPlan {
     }
 
     public static func arguments(for agent: Executor, access: ExecutionAccess = .readOnly,
-                                 options: CLIRunOptions = CLIRunOptions()) -> [String] {
+                                 options: CLIRunOptions = CLIRunOptions(), patch: String? = nil) -> [String] {
         switch agent {
+        case .deepseek:
+            // One task per run through the headless profile; the prompt arrives on stdin.
+            // Access is enforced by DSH's own sandbox (DSH_PERMISSION_MODE).
+            var dsh = ["--profile", "headless"]
+            if let patch { dsh += ["--patch", patch] }
+            dsh += ["--json"]
+            if let resume = options.session?.resumeID { dsh += ["--session-id", resume] }
+            return dsh + ["-"]
         case .codex:
             // Explicitly read-only. No --full-auto / --dangerously-bypass flags.
             return ["exec", "--json", "--sandbox", access == .stagedWrite ? "workspace-write" : "read-only", "--skip-git-repo-check", "-"]

@@ -22,6 +22,8 @@ public final class CLIProcessRunner {
     private let lock = NSLock()
     private var active: [UUID: Process] = [:]
     private let codexServer = CodexAppServerRunner()
+    /// DeepSeek read-only copies in use (see runBlocking).
+    private var stableCopies: Set<String> = []
     /// Receives one attempt, at most one delivered, then completed / notSent /
     /// unknown for every request. Called from background threads.
     public var observer: (@Sendable (MemberID, CallEvent) -> Void)?
@@ -122,7 +124,7 @@ public final class CLIProcessRunner {
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let result = try self.runBlocking(id: id, agent: executor, binary: binary, cwd: cwd, prompt: prompt,
+                    let result = try self.runBlocking(id: id, agent: executor, member: agent, binary: binary, cwd: cwd, prompt: prompt,
                                                       access: access, options: options, delivered: delivered,
                                                       onUpdate: onUpdate)
                     continuation.resume(returning: result)
@@ -133,31 +135,63 @@ public final class CLIProcessRunner {
         }
     }
 
-    private func runBlocking(id: UUID, agent: Executor, binary: URL, cwd: URL, prompt: String,
+    private func runBlocking(id: UUID, agent: Executor, member: MemberID, binary: URL, cwd: URL, prompt: String,
                              access: ExecutionAccess, options: CLIRunOptions, delivered: () -> Void,
                              onUpdate: (String) -> Void) throws -> CLIRunResult {
+        if agent == .deepseek, let file = options.attachments.first {
+            throw AttachmentError.filesNotSupported(file.attachment.fileName)
+        }
         let process = Process()
         // Read-only prompts execute against a temporary sanitised work copy.
         // This reduces accidental inclusion of .env/SSH/cloud files; it is
         // NOT an OS sandbox and cannot prevent a CLI reading other home paths.
         var actualCWD = cwd
         var scratch: URL?
+        var claimed: String?
         if access != .stagedWrite {
+            // DSH resumes a session only from the folder it started in, so a DeepSeek
+            // member's copy of a folder always lands at the same path (fresh contents
+            // each run). If that path is busy, a one-off copy is used and the session restarts.
+            if agent == .deepseek {
+                let key = DeepSeekHarness.copyKey(member: member, folder: cwd)
+                lock.lock()
+                if !stableCopies.contains(key) { stableCopies.insert(key); claimed = key }
+                lock.unlock()
+            }
             let temporary = FileManager.default.temporaryDirectory
-                .appendingPathComponent("airoom-readonly-\(UUID().uuidString)", isDirectory: true)
-            let copy = try WorkspaceStaging(storage: temporary)
+                .appendingPathComponent(claimed.map { "airoom-readonly-dsh-\($0)" } ?? "airoom-readonly-\(UUID().uuidString)", isDirectory: true)
+            if claimed != nil { try? FileManager.default.removeItem(at: temporary) }
             scratch = temporary
-            do { actualCWD = try copy.prepare(id: UUID(), source: cwd) }
-            catch { try? FileManager.default.removeItem(at: temporary); throw error }
+            do {
+                let copy = try WorkspaceStaging(storage: temporary)
+                actualCWD = try copy.prepare(id: claimed == nil ? UUID() : DeepSeekHarness.stableCopyID, source: cwd)
+            } catch {
+                try? FileManager.default.removeItem(at: temporary)
+                if let claimed { lock.lock(); stableCopies.remove(claimed); lock.unlock() }
+                throw error
+            }
         }
-        defer { if let scratch { try? FileManager.default.removeItem(at: scratch) } }
+        defer {
+            if let scratch { try? FileManager.default.removeItem(at: scratch) }
+            if let claimed { lock.lock(); stableCopies.remove(claimed); lock.unlock() }
+        }
+        // DSH reads its model and credential settings from a per-run overlay file.
+        var patch: URL?
+        if agent == .deepseek {
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent("airoom-dsh-\(UUID().uuidString).yml")
+            try Data(DeepSeekHarness.patch(model: options.model).utf8).write(to: file, options: .atomic)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+            patch = file
+        }
+        defer { if let patch { try? FileManager.default.removeItem(at: patch) } }
         process.executableURL = binary
-        process.arguments = CommandPlan.arguments(for: agent, access: access, options: options)
+        process.arguments = CommandPlan.arguments(for: agent, access: access, options: options, patch: patch?.path)
         let input = options.attachments.isEmpty ? Data(prompt.utf8)
             : try ClaudeStreamInput.userMessage(prompt: prompt, attachments: options.attachments)
         process.currentDirectoryURL = actualCWD
-        let environment = PrivacyGuard.cliEnvironment(
+        var environment = PrivacyGuard.cliEnvironment(
             from: ProcessInfo.processInfo.environment, executable: binary)
+        if agent == .deepseek { environment = DeepSeekHarness.environment(base: environment, access: access) }
         process.environment = environment
         let stdout = Pipe(), stderr = Pipe(), stdin = Pipe()
         process.standardInput = stdin
@@ -217,7 +251,8 @@ public final class CLIProcessRunner {
         if process.terminationStatus != 0 || parser.failure != nil {
             let stderrText = String(decoding: errorOutput.snapshot(), as: UTF8.self)
             if options.session?.resumeID != nil
-                && (stderrText.contains("No conversation found") || parser.endedBeforeModel && parser.text.isEmpty) {
+                && (stderrText.contains("No conversation found") || parser.endedBeforeModel && parser.text.isEmpty
+                    || agent == .deepseek && parser.sessionID == nil && DeepSeekHarness.isUnknownSession(stderrText)) {
                 throw SessionUnavailable()
             }
             let message = parser.failure ?? stderrText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -226,7 +261,8 @@ public final class CLIProcessRunner {
         if parser.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw NativeCLIError.noResponse(agent.rawValue)
         }
-        return CLIRunResult(text: PrivacyGuard.redact(parser.text), model: parser.model, sessionID: parser.sessionID)
+        let model = parser.model ?? (agent == .deepseek ? (options.model.isEmpty ? DeepSeekHarness.defaultModel : options.model) : nil)
+        return CLIRunResult(text: PrivacyGuard.redact(parser.text), model: model, sessionID: parser.sessionID)
     }
 
     public func codexModels(settings: NativeSettings) async throws -> [ModelChoice] {

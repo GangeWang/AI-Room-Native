@@ -11,7 +11,7 @@
 到 [Releases](https://github.com/GangeWang/AIROOMNative/releases/latest) 下載 `AIROOMNative-<版本>.dmg`，打開後把 AIROOM Native 拖到「應用程式」。
 
 - **需求**：Apple Silicon（M 系列）Mac、macOS 14 以上。
-- **成員程式**：至少登入一個官方 CLI。Claude 會優先使用 Claude Desktop「Code」分頁附帶的 Claude Code；Codex 會優先使用 ChatGPT App 附帶的 Codex。都找不到時才找系統 PATH。
+- **成員程式**：至少登入一個官方 CLI（Claude Code、Codex），或在 DeepSeek Harness 裡存好 API 金鑰。Claude 會優先使用 Claude Desktop「Code」分頁附帶的 Claude Code；Codex 會優先使用 ChatGPT App 附帶的 Codex。都找不到時才找系統 PATH。
 - **未經 Apple 公證**：App 有簽章但沒有公證，第一次開啟會被 macOS 擋下，請到「系統設定 → 隱私權與安全性」按「強制打開」。
 
 ## 能做什麼
@@ -38,7 +38,7 @@
 ## 和原版的差別
 
 - **macOS 原生**：SwiftUI／AppKit，沒有 Electron 或 Node.js；只支援 Apple Silicon。原版是 Windows 的 Electron 程式。
-- **執行端只有 Claude Code 和 Codex**：原版還支援 DeepSeek、Qwen、Kimi、GLM 等執行端，這裡暫未支援；DS、Gemini、Kimi、GLM 形象目前由 Claude Code 或 Codex 代跑。
+- **執行端有 Claude Code、Codex、DeepSeek Harness**：原版另外支援的 Qwen、Kimi、GLM 等執行端暫未支援；Gemini、Kimi、GLM 形象目前由上述程式代跑。
 - **沒有自動更新、未經公證**：更新請到 Releases 下載新版 DMG。
 - **加密方式不同**：資料以這台 Mac 鑰匙圈裡的金鑰加密，備份無法直接拿到另一台 Mac 還原。
 

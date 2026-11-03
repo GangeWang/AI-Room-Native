@@ -5,9 +5,12 @@ import Foundation
 public enum DesktopAppHandoff {
     public enum LinkError: Error, LocalizedError {
         case invalidDirectory(String)
+        case noSessionLink(String)
 
         public var errorDescription: String? {
             switch self {
+            case .noSessionLink(let name):
+                return "\(name) 沒有開新工作階段的連結，請直接打開它的 App。"
             case .invalidDirectory(let path):
                 return "請先選取存在的本機工作資料夾：\(path) / Choose an existing local folder."
             }
@@ -18,6 +21,7 @@ public enum DesktopAppHandoff {
     /// ever added to these URLs. Workspace handoff only happens after the user
     /// explicitly chooses a folder and presses the corresponding button.
     public static func newCodeSession(agent: Executor, selectedWorkspace: String = "") throws -> URL {
+        guard agent != .deepseek else { throw LinkError.noSessionLink(agent.rawValue) }
         let destination = agent == .codex ? "codex://threads/new" : "claude://code/new"
         guard var components = URLComponents(string: destination) else {
             preconditionFailure("Invalid hardcoded official application URL")
@@ -55,6 +59,9 @@ public enum OfficialCLIProbe {
         let executable: URL
         do { executable = try CommandPlan.resolveExecutable(agent: agent, settings: settings, environment: environment, home: home) }
         catch { return .missingExecutable }
+        // DSH has no status command: its key is saved by the DeepSeek Harness app.
+        // Only the credential file's presence is checked, never its contents.
+        if agent == .deepseek { return DeepSeekHarness.hasSavedCredentials(home: home) ? .authenticated : .notLoggedIn }
         let child = Process()
         child.executableURL = executable
         child.arguments = agent == .codex ? ["login", "status"] : ["auth", "status"]

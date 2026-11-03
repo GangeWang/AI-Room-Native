@@ -78,7 +78,13 @@ extension MemberID {
 
 extension Executor {
     /// "Claude" / "Codex", for labels that name the program.
-    var shortName: String { self == .claude ? "Claude" : "Codex" }
+    var shortName: String {
+        switch self {
+        case .claude: return "Claude"
+        case .codex: return "Codex"
+        case .deepseek: return "DeepSeek"
+        }
+    }
 }
 
 struct StudioPanel<Content: View>: View {

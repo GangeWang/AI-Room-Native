@@ -49,6 +49,7 @@ macos/
 | --- | --- |
 | `CLIProcessRunner.swift`、`CodexAppServer.swift`、`CLIEvents.swift` | 執行 Claude Code（stream-json、`--resume` 延續對話）與 Codex App Server（JSON-RPC、`thread/resume`） |
 | `DesktopApps.swift` | 找 Claude Desktop 和 ChatGPT App 附帶的 CLI，找不到才找 PATH |
+| `DeepSeekHarness.swift` | DeepSeek Harness：用 `dsh --profile headless --json` 執行，啟動時的設定覆蓋、模型、沙箱模式 |
 | `MemberDesk.swift`、`DeskWorkspace.swift`、`WorkspaceStaging.swift` | 成員工位、話題、工作資料夾、副本與寫回 |
 | `Lounge.swift` | 茶歇室接話、點名、舉手、會議與直播 |
 | `Roundtable.swift` | 圓桌：各自準備、互評、問題清單、審議、結論 |

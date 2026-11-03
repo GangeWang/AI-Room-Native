@@ -8,11 +8,12 @@ public struct CLIEventAccumulator {
     public private(set) var failure: String?
     /// Model reported by the CLI itself (Claude's `system/init` event).
     public private(set) var model: String?
-    /// Claude's session ID for this run (continue it with --resume).
+    /// The session this run belongs to (Claude --resume, DSH --session-id).
     public private(set) var sessionID: String?
     /// The run ended in error without a single model turn (e.g. a missing session).
     public private(set) var endedBeforeModel = false
     private var claudeDeltas = ""
+    private var streamed = ""
 
     public init(agent: Executor) { self.agent = agent }
 
@@ -22,6 +23,29 @@ public struct CLIEventAccumulator {
               let type = value["type"] as? String else { return nil }
 
         switch agent {
+        case .deepseek:
+            // dsh headless --json: session, status, thinking, text, tool_call, tool_result, final.
+            switch type {
+            case "session":
+                if let id = value["sessionId"] as? String, !id.isEmpty { sessionID = id }
+            case "text":
+                if let part = value["text"] as? String, !part.isEmpty {
+                    streamed += part
+                    text = streamed
+                    return text
+                }
+            case "final":
+                if let final = value["text"] as? String, !final.isEmpty { text = final; return text }
+            case "error":
+                failure = (value["message"] as? String) ?? "DeepSeek Harness 執行失敗"
+            case "status":
+                if value["phase"] as? String == "turn_end",
+                   let reason = value["reason"] as? [String: Any], let kind = reason["kind"] as? String, kind != "completed" {
+                    let message = (reason["error"] as? [String: Any])?["message"] as? String
+                    failure = message ?? "DeepSeek Harness 沒有完成這一輪（\(kind)）"
+                }
+            default: break
+            }
         case .codex:
             if ["item.completed", "item.updated"].contains(type),
                let item = value["item"] as? [String: Any],

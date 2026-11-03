@@ -535,7 +535,8 @@ final class SharedRoomContextTests: XCTestCase {
 
     func testDesktopAppLinksContainNoConversationOrToken() throws {
         let folder = FileManager.default.temporaryDirectory
-        for agent in Executor.allCases {
+        XCTAssertThrowsError(try DesktopAppHandoff.newCodeSession(agent: .deepseek), "DeepSeek Harness has no session link")
+        for agent in [Executor.claude, .codex] {
             let link = try DesktopAppHandoff.newCodeSession(agent: agent, selectedWorkspace: folder.path)
             XCTAssertTrue(["codex", "claude"].contains(link.scheme ?? ""))
             XCTAssertFalse(link.absoluteString.contains("transcript"))

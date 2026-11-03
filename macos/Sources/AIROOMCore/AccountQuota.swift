@@ -159,6 +159,8 @@ public final class AccountQuotaReader {
     }
 
     private func queryBlocking(agent: Executor, settings: NativeSettings, timeout: TimeInterval) throws -> [QuotaWindow] {
+        // DeepSeek's API is pay-as-you-go: there is no 5-hour or weekly window to ask about.
+        guard agent != .deepseek else { return [] }
         let binary = try CommandPlan.resolveExecutable(agent: agent, settings: settings)
         let task = Process()
         task.executableURL = binary

@@ -334,6 +334,8 @@ private struct MemoryImportSheet: View {
             Text(agent.executor == .codex
                  ? t("只讀取 ~/.codex/memories/memory_summary.md 中關於你的段落（使用者畫像、偏好）。",
                      "Only the sections about you in ~/.codex/memories/memory_summary.md are read.")
+                 : agent.executor == .deepseek
+                 ? t("DeepSeek Harness 沒有可以匯入的記憶檔。", "DeepSeek Harness has no memory files to import.")
                  : t("只讀取 ~/.claude/projects/*/memory/ 裡的記憶檔，不讀登入資料或對話紀錄。",
                      "Only memory files in ~/.claude/projects/*/memory/ are read — never credentials or transcripts."))
                 .font(.caption).foregroundStyle(.secondary)
@@ -718,7 +720,7 @@ struct MemberExecutorPicker: View {
             Picker("", selection: Binding(get: { member.executor }, set: { model.setExecutor($0, for: member.agent) })) {
                 ForEach(Executor.allCases) { Text($0.rawValue).tag($0) }
             }
-            .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 280)
+            .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 440)
             .disabled(!model.storageAvailable || model.busyAgents.contains(member.agent))
             Text(note).font(.caption).foregroundStyle(.secondary)
         }
@@ -741,7 +743,7 @@ struct AddMemberSheet: View {
     @Environment(\.colorScheme) private var scheme
     let added: (MemberID) -> Void
     @State private var template: MemberTemplate? = MemberTemplate.named("deepseek")
-    @State private var executor: Executor = .claude
+    @State private var executor: Executor = MemberTemplate.named("deepseek")?.suggestedExecutor ?? .claude
     @State private var name = "DS"
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, model.archive.settings.language) }
 
@@ -762,7 +764,7 @@ struct AddMemberSheet: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(t("使用的程式", "Runs on")).font(.subheadline.weight(.semibold))
                     Picker("", selection: $executor) { ForEach(Executor.allCases) { Text($0.rawValue).tag($0) } }
-                        .pickerStyle(.segmented).labelsHidden().frame(width: 240)
+                        .pickerStyle(.segmented).labelsHidden().frame(width: 380)
                 }
             }
             if let planned = template?.plannedProgram {

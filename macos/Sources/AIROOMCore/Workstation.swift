@@ -185,7 +185,12 @@ public enum LoginScript {
     /// command; AIROOM never sees or stores what the user types.
     public static func contents(agent: Executor, executable: URL) -> String {
         let quoted = "'" + executable.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        let command = agent == .claude ? "\(quoted) auth login" : "\(quoted) login"
+        let command: String
+        switch agent {
+        case .claude: command = "\(quoted) auth login"
+        case .codex: command = "\(quoted) login"
+        case .deepseek: command = "open -a 'DeepSeek Harness'; echo '請在 DeepSeek Harness 的設定裡填好 API 金鑰。'"
+        }
         return """
         #!/bin/zsh
         echo "AIROOM：用官方程式登入 \(agent.rawValue)"

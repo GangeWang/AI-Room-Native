@@ -10,6 +10,15 @@ extension WorkbenchModel {
     func openVendorDesktop(for member: MemberID) { openVendorDesktop(executor: executor(of: member)) }
 
     func openVendorDesktop(executor agent: Executor) {
+        // DeepSeek Harness has no new-session link: just bring its app forward.
+        if agent == .deepseek {
+            let app = CommandPlan.bundledDeepSeekPaths().map { URL(fileURLWithPath: $0) }
+                .first { FileManager.default.fileExists(atPath: $0.path) }?
+                .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+                .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            if let app { NSWorkspace.shared.open(app) } else { statusMessage = archive.settings.language == .english ? "DeepSeek Harness.app was not found." : "找不到 DeepSeek Harness.app。" }
+            return
+        }
         do {
             let url = try DesktopAppHandoff.newCodeSession(
                 agent: agent,
