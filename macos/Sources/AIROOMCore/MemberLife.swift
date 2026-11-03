@@ -170,6 +170,8 @@ public enum MemberLife {
     /// Memory and life settings as persona lines. Empty when the card has none.
     public static func profile(_ member: MemberCard, team: [MemberCard], ownerName: String) -> String {
         var parts: [String] = []
+        let title = member.userTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty { parts.append("【稱呼】稱呼\(ownerName)為「\(title)」。") }
         let memory = member.memories.filter { !$0.off }.map { "- \($0.text)" }
         if !memory.isEmpty {
             parts.append("【長期記憶】\(ownerName)希望你記得的事（只用這些，不要編造沒寫的經歷）：\n" + memory.joined(separator: "\n"))
@@ -317,6 +319,29 @@ public enum MemberLife {
         \(turn)
         沒有紀錄的經歷或工作不要編造。不要使用工具、讀寫檔案、執行命令或上網。直接輸出要說的話。
         """
+    }
+}
+
+// MARK: Importing a persona a desktop client already keeps
+
+/// A CLI's own instruction file, read only when the owner asks to use it as a persona.
+public struct PersonaFile: Identifiable, Equatable, Sendable {
+    public var id: String { path }
+    public var path: String
+    public var text: String
+    public var truncated: Bool
+
+    /// Codex keeps ~/.codex/AGENTS.md; Claude Code keeps ~/.claude/CLAUDE.md.
+    public static func location(for agent: AgentKind, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        agent == .claude ? home.appendingPathComponent(".claude/CLAUDE.md") : home.appendingPathComponent(".codex/AGENTS.md")
+    }
+
+    public static func read(for agent: AgentKind, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> PersonaFile? {
+        let url = location(for: agent, home: home)
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe), data.count <= 1_048_576 else { return nil }
+        let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        return PersonaFile(path: url.path, text: String(text.prefix(MemberCard.personaLimit)), truncated: text.count > MemberCard.personaLimit)
     }
 }
 

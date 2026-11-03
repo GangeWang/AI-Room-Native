@@ -37,7 +37,7 @@ struct StudioDashboard: View {
                 .padding(.top, 4)
 
                 HStack(alignment: .top, spacing: 15) {
-                    ForEach(AgentKind.allCases) { agent in
+                    ForEach(model.visibleAgents) { agent in
                         let card = model.archive.members.first(where: { $0.agent == agent })
                         VStack(alignment: .leading, spacing: 0) {
                             ZStack {
@@ -61,6 +61,9 @@ struct StudioDashboard: View {
                                      ? t("正在工作", "Working")
                                      : (card?.enabled == false ? t("尚未啟用", "Disabled") : t("準備就緒時可以接收訊息", "Available for new tasks")))
                                     .font(.caption).foregroundStyle(.secondary)
+                                if let motto = card?.motto, !motto.isEmpty {
+                                    Text("「\(motto)」").font(.caption).italic().foregroundStyle(.secondary).lineLimit(2)
+                                }
                                 HStack {
                                     Button(t("人物卡", "Profile")) { onMemberCard(agent) }
                                     Spacer()

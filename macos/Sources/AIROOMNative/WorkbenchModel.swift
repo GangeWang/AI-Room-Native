@@ -4,7 +4,9 @@ import AIROOMCore
 
 @MainActor
 final class WorkbenchModel: ObservableObject {
-    @Published var archive = SavedState()
+    @Published var archive = SavedState() {
+        didSet { if archive.members != oldValue.members { applyMemberSettings() } }
+    }
     @Published var storageAvailable = true
     @Published var officialCLIStatuses: [AgentKind: OfficialCLIStatus] = [:]
     @Published var accountQuotas: [AgentKind: AccountQuota] = [:]
@@ -66,6 +68,8 @@ final class WorkbenchModel: ObservableObject {
     private var cancelRoomQueue = false
     private var cancelRoundtableQueue = false
     private var pendingProjectID: UUID?
+    /// Decrypted member portraits and avatars, by attachment id.
+    private var memberImages: [UUID: NSImage] = [:]
     private let workspace: URL
     private var liveRunID: UUID?
     private var liveStopRequested = false
@@ -101,6 +105,7 @@ final class WorkbenchModel: ObservableObject {
         switch result {
         case .success(let loaded):
             archive = loaded
+            applyMemberSettings()
             storageAvailable = true
         case .failure(let error):
             // Never overwrite encrypted history with an empty default state.
@@ -580,8 +585,50 @@ final class WorkbenchModel: ObservableObject {
 
     func updateMember(_ member: MemberCard) {
         guard let idx = archive.members.firstIndex(where: { $0.id == member.id }) else { return }
-        archive.members[idx] = member
+        archive.members[idx] = member.normalized()
         persist()
+    }
+
+    /// Member defaults reach every CLI call; chosen colors reach every view.
+    private func applyMemberSettings() {
+        for member in archive.members {
+            runner.setDefaults(member.agent, model: member.defaultModel, effort: member.defaultEffort)
+            MemberColors.chosen[member.agent] = Color(hex: member.color)
+        }
+    }
+
+    /// Back to the built-in card: persona, memories, life, pictures and defaults are cleared.
+    func resetMember(_ agent: AgentKind) {
+        guard storageAvailable, let index = memberIndex(agent) else { return }
+        let old = archive.members[index]
+        archive.members[index] = MemberCard(id: old.id, agent: agent, enabled: old.enabled)
+        persist()
+    }
+
+    /// Copies a picked picture into the encrypted store for a member's portrait or avatar.
+    func storeMemberImage(_ url: URL) -> ChatAttachment? {
+        guard let persistence else { return nil }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url), data.count <= 8 * 1_048_576 else {
+            statusMessage = t("圖片需在 8 MB 以內。"); return nil
+        }
+        guard let type = GeneratedImages.imageType(data), NSImage(data: data) != nil else {
+            statusMessage = t("只支援 PNG、JPG 或 WebP 圖片。"); return nil
+        }
+        let attachment = ChatAttachment(fileName: url.lastPathComponent, kind: .image, mediaType: type.mediaType, byteCount: data.count)
+        do { try persistence.storeAttachment(data, id: attachment.id) }
+        catch { statusMessage = error.localizedDescription; return nil }
+        return attachment
+    }
+
+    /// A member's uploaded picture, decrypted once.
+    func memberImage(_ attachment: ChatAttachment?) -> NSImage? {
+        guard let attachment else { return nil }
+        if let cached = memberImages[attachment.id] { return cached }
+        guard let data = try? persistence?.loadAttachment(id: attachment.id), let image = NSImage(data: data) else { return nil }
+        memberImages[attachment.id] = image
+        return image
     }
 
     private var activeRoomIndex: Int? {

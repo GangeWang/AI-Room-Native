@@ -312,14 +312,23 @@ struct ChatView: View {
     private var modelPickers: some View {
         let choices = model.modelChoices(for: agent)
         let current = topic?.model ?? ""
+        // An empty choice inherits the member card's default, then the CLI's.
+        let card = model.card(agent)
+        let inherited = card?.defaultModel ?? ""
+        let effective = current.isEmpty ? inherited : current
         // Efforts follow the chosen model (or the CLI default); some models report none.
-        let selected = current.isEmpty ? choices.first(where: \.isDefault) : choices.first(where: { $0.id == current })
+        let selected = effective.isEmpty ? choices.first(where: \.isDefault) : choices.first(where: { $0.id == effective })
         let efforts = selected?.efforts ?? (agent == .claude ? ModelCatalog.claudeEfforts : [])
+        let inheritedEffort = current.isEmpty ? card?.defaultEffort ?? "" : ""
         return HStack(spacing: 6) {
             Picker(t("模型", "Model"), selection: Binding(get: { current },
                                                           set: { model.setTopicModel(agent, model: $0) })) {
-                Text(t("預設模型", "Default model")
-                     + (choices.first(where: \.isDefault).map { "（\($0.title)）" } ?? "")).tag("")
+                if inherited.isEmpty {
+                    Text(t("預設模型", "Default model")
+                         + (choices.first(where: \.isDefault).map { "（\($0.title)）" } ?? "")).tag("")
+                } else {
+                    Text(t("成員預設", "Member default") + "（\(choices.first(where: { $0.id == inherited })?.title ?? inherited)）").tag("")
+                }
                 ForEach(choices) { choice in Text(choice.title).tag(choice.id) }
                 if !current.isEmpty && !choices.contains(where: { $0.id == current }) { Text(current).tag(current) }
             }
@@ -332,7 +341,7 @@ struct ChatView: View {
             .help(t("重新向官方 CLI 讀取模型清單（CLI 更新後會出現新模型）", "Reload the model list from the official CLI (new models appear after a CLI update)"))
             Picker(t("思考程度", "Effort"), selection: Binding(get: { topic?.effort ?? "" },
                                                             set: { model.setTopicEffort(agent, effort: $0) })) {
-                Text(t("預設思考", "Default effort")).tag("")
+                Text(inheritedEffort.isEmpty ? t("預設思考", "Default effort") : t("成員預設", "Member default") + "（\(inheritedEffort)）").tag("")
                 ForEach(efforts, id: \.self) { Text($0).tag($0) }
             }
             .labelsHidden().frame(width: 115)

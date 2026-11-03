@@ -178,6 +178,19 @@ public struct CLIRunOptions: Sendable {
         self.session = session
         self.imageGeneration = imageGeneration
     }
+
+    /// Fills what the call left open with the member's defaults. When the call picked its own
+    /// model, the member's effort is not added: it may not exist on that model. Image requests
+    /// keep the CLI's defaults so the image tool stays available.
+    public func inheriting(model defaultModel: String, effort defaultEffort: String) -> CLIRunOptions {
+        guard !imageGeneration else { return self }
+        var options = self
+        if model.isEmpty {
+            options.model = ModelCatalog.sanitize(defaultModel)
+            if effort.isEmpty { options.effort = ModelCatalog.sanitize(defaultEffort) }
+        }
+        return options
+    }
 }
 
 public struct CLIRunResult: Sendable {

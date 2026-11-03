@@ -18,6 +18,30 @@ public struct MemberCard: Identifiable, Codable, Equatable, Sendable {
     public var quirks: [String]
     public var relations: [MemberRelation]
     public var talkativeness: Talkativeness
+    /// How this member addresses the owner; empty means the owner's own name.
+    public var userTitle: String
+    /// One line shown on the team cards.
+    public var motto: String
+    /// "#rrggbb"; empty means the built-in color.
+    public var color: String
+    /// Used when a topic or room doesn't choose; empty follows the CLI's own default.
+    public var defaultModel: String
+    public var defaultEffort: String
+    /// Uploaded artwork in the encrypted attachment store; nil means the built-in art.
+    public var portrait: ChatAttachment?
+    /// Display size and shift of the portrait in its frame; the image itself is unchanged.
+    public var portraitScale: Double?
+    public var portraitOffset: PortraitOffset?
+    /// A separate uploaded avatar, and its crop; without one the avatar is cut from the portrait.
+    public var avatar: ChatAttachment?
+    public var avatarImageCrop: PortraitFaceAnchor?
+    /// Presentation only: left off the home page and the sidebar.
+    public var cardHidden: Bool
+
+    public static let userTitleLimit = 40
+    public static let mottoLimit = 80
+    public static let personaLimit = 8_000
+    public static let portraitScaleRange = 0.6...1.6
 
     public init(id: UUID = UUID(), agent: AgentKind, name: String? = nil,
                 persona: String = "", enabled: Bool = true,
@@ -29,10 +53,13 @@ public struct MemberCard: Identifiable, Codable, Equatable, Sendable {
         self.enabled = enabled
         self.avatarCrop = avatarCrop
         memories = []; memoryProposals = []; routine = [:]; quirks = []; relations = []; talkativeness = .normal
+        userTitle = ""; motto = ""; color = ""; defaultModel = ""; defaultEffort = ""
+        portrait = nil; portraitScale = nil; portraitOffset = nil; avatar = nil; avatarImageCrop = nil; cardHidden = false
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, agent, name, persona, enabled, avatarCrop, memories, memoryProposals, routine, quirks, relations, talkativeness
+        case userTitle, motto, color, defaultModel, defaultEffort, portrait, portraitScale, portraitOffset, avatar, avatarImageCrop, cardHidden
     }
 
     /// Old encrypted state files do not have avatarCrop; retain default framing.
@@ -50,6 +77,40 @@ public struct MemberCard: Identifiable, Codable, Equatable, Sendable {
         quirks = (try? values.decodeIfPresent([String].self, forKey: .quirks)) ?? []
         relations = (try? values.decodeIfPresent([MemberRelation].self, forKey: .relations)) ?? []
         talkativeness = (try? values.decodeIfPresent(Talkativeness.self, forKey: .talkativeness)) ?? .normal
+        userTitle = (try? values.decodeIfPresent(String.self, forKey: .userTitle)) ?? ""
+        motto = (try? values.decodeIfPresent(String.self, forKey: .motto)) ?? ""
+        color = (try? values.decodeIfPresent(String.self, forKey: .color)) ?? ""
+        defaultModel = (try? values.decodeIfPresent(String.self, forKey: .defaultModel)) ?? ""
+        defaultEffort = (try? values.decodeIfPresent(String.self, forKey: .defaultEffort)) ?? ""
+        portrait = try? values.decodeIfPresent(ChatAttachment.self, forKey: .portrait)
+        portraitScale = try? values.decodeIfPresent(Double.self, forKey: .portraitScale)
+        portraitOffset = try? values.decodeIfPresent(PortraitOffset.self, forKey: .portraitOffset)
+        avatar = try? values.decodeIfPresent(ChatAttachment.self, forKey: .avatar)
+        avatarImageCrop = try? values.decodeIfPresent(PortraitFaceAnchor.self, forKey: .avatarImageCrop)
+        cardHidden = (try? values.decodeIfPresent(Bool.self, forKey: .cardHidden)) ?? false
+    }
+
+    /// What this member calls the owner.
+    public func address(ownerName: String) -> String {
+        let title = userTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? ownerName : title
+    }
+
+    /// Keeps the card's text and framing within bounds; invalid colors fall back to the default.
+    public func normalized() -> MemberCard {
+        var card = self
+        card.name = String(name.prefix(40))
+        card.persona = String(persona.prefix(Self.personaLimit))
+        card.userTitle = String(userTitle.replacingOccurrences(of: "\n", with: " ").prefix(Self.userTitleLimit))
+        card.motto = String(motto.replacingOccurrences(of: "\n", with: " ").prefix(Self.mottoLimit))
+        if card.color.range(of: #"^#[0-9a-fA-F]{6}$"#, options: .regularExpression) == nil { card.color = "" }
+        card.defaultModel = ModelCatalog.sanitize(defaultModel)
+        card.defaultEffort = ModelCatalog.sanitize(defaultEffort)
+        if let scale = portraitScale {
+            card.portraitScale = scale.isFinite ? min(max(scale, Self.portraitScaleRange.lowerBound), Self.portraitScaleRange.upperBound) : nil
+        }
+        card.portraitOffset = portraitOffset?.clamped
+        return card
     }
 
     /// Memory and life settings as persona lines (see MemberLife.profile).
@@ -58,6 +119,16 @@ public struct MemberCard: Identifiable, Codable, Equatable, Sendable {
     }
 
     public static var defaults: [MemberCard] { AgentKind.allCases.map { MemberCard(agent: $0) } }
+}
+
+/// Portrait shift from its default framing, as fractions of the frame's width and height.
+public struct PortraitOffset: Codable, Equatable, Sendable {
+    public var x: Double
+    public var y: Double
+    public init(x: Double, y: Double) { self.x = x; self.y = y }
+    public var clamped: PortraitOffset {
+        PortraitOffset(x: x.isFinite ? min(max(x, -1), 1) : 0, y: y.isFinite ? min(max(y, -1), 1) : 0)
+    }
 }
 
 public enum Speaker: String, Codable, Sendable { case user, assistant, system }

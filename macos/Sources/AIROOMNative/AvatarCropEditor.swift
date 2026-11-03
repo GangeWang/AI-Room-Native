@@ -10,6 +10,8 @@ struct AvatarCropEditor: View {
     @Environment(\.colorScheme) private var colorScheme
 
     let agent: AgentKind
+    let source: AvatarSource
+    /// The new crop, nil for the default; saved to the uploaded avatar or the portrait, as `source` says.
     let onSave: (PortraitFaceAnchor?) -> Void
 
     @State private var draft: PortraitFaceAnchor
@@ -17,22 +19,18 @@ struct AvatarCropEditor: View {
 
     private let previewSize: CGFloat = 230
 
-    init(agent: AgentKind, initialAnchor: PortraitFaceAnchor?,
-         onSave: @escaping (PortraitFaceAnchor?) -> Void) {
+    init(agent: AgentKind, source: AvatarSource, onSave: @escaping (PortraitFaceAnchor?) -> Void) {
         self.agent = agent
+        self.source = source
         self.onSave = onSave
-        _draft = State(initialValue: initialAnchor ?? agent.portraitFaceAnchor)
+        _draft = State(initialValue: source.fitted(source.anchor))
     }
 
     private var language: InterfaceLanguage { model.archive.settings.language }
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, language) }
-    private var artwork: NSImage? { StudioAsset.image(StudioAsset.portrait(for: agent)) }
+    private var artwork: NSImage? { source.image }
 
-    private func restrict(_ candidate: PortraitFaceAnchor) -> PortraitFaceAnchor {
-        guard let art = artwork else { return candidate }
-        return candidate.constrained(sourceWidth: Double(art.size.width),
-                                     sourceHeight: Double(art.size.height))
-    }
+    private func restrict(_ candidate: PortraitFaceAnchor) -> PortraitFaceAnchor { source.fitted(candidate) }
 
     private func change(x: Double? = nil, y: Double? = nil, zoom: Double? = nil) {
         draft = restrict(PortraitFaceAnchor(x: x ?? draft.x,
@@ -46,13 +44,15 @@ struct AvatarCropEditor: View {
                 guard let art = artwork else { return }
                 let origin = startOfDrag ?? draft
                 if startOfDrag == nil { startOfDrag = origin }
-                draft = origin.translated(
+                // Move first, then fit to this picture's own zoom range.
+                let moved = origin.translated(
                     dragX: Double(value.translation.width),
                     dragY: Double(value.translation.height),
                     diameter: Double(previewSize),
                     sourceWidth: Double(art.size.width),
                     sourceHeight: Double(art.size.height)
                 )
+                draft = restrict(PortraitFaceAnchor(x: moved.x, y: moved.y, zoom: origin.zoom))
             }
             .onEnded { _ in startOfDrag = nil }
     }
@@ -100,7 +100,7 @@ struct AvatarCropEditor: View {
                             Text(String(format: "%.1f×", draft.zoom)).monospacedDigit()
                         }
                         Slider(value: Binding(get: { draft.zoom },
-                                              set: { change(zoom: $0) }), in: 2.5...7, step: 0.1)
+                                              set: { change(zoom: $0) }), in: source.zoomRange, step: 0.1)
                             .tint(agent.studioColor)
                     }
                     VStack(alignment: .leading, spacing: 7) {
@@ -134,14 +134,14 @@ struct AvatarCropEditor: View {
             Divider()
             HStack {
                 Button(t("恢復預設位置", "Reset to Default")) {
-                    draft = agent.portraitFaceAnchor
+                    draft = source.fitted(source.defaultAnchor)
                     startOfDrag = nil
                 }
                 .disabled(artwork == nil)
                 Spacer()
                 Button(t("取消", "Cancel")) { dismiss() }
                 Button(t("儲存", "Save")) {
-                    onSave(draft == agent.portraitFaceAnchor ? nil : draft)
+                    onSave(draft == source.fitted(source.defaultAnchor) ? nil : draft)
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)

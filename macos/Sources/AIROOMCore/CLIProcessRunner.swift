@@ -26,7 +26,19 @@ public final class CLIProcessRunner {
     /// unknown for every request. Called from background threads.
     public var observer: (@Sendable (AgentKind, CallEvent) -> Void)?
 
+    /// Each member's default model and effort, used where a call doesn't choose.
+    private var memberDefaults: [AgentKind: (model: String, effort: String)] = [:]
+
     public init() {}
+
+    public func setDefaults(_ agent: AgentKind, model: String, effort: String) {
+        lock.lock(); memberDefaults[agent] = (model, effort); lock.unlock()
+    }
+
+    private func defaults(for agent: AgentKind) -> (model: String, effort: String) {
+        lock.lock(); defer { lock.unlock() }
+        return memberDefaults[agent] ?? ("", "")
+    }
 
     public func run(
         id: UUID = UUID(), agent: AgentKind, prompt: String, settings: NativeSettings,
@@ -47,6 +59,8 @@ public final class CLIProcessRunner {
             throw NativeCLIError.invalidPrompt
         }
         try PrivacyGuard.validatePrompt(prompt)
+        let member = defaults(for: agent)
+        let options = options.inheriting(model: member.model, effort: member.effort)
         do {
             return try await runObserved(id: id, agent: agent, prompt: prompt, settings: settings,
                                          fallbackWorkspace: fallbackWorkspace, access: access, options: options, onUpdate: onUpdate)

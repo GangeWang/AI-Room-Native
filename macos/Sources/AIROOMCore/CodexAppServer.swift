@@ -287,8 +287,10 @@ public final class CodexAppServerRunner {
                     } else if wire.reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         throw NativeCLIError.noResponse("Codex App Server")
                     }
-                    return CLIRunResult(text: PrivacyGuard.redact(wire.reply), model: wire.model, sessionID: wire.threadID,
-                                        images: wire.images)
+                    // thread/start reports the thread's default; a model passed to turn/start replaces it
+                    // and Codex sends no notice of that, so the requested model is the one that ran.
+                    return CLIRunResult(text: PrivacyGuard.redact(wire.reply), model: options.model.isEmpty ? wire.model : options.model,
+                                        sessionID: wire.threadID, images: wire.images)
                 }
                 if wire.stage == .startThread && !sentThread {
                     sentThread = true

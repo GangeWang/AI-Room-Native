@@ -102,7 +102,7 @@ struct ContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
                     groupHeading(t("團隊", "TEAM"), action: { route = .members }, icon: "person.crop.rectangle.stack")
-                    ForEach(AgentKind.allCases) { agent in
+                    ForEach(model.visibleAgents) { agent in
                         let member = model.archive.members.first(where: { $0.agent == agent })
                         HStack(spacing: 0) {
                             Button { memberSheet = agent } label: {

@@ -31,13 +31,23 @@ enum StudioAsset {
 }
 
 struct StudioPortrait: View {
+    @EnvironmentObject private var model: WorkbenchModel
     let agent: AgentKind
+    /// The editor's framing while a slider is being dragged.
+    var preview: (scale: Double, offset: PortraitOffset)? = nil
     var body: some View {
+        let card = model.card(agent)
+        let scale = preview?.scale ?? card?.portraitScale ?? 1
+        let offset = preview?.offset ?? card?.portraitOffset ?? PortraitOffset(x: 0, y: 0)
         GeometryReader { geo in
-            if let art = StudioAsset.image(StudioAsset.portrait(for: agent)) {
+            if let art = model.portraitImage(agent) {
                 Image(nsImage: art)
                     .resizable().scaledToFit()
                     .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+                    .scaleEffect(scale, anchor: .top)
+                    .offset(x: geo.size.width * offset.x, y: geo.size.height * offset.y)
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
                     .accessibilityLabel(agent.rawValue)
             } else {
                 Image(systemName: agent == .claude ? "sparkles" : "curlybraces")

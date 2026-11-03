@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import AIROOMCore
 
 // Native reconstruction of AIROOM's warm paper / lamplight design system.
@@ -35,8 +36,29 @@ enum StudioI18n {
     }
 }
 
+/// Colors chosen on member cards; kept current by WorkbenchModel.
+enum MemberColors {
+    nonisolated(unsafe) static var chosen: [AgentKind: Color] = [:]
+}
+
+extension Color {
+    /// "#rrggbb"; nil for anything else.
+    init?(hex: String) {
+        guard hex.range(of: #"^#[0-9a-fA-F]{6}$"#, options: .regularExpression) != nil,
+              let value = UInt32(hex.dropFirst(), radix: 16) else { return nil }
+        self.init(red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
+    }
+
+    var hexString: String? {
+        guard let rgb = NSColor(self).usingColorSpace(.sRGB) else { return nil }
+        let part = { (v: CGFloat) in Int((min(max(v, 0), 1) * 255).rounded()) }
+        return String(format: "#%02x%02x%02x", part(rgb.redComponent), part(rgb.greenComponent), part(rgb.blueComponent))
+    }
+}
+
 extension AgentKind {
-    var studioColor: Color { self == .claude ? StudioTheme.orange : StudioTheme.violet }
+    var studioColor: Color { MemberColors.chosen[self] ?? builtInColor }
+    var builtInColor: Color { self == .claude ? StudioTheme.orange : StudioTheme.violet }
     var shortName: String { self == .claude ? "Claude" : "Codex" }
 }
 
@@ -83,21 +105,16 @@ struct StudioFaceArtwork: View {
     /// Supplied by the editor for live preview; otherwise read the saved card.
     var previewAnchor: PortraitFaceAnchor? = nil
 
-    private var faceAnchor: PortraitFaceAnchor {
-        previewAnchor ?? model.archive.members.first(where: { $0.agent == agent })?.avatarCrop
-            ?? agent.portraitFaceAnchor
-    }
-
     var body: some View {
         GeometryReader { geometry in
-            if let artwork = StudioAsset.image(StudioAsset.portrait(for: agent)),
+            if let source = model.avatarSource(agent),
                let crop = PortraitCropLayout.make(
                    diameter: Double(geometry.size.width),
-                   sourceWidth: Double(artwork.size.width),
-                   sourceHeight: Double(artwork.size.height),
-                   anchor: faceAnchor
+                   sourceWidth: Double(source.image.size.width),
+                   sourceHeight: Double(source.image.size.height),
+                   anchor: source.fitted(previewAnchor ?? source.anchor)
                ) {
-                Image(nsImage: artwork)
+                Image(nsImage: source.image)
                     .resizable()
                     .interpolation(.high)
                     .frame(width: CGFloat(crop.imageWidth), height: CGFloat(crop.imageHeight))
@@ -112,6 +129,52 @@ struct StudioFaceArtwork: View {
         .frame(width: size, height: size)
         .clipShape(Circle())
         .accessibilityHidden(true)
+    }
+}
+
+/// What a member's avatar is cut from: an uploaded avatar, else the (uploaded or built-in) portrait.
+struct AvatarSource {
+    let image: NSImage
+    /// The saved crop, or the default for this picture.
+    let anchor: PortraitFaceAnchor
+    let defaultAnchor: PortraitFaceAnchor
+    let zoomRange: ClosedRange<Double>
+    /// Whether the crop belongs to an uploaded avatar (avatarImageCrop) or the portrait (avatarCrop).
+    let isUploadedAvatar: Bool
+
+    func fitted(_ anchor: PortraitFaceAnchor) -> PortraitFaceAnchor {
+        anchor.constrained(sourceWidth: Double(image.size.width), sourceHeight: Double(image.size.height), zoomRange: zoomRange)
+    }
+}
+
+extension WorkbenchModel {
+    func card(_ agent: AgentKind) -> MemberCard? { archive.members.first { $0.agent == agent } }
+
+    /// Members whose card shows on the home page and in the sidebar.
+    var visibleAgents: [AgentKind] { AgentKind.allCases.filter { card($0)?.cardHidden != true } }
+
+    /// The uploaded portrait, else the built-in art.
+    func portraitImage(_ agent: AgentKind) -> NSImage? {
+        memberImage(card(agent)?.portrait) ?? StudioAsset.image(StudioAsset.portrait(for: agent))
+    }
+
+    func avatarSource(_ agent: AgentKind) -> AvatarSource? {
+        let card = card(agent)
+        if let image = memberImage(card?.avatar), image.size.width > 0, image.size.height > 0 {
+            // An uploaded avatar always covers the circle.
+            let cover = max(1, Double(image.size.width / image.size.height))
+            let fallback = PortraitFaceAnchor(x: 0.5, y: 0.5, zoom: cover)
+            return AvatarSource(image: image, anchor: card?.avatarImageCrop ?? fallback, defaultAnchor: fallback,
+                                zoomRange: cover...max(cover, 8), isUploadedAvatar: true)
+        }
+        if let image = memberImage(card?.portrait) {
+            let fallback = PortraitFaceAnchor(x: 0.5, y: 0.15, zoom: 3)
+            return AvatarSource(image: image, anchor: card?.avatarCrop ?? fallback, defaultAnchor: fallback,
+                                zoomRange: 1...8, isUploadedAvatar: false)
+        }
+        guard let image = StudioAsset.image(StudioAsset.portrait(for: agent)) else { return nil }
+        return AvatarSource(image: image, anchor: card?.avatarCrop ?? agent.portraitFaceAnchor, defaultAnchor: agent.portraitFaceAnchor,
+                            zoomRange: 2.5...7, isUploadedAvatar: false)
     }
 }
 

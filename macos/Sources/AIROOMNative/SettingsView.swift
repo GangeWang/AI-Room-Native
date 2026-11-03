@@ -30,15 +30,29 @@ struct SettingsView: View {
                     title: t("設定與連接", "Settings & Connections"),
                     subtitle: t("官方執行端、本機資料與介面偏好。", "Official CLI connections, local data and display preferences."))
                 StudioPanel {
-                    HStack {
-                        Label(t("成員怎麼稱呼你", "What members call you"), systemImage: "person.text.rectangle")
-                            .font(.subheadline.weight(.medium))
-                        Spacer()
-                        TextField(t("例如：老大、小明（留空則稱「使用者」）", "e.g. Alex (blank = \"the user\")"), text: Binding(
-                            get: { model.archive.settings.userName },
-                            set: { value in model.updateSettings { $0.userName = String(value.prefix(40)) } }
-                        ))
-                        .textFieldStyle(.roundedBorder).frame(width: 265)
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack {
+                            Label(t("成員怎麼稱呼你", "What members call you"), systemImage: "person.text.rectangle")
+                                .font(.subheadline.weight(.medium))
+                            Spacer()
+                            TextField(t("例如：老大、小明（留空則稱「使用者」）", "e.g. Alex (blank = \"the user\")"), text: Binding(
+                                get: { model.archive.settings.userName },
+                                set: { value in model.updateSettings { $0.userName = String(value.prefix(40)) } }
+                            ))
+                            .textFieldStyle(.roundedBorder).frame(width: 265)
+                        }
+                        // A member card can set its own form of address.
+                        HStack(spacing: 16) {
+                            ForEach(model.archive.members) { member in
+                                HStack(spacing: 6) {
+                                    StudioAvatar(agent: member.agent, size: 22)
+                                    Text("\(member.name)：「\(member.address(ownerName: model.archive.settings.ownerName))」").font(.caption)
+                                }
+                            }
+                            Spacer()
+                            Text(t("單獨的稱呼在人物卡設定", "Set a member's own address on their card")).font(.caption2).foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 6)
                     }
                 }
                 StudioPanel {
