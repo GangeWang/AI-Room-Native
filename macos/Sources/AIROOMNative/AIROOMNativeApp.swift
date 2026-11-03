@@ -35,6 +35,12 @@ struct AIROOMNativeApp: App {
                 Button(LocalizedUI.text("開始新對話", language: workbench.archive.settings.language)) { workbench.resetConversation(for: .claude) }
                     .keyboardShortcut("n", modifiers: .command)
             }
+            // The same 全部中止 as the menu bar icon, reachable while the window is in front.
+            CommandMenu(StudioI18n.t("工作", "Work", workbench.archive.settings.language)) {
+                Button(StudioI18n.t("全部中止", "Stop All", workbench.archive.settings.language)) { workbench.stopAll() }
+                    .keyboardShortcut(".", modifiers: [.command, .shift])
+                    .disabled(!workbench.anythingRunning)
+            }
         }
     }
 }

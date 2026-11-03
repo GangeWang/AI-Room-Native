@@ -743,7 +743,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     var anythingRunning: Bool {
-        !busyAgents.isEmpty || roomRunning || roundtableRunning || roundtableReviewRunning || projectBusy || liveActive
+        !busyAgents.isEmpty || roomRunning || roundtableRunning || roundtableReviewRunning || projectBusy || flowRunning || liveActive
     }
 
     /// 全部中止: stops every member's current work. Nothing is resent.
@@ -752,6 +752,7 @@ final class WorkbenchModel: ObservableObject {
         if roomRunning { stopRoom() }
         if roundtableRunning || roundtableReviewRunning { stopRoundtable() }
         if projectBusy { stopProject() }
+        if flowRunning { stopFlow() }
         if liveActive { stopLiveShow() }
     }
 
