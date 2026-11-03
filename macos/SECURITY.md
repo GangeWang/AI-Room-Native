@@ -20,6 +20,9 @@ using a dedicated standard (non-admin) macOS account for sensitive testing.
   every copied working directory. New secret-looking files in a write-copy cause
   review and writeback to fail closed.
 - Read-only CLI commands use a filtered temporary copy, not the original cwd.
+  A member's own personal folder is the exception: it is edited in place, with
+  a snapshot before every round so the round can be undone. Any other folder is
+  edited in a per-topic copy and written back only on request.
 - Known credential signatures masked in displayed stdout and stderr; no app debug
   file collection.
 - No automatic resend of requests after uncertain outcomes.
@@ -40,8 +43,9 @@ using a dedicated standard (non-admin) macOS account for sensitive testing.
 6. **Encrypted backups are device-bound.** Losing the Keychain key or migrating
    to another Mac may make them unreadable. An authenticated export/recovery
    mechanism has not yet been implemented.
-7. Apple Silicon build/signing/Keychain integration and runtime networking
-   require validation on a real Mac. Linux tests do not validate those paths.
+7. Release DMGs are signed with an Apple Development certificate but **not
+   notarized**; verify a downloaded build against a local build from source if
+   that matters to you.
 
 ## Recommended verification on an Apple Silicon Mac
 
@@ -50,8 +54,7 @@ In an isolated test account, verify: Keychain create/read/lock behavior,
 legacy JSON migration, backup restoration/tampering, working-copy filtering,
 CLI login with allowlisted environment, `lsof -i -n -P` and firewall/network
 captures during use, process descendants after cancellation, and file reads
-outside the chosen work copy. Compare any distributed binary with a trusted
-local build; macOS signing/notarization is not yet part of this source package.
+outside the chosen work copy.
 
 If a CLI cannot operate without a proxy, system OAuth token, SSH agent or
 other inherited environment variable, it may require explicit per-provider
@@ -62,8 +65,9 @@ configuration rather than loosening the global environment filter.
 AIROOM launches its own `codex app-server --listen stdio://` process, using the
 launcher included with the official ChatGPT.app or Codex.app when available.
 It does not attach to desktop App internals or copy authentication secrets.
-Each AIROOM turn uses an ephemeral app-server thread to avoid double-injecting
-shared conversations. Codex tool approvals are declined automatically; the
+A desk topic continues its own Codex thread (`thread/resume`); turns without
+a saved thread use an ephemeral one, so AIROOM's shared transcript is never
+injected twice. Codex tool approvals are declined automatically; the
 user must still review project changes before writing back.
 
 The App Server adapter is *not* a system security boundary. The vendor binary

@@ -30,7 +30,7 @@
 - **排程**：每天、一次或固定間隔的提醒與成員發言；全部暫停、最近觸發紀錄。
 - **用量與額度**：向官方查詢 5 小時與每週剩餘額度，並統計 AIROOM 自己的呼叫次數。
 - **資料與備份**：本機資料以 Keychain 金鑰加密；備份可先預覽內容再恢復。
-- **直播舞台（實驗中）**：macOS 語音朗讀與 VTube Studio 表情、嘴型同步。
+- **直播舞台（實驗中）**：macOS 語音朗讀與 VTube Studio 表情、嘴型同步，設定方式見 [LIVE_STAGE.md](LIVE_STAGE.md)。
 
 逐項和原版的對照見 [FEATURE_PARITY.md](FEATURE_PARITY.md)。
 
@@ -60,12 +60,14 @@ swift test                     # 單元測試
 - `macos/Sources/AIROOMCore`：不依賴介面的核心邏輯（流程、提示詞、加密存檔、CLI 執行），有完整單元測試。
 - `macos/Sources/AIROOMNative`：SwiftUI 介面與 App 狀態。
 
+腳本、簽章與各檔案的用途見 [macos/README.md](macos/README.md)。
+
 ## 隱私與安全
 
 - AIROOM 不讀取、也不保存任何官方 CLI 的登入憑證；登入一律在終端機使用官方流程。
 - 對話、人物卡與設定只存在這台 Mac：`~/Library/Application Support/AIROOMNative`，以鑰匙圈金鑰加密。
 - 你傳給成員的內容會送到對應的服務商（Anthropic、OpenAI）。茶歇室與專案中已完成的發言，會作為共同上下文送給其他成員所屬的服務商。
-- 修改檔案的工作在副本進行，由你確認後才寫回；副本是檢查機制，不是作業系統沙箱，CLI 仍以你的使用者權限執行。
+- 修改檔案的工作在副本進行，由你確認後才寫回；副本是檢查機制，不是作業系統沙箱，CLI 仍以你的使用者權限執行。詳見 [macos/SECURITY.md](macos/SECURITY.md)。
 
 ## 素材與授權
 
