@@ -769,6 +769,12 @@ final class WorkbenchModel: ObservableObject {
     func memberName(_ agent: MemberID) -> String { archive.memberName(agent) }
 
     /// The member's memory and life settings, as sent with their persona.
+    /// Persona plus profile for work steps (reviews, plans, reports).
+    func workPersona(_ agent: MemberID) -> String {
+        guard let card = card(agent) else { return "" }
+        return MemberLife.workPersona(card, profile: memberProfile(agent))
+    }
+
     func memberProfile(_ agent: MemberID) -> String {
         guard let card = archive.members.first(where: { $0.agent == agent }) else { return "" }
         // Several members can run on one program: each must know which one they are.
@@ -1685,7 +1691,7 @@ final class WorkbenchModel: ObservableObject {
                 await withTaskGroup(of: RoundtableSubmission?.self) { group in
                     for agent in topic.members where topic.submissions.contains(where: { $0.agent != agent && $0.succeeded }) {
                         guard let member = archive.members.first(where: { $0.agent == agent }) else { continue }
-                        let prompt = RoundtableFlow.peerReviewPrompt(topic, reviewer: member, names: names)
+                        let prompt = RoundtableFlow.peerReviewPrompt(topic, reviewer: member, names: names, persona: workPersona(agent))
                         group.addTask { @MainActor [self] in
                             cancelRoundtableQueue ? nil : await roundtableCall(id, agent: agent, prompt: prompt, files: [])
                         }
@@ -1709,7 +1715,7 @@ final class WorkbenchModel: ObservableObject {
               let lead = archive.members.first(where: { $0.agent == archive.roundtableTopics[index].lead }) else { return }
         let topic = archive.roundtableTopics[index]
         let result = await roundtableCall(id, agent: topic.lead,
-            prompt: RoundtableFlow.findingsPrompt(topic, lead: lead, names: roundtableNames), files: [])
+            prompt: RoundtableFlow.findingsPrompt(topic, lead: lead, names: roundtableNames, persona: workPersona(lead.agent)), files: [])
         guard let current = topicIndex(id) else { return }
         archive.roundtableTopics[current].findings = result.succeeded ? result.text : ""
         archive.roundtableTopics[current].findingsError = result.succeeded ? nil : (result.error ?? t("沒有回覆"))
@@ -2366,7 +2372,8 @@ extension WorkbenchModel {
         let flow = archive.projectFlows[index]
         let discussion = flow.roomID.flatMap { roomID in archive.rooms.first { $0.id == roomID } }
             .map { RoomPromptBuilder.snapshot(room: $0, maxEntries: 60, maxCharacters: 14_000, language: archive.settings.language).transcript } ?? ""
-        let prompt = ProjectFlowEngine.planPrompt(flow, discussion: discussion, names: memberNames, ownerName: archive.settings.ownerName)
+        let prompt = ProjectFlowEngine.planPrompt(flow, discussion: discussion, names: memberNames, ownerName: archive.settings.ownerName,
+                                                  persona: workPersona(lead))
         flowTask(id, activity: t("\(memberName(lead)) 正在寫方案……")) { [self] in
             let text = try await flowCall(id, agent: lead, prompt: prompt, folder: flow.folder, access: .readFiles)
             guard let current = flowIndex(id) else { return }
@@ -2574,7 +2581,7 @@ extension WorkbenchModel {
                                                                 : t("\(memberName(current.member)) 正在做「\(current.title)」……"))
                 let reply = try await flowCall(id, agent: current.member,
                     prompt: ProjectFlowEngine.taskPrompt(current, flow: flow, round: round, names: memberNames, ownerName: archive.settings.ownerName,
-                                                         profile: memberProfile(current.member)),
+                                                         profile: workPersona(current.member)),
                     folder: folder.path, access: .stagedWrite, inPlace: true, stage: t("執行任務「\(current.title)」"))
                 let parsed = level == .deep && current.status == .fixing
                     ? ProjectFlowEngine.parseDisputes(reply, open: current.openFindings, ruled: current.rulings)
@@ -2596,7 +2603,8 @@ extension WorkbenchModel {
             setFlowActivity(taskID, t("\(memberName(reviewer)) 正在複核「\(checked.title)」……"))
             let review = ProjectFlowEngine.parseReview(try await flowCall(id, agent: reviewer,
                 prompt: ProjectFlowEngine.taskReviewPrompt(checked, reviewer: reviewer, names: memberNames, ownerName: archive.settings.ownerName,
-                                                   round: flow.plan?.rounds.first { $0.id == round.id } ?? round),
+                                                   round: flow.plan?.rounds.first { $0.id == round.id } ?? round,
+                                                   persona: workPersona(reviewer)),
                 folder: folder.path, access: .readFiles, inPlace: true, stage: t("複核「\(checked.title)」")))
             if review.pass || checked.returns >= ProjectFlowEngine.maxReturns {
                 updateTask(id, taskID) { $0.findings = review.pass ? "" : review.text; $0.openFindings = review.pass ? [] : review.findings }
@@ -2704,7 +2712,7 @@ extension WorkbenchModel {
         flowActivity = t("\(memberName(lead)) 正在整理本輪報告……")
         let report = try await flowCall(id, agent: lead,
             prompt: ProjectFlowEngine.roundCheckPrompt(plan.rounds[r], flow: flow, tasks: plan.tasks(in: round),
-                                                       checker: lead, names: memberNames, verify: verify),
+                                                       checker: lead, names: memberNames, verify: verify, persona: workPersona(lead)),
             folder: workspace.rounds.workingDirectory(round.id).path, access: .readFiles, inPlace: false)
         guard let current = flowIndex(id) else { return }
         archive.projectFlows[current].plan?.rounds[r].report = report
@@ -2779,7 +2787,8 @@ extension WorkbenchModel {
         guard let index = flowIndex(id), let lead = archive.projectFlows[index].lead else { return }
         let flow = archive.projectFlows[index]
         flowTask(id, activity: t("\(memberName(lead)) 正在寫整段工作總結……")) { [self] in
-            let summary = try await flowCall(id, agent: lead, prompt: ProjectFlowEngine.completionPrompt(flow, names: memberNames),
+            let summary = try await flowCall(id, agent: lead, prompt: ProjectFlowEngine.completionPrompt(flow, names: memberNames, writer: lead,
+                                                                                                       persona: workPersona(lead)),
                                              folder: flow.folder, access: .readOnly, inPlace: false)
             guard let current = flowIndex(id) else { return }
             archive.projectFlows[current].completionReport = summary
@@ -2828,7 +2837,8 @@ extension WorkbenchModel {
     func askFlowMember(_ id: UUID, member: MemberID, question: String, answer: @escaping (String) -> Void) {
         guard let flow = flowIndex(id).map({ archive.projectFlows[$0] }), !flowRunning else { return }
         flowTask(id, activity: t("\(memberName(member)) 正在回答……")) { [self] in
-            answer(try await flowCall(id, agent: member, prompt: ProjectFlowEngine.askMemberPrompt(question, member: member, flow: flow, names: memberNames),
+            answer(try await flowCall(id, agent: member, prompt: ProjectFlowEngine.askMemberPrompt(question, member: member, flow: flow, names: memberNames,
+                                                                                     persona: workPersona(member)),
                                       folder: flow.folder, access: .readFiles, inPlace: false))
         }
     }

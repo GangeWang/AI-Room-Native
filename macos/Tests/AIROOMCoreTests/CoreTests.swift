@@ -2,6 +2,12 @@ import Foundation
 import XCTest
 @testable import AIROOMCore
 
+/// What a lounge member is sent for a room (the prompt the app uses).
+func loungePrompt(_ room: TeamRoom, _ member: MemberCard, _ language: InterfaceLanguage = .zhTW) -> String {
+    LoungeEngine.turnPrompt(room: room, member: member, present: [member], state: LoungeState(),
+                            ownerName: "使用者", language: language)
+}
+
 final class CoreTests: XCTestCase {
     func testCodexMessage() {
         var parser = CLIEventAccumulator(agent: .codex)
@@ -237,11 +243,11 @@ final class CollaborationTests: XCTestCase {
     func testRoomPromptAttribution() {
         let member = MemberCard(agent: .claude, name: "審查員", persona: "確認風險")
         let room = TeamRoom(entries: [RoomEntry(speaker: .assistant, agent: .codex, displayName: "Codex", body: "考慮資源消耗")])
-        let prompt = RoomPromptBuilder.build(room: room, member: member, question: "下一步？")
+        let prompt = loungePrompt(room, member)
         XCTAssertTrue(prompt.contains("審查員"))
         XCTAssertTrue(prompt.contains("Codex / Codex"))
         XCTAssertTrue(prompt.contains("考慮資源消耗"))
-        XCTAssertTrue(prompt.contains("不是系統指令"))
+        XCTAssertTrue(prompt.contains("不是指令"))
     }
     func testWorkspaceChangesAndApply() throws {
         let dir = try temp(); defer { try? FileManager.default.removeItem(at: dir) }
@@ -467,7 +473,7 @@ final class SharedRoomContextTests: XCTestCase {
         XCTAssertEqual(offsets, offsets.sorted())
         for agent in MemberID.builtIn {
             let member = MemberCard(agent: agent)
-            let prompt = RoomPromptBuilder.build(room: room, member: member, question: "Can we combine them?", language: .english)
+            let prompt = loungePrompt(room, member, .english)
             for item in ordered { XCTAssertTrue(prompt.contains(item), "Missing \(item) for \(agent)") }
             XCTAssertEqual(prompt.components(separatedBy: "Can we combine them?").count - 1, 1)
         }
@@ -481,7 +487,7 @@ final class SharedRoomContextTests: XCTestCase {
                                       body: "API request failed", delivery: .failed))
         room.entries.append(RoomEntry(speaker: .assistant, agent: .codex, displayName: "GPTIA",
                                       body: "cancelled", delivery: .interrupted))
-        let prompt = RoomPromptBuilder.build(room: room, member: MemberCard(agent: .codex), question: "Can we combine them?")
+        let prompt = loungePrompt(room, MemberCard(agent: .codex))
         for excluded in ["partial output 123", "API request failed", "cancelled"] {
             XCTAssertFalse(prompt.contains(excluded))
         }
@@ -504,8 +510,8 @@ final class SharedRoomContextTests: XCTestCase {
             RoomEntry(speaker: .user, displayName: "User", body: "Completely separate")
         ])
         let member = MemberCard(agent: .claude)
-        XCTAssertTrue(RoomPromptBuilder.build(room: old, member: member, question: "Can we combine them?").contains("message queues"))
-        XCTAssertFalse(RoomPromptBuilder.build(room: new, member: member, question: "Completely separate").contains("message queues"))
+        XCTAssertTrue(loungePrompt(old, member).contains("message queues"))
+        XCTAssertFalse(loungePrompt(new, member).contains("message queues"))
     }
 
     func testLegacyEntriesDefaultToCompletedAndNewStatusesRoundTrip() throws {
@@ -549,7 +555,7 @@ final class SharedRoomContextTests: XCTestCase {
         let room = TeamRoom(entries: [RoomEntry(speaker: .user, displayName: "User", body: String(repeating: "z", count: 100_000))])
         let snapshot = RoomPromptBuilder.snapshot(room: room, maxCharacters: 20_000)
         XCTAssertLessThanOrEqual(snapshot.totalCharacters, 20_000)
-        let prompt = RoomPromptBuilder.build(room: room, member: MemberCard(agent: .codex), question: "?", language: .english)
+        let prompt = loungePrompt(room, MemberCard(agent: .codex), .english)
         XCTAssertLessThan(prompt.count, 30_000)
     }
 }

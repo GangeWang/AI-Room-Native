@@ -298,7 +298,8 @@ public enum ProjectFlowEngine {
         flow.members.map { "\(names[$0] ?? $0.rawValue)（member 填 \"\($0.handle)\"）" }.joined(separator: "、")
     }
 
-    public static func planPrompt(_ flow: ProjectFlow, discussion: String, names: [MemberID: String], ownerName: String) -> String {
+    public static func planPrompt(_ flow: ProjectFlow, discussion: String, names: [MemberID: String], ownerName: String,
+                                  persona: String = "") -> String {
         let lead = flow.lead.map { names[$0] ?? $0.rawValue } ?? "負責人"
         let previous = flow.plan.map { plan -> String in
             // Accepted rounds are finished work: the revision must cover only what remains.
@@ -316,6 +317,7 @@ public enum ProjectFlowEngine {
         } ?? ""
         return """
         你是 \(lead)，被\(ownerName)選為 AIROOM 專案「\(flow.title)」的負責人。請寫出可執行的方案。
+        \(persona)
         你可以只讀查看目前資料夾（就是專案檔案的副本）核實現狀，但不要修改任何檔案。
         參加成員：\(membersLine(flow, names: names))。複核程度：\(flow.reviewLevel.title)。
         \(flow.previousSummary.isEmpty ? "" : "上一段工作的總結：\n\(String(flow.previousSummary.prefix(4_000)))\n")
@@ -328,7 +330,7 @@ public enum ProjectFlowEngine {
         只回傳一個 JSON 物件，物件外不要有文字：
         {"objective":"…","scope":"…","deliverables":["…"],"acceptance":["…"],
          "rounds":[{"key":"r1","title":"…","goal":"…"}],
-         "tasks":[{"key":"t1","round":"r1","title":"…","member":"claude 或 codex","goal":"…","criteria":["…"],"dependencies":[],"files":["src/…"]}]}
+         "tasks":[{"key":"t1","round":"r1","title":"…","member":"參加成員括號裡的 member 值","goal":"…","criteria":["…"],"dependencies":[],"files":["src/…"]}]}
         """
     }
 
@@ -380,7 +382,7 @@ public enum ProjectFlowEngine {
     }
 
     public static func taskReviewPrompt(_ task: FlowTask, reviewer: MemberID, names: [MemberID: String], ownerName: String = "使用者",
-                                        round: FlowRound? = nil) -> String {
+                                        round: FlowRound? = nil, persona: String = "") -> String {
         // The owner's round note and return opinion bind the reviewer too.
         let notes = [round.map(\.startNote).flatMap { $0.isEmpty ? nil : "\(ownerName)開始這一輪時的附言：\($0)" },
                      round.map(\.userOpinion).flatMap { $0.isEmpty ? nil : "\(ownerName)上次驗收的意見：\($0)" }]
@@ -389,6 +391,7 @@ public enum ProjectFlowEngine {
         let settled = ruled.isEmpty ? "" : "以下問題\(ownerName)已裁定支持作者，不要再提：\n" + ruled.map { "- \($0.finding.location)：\($0.finding.request)" }.joined(separator: "\n")
         return """
         你是 \(names[reviewer] ?? reviewer.rawValue)，請複核 \(names[task.member] ?? task.member.rawValue) 完成的任務「\(task.title)」。目前資料夾是他做完後的副本，只讀查看，不要修改檔案。
+        \(persona)
         任務目標：\(task.goal)
         完成標準：\n\(task.criteria.map { "- \($0)" }.joined(separator: "\n"))
         變更的檔案：\(task.changes.map { "\($0.kind.rawValue) \($0.path)" }.joined(separator: "、"))
@@ -402,11 +405,12 @@ public enum ProjectFlowEngine {
     }
 
     public static func roundCheckPrompt(_ round: FlowRound, flow: ProjectFlow, tasks: [FlowTask], checker: MemberID,
-                                        names: [MemberID: String], verify: Bool) -> String {
+                                        names: [MemberID: String], verify: Bool, persona: String = "") -> String {
         let list = tasks.map { "- \($0.title)（\(names[$0.member] ?? $0.member.rawValue)，\($0.status == .done ? "完成" : "未完成")）：\(String($0.summary.prefix(1_200)))" }
             .joined(separator: "\n")
         return """
         你是 \(names[checker] ?? checker.rawValue)，負責 AIROOM 專案「\(flow.title)」第 \(flow.currentRound + 1) 輪（\(round.title)）的匯總\(verify ? "與檢查" : "")。目前資料夾是這一輪整合後的副本，只讀查看，不要修改檔案。
+        \(persona)
         本輪目標：\(round.goal)
         專案驗收標準：\n\((flow.plan?.acceptance ?? []).map { "- \($0)" }.joined(separator: "\n"))
         本輪任務：\n\(list)
@@ -415,21 +419,24 @@ public enum ProjectFlowEngine {
         """
     }
 
-    public static func completionPrompt(_ flow: ProjectFlow, names: [MemberID: String]) -> String {
+    public static func completionPrompt(_ flow: ProjectFlow, names: [MemberID: String], writer: MemberID? = nil,
+                                        persona: String = "") -> String {
         let rounds = (flow.plan?.rounds ?? []).map { "【\($0.title)】\n\(String($0.report.prefix(3_000)))" }.joined(separator: "\n\n")
         return """
-        AIROOM 專案「\(flow.title)」這一段工作已全部驗收。請寫整段工作總結：目標、各輪成果、修正過什麼（含被退回的地方）、還留下哪些問題或建議。不要使用工具或修改檔案。直接輸出總結正文。
+        \(writer.map { "你是 \(names[$0] ?? $0.rawValue)，這個專案的負責人。" } ?? "")\(persona.isEmpty ? "" : "\n\(persona)\n")AIROOM 專案「\(flow.title)」這一段工作已全部驗收。請寫整段工作總結：目標、各輪成果、修正過什麼（含被退回的地方）、還留下哪些問題或建議。不要使用工具或修改檔案。直接輸出總結正文。
         專案目標：\(flow.plan?.objective ?? "")
         === 各輪報告 ===
         \(rounds)
         """
     }
 
-    public static func askMemberPrompt(_ question: String, member: MemberID, flow: ProjectFlow, names: [MemberID: String]) -> String {
+    public static func askMemberPrompt(_ question: String, member: MemberID, flow: ProjectFlow, names: [MemberID: String],
+                                       persona: String = "") -> String {
         let mine = (flow.plan?.tasks ?? []).filter { $0.member == member }
             .map { "- \($0.title)（\($0.status.rawValue)）：\(String($0.summary.prefix(1_500)))" }.joined(separator: "\n")
         return """
         你是 \(names[member] ?? member.rawValue)，正在 AIROOM 專案「\(flow.title)」工作。使用者在你的匯報頁問你問題。只讀回答，不要修改檔案、不要改任務。
+        \(persona)
         你負責的任務：\n\(mine)
         問題：\(question)
         """

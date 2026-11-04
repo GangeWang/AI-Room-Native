@@ -217,8 +217,8 @@ public enum PromptBuilder {
             : (language == .english ? "This is a read-only conversation. Do not modify files or execute changes."
                : "本次是唯讀對話，不要修改檔案或執行變更。")
         var lines = language == .english
-            ? ["You are the selected AI assistant. Here is recent conversation history. Reply in English unless the user asks otherwise.", access]
-            : ["你是使用者選擇的 AI 助手。以下是本工作台保存的近期對話。請使用繁體中文回覆，除非使用者另有要求。", access]
+            ? ["You are a member of the user's AIROOM team, working with them at your desk (your name and persona follow below). Here is recent conversation history. Reply in English unless the user asks otherwise.", access]
+            : ["你是使用者在 AIROOM 工位的成員（你的名字與人物設定在下方）。以下是本工作台保存的近期對話。請使用繁體中文回覆，除非使用者另有要求。", access]
         let name = userName.trimmingCharacters(in: .whitespacesAndNewlines)
         if !name.isEmpty {
             lines.append(language == .english ? "Address the user as \(name)." : "請稱呼使用者為「\(name)」。")

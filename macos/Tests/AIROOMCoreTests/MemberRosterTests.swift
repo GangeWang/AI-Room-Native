@@ -157,4 +157,37 @@ final class MemberRosterTests: XCTestCase {
         runner.setDefaults(added, model: "gpt-5", effort: "")
         XCTAssertEqual(runner.executor(for: added), .codex, "updating defaults keeps the program")
     }
+
+    func testWorkStepsCarryTheMembersPersona() {
+        var card = MemberCard(agent: MemberID(rawValue: "m-f15f15"), executor: .deepseek, name: "藍色大肥魚")
+        XCTAssertEqual(MemberLife.workPersona(card, profile: ""), "", "nothing to add for a blank card")
+        card.persona = "說話慢條斯理，喜歡用魚的比喻。"
+        let persona = MemberLife.workPersona(card, profile: "【名字】你在 AIROOM 裡的名字是「藍色大肥魚」")
+        XCTAssertTrue(persona.contains("不改變這一步的工作規則與輸出格式"))
+        XCTAssertTrue(persona.contains("喜歡用魚的比喻"))
+        XCTAssertTrue(persona.contains("藍色大肥魚"))
+
+        var topic = RoundtableTopic(title: "雨天", kind: .proposals, material: "x", members: [.claude, card.agent], lead: card.agent)
+        topic.submissions = [RoundtableSubmission(agent: .claude, text: "看電影")]
+        XCTAssertTrue(RoundtableFlow.peerReviewPrompt(topic, reviewer: card, names: [:], persona: persona).contains("喜歡用魚的比喻"))
+        XCTAssertTrue(RoundtableFlow.findingsPrompt(topic, lead: card, names: [:], persona: persona).contains("喜歡用魚的比喻"))
+
+        var flow = ProjectFlow(title: "雨天清單", folder: "/tmp/x", members: [.claude, card.agent])
+        flow.lead = card.agent
+        let names: [MemberID: String] = [.claude: "Claude", card.agent: "藍色大肥魚"]
+        let plan = ProjectFlowEngine.planPrompt(flow, discussion: "", names: names, ownerName: "我", persona: persona)
+        XCTAssertTrue(plan.contains("喜歡用魚的比喻"))
+        XCTAssertFalse(plan.contains("claude 或 codex"), "the JSON example no longer names only the built-in members")
+        XCTAssertTrue(plan.contains(#"藍色大肥魚（member 填 "m-f15f15"）"#))
+        let summary = ProjectFlowEngine.completionPrompt(flow, names: names, writer: card.agent, persona: persona)
+        XCTAssertTrue(summary.hasPrefix("你是 藍色大肥魚"))
+        XCTAssertTrue(ProjectFlowEngine.askMemberPrompt("進度？", member: card.agent, flow: flow, names: names, persona: persona).contains("喜歡用魚的比喻"))
+    }
+
+    func testTheDeskPromptNoLongerCallsTheMemberAGenericAssistant() {
+        let prompt = PromptBuilder.build(history: [], newQuestion: "你好", profile: "【名字】你在 AIROOM 裡的名字是「DS」")
+        XCTAssertFalse(prompt.contains("你是使用者選擇的 AI 助手"))
+        XCTAssertTrue(prompt.hasPrefix("你是使用者在 AIROOM 工位的成員"))
+        XCTAssertTrue(prompt.contains("「DS」"))
+    }
 }

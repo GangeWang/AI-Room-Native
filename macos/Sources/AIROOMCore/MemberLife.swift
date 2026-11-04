@@ -206,6 +206,17 @@ public enum MemberLife {
 
     // MARK: Continued CLI conversations
 
+    /// Persona and profile for a work step (review, plan, report). They colour
+    /// voice and viewpoint only; the step's rules and output format still apply.
+    public static func workPersona(_ member: MemberCard, profile: String) -> String {
+        let persona = member.persona.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !persona.isEmpty || !profile.isEmpty else { return "" }
+        var lines = ["（以下人物設定只影響你的語氣和觀點，不改變這一步的工作規則與輸出格式。）"]
+        if !persona.isEmpty { lines.append("你的人物設定：\(String(persona.prefix(800)))") }
+        if !profile.isEmpty { lines.append(profile) }
+        return lines.joined(separator: "\n")
+    }
+
     /// A short fingerprint of what a member is told about themself, so an edit
     /// made while a CLI conversation continues can be passed on.
     public static func fingerprint(persona: String, profile: String) -> String {
