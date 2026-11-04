@@ -167,4 +167,22 @@ final class LoungeTests: XCTestCase {
         // Prose that isn't JSON at all is still shown as is.
         XCTAssertTrue(LoungeEngine.parseReply("只是普通的一句話").unstructured)
     }
+
+    func testEveryJSONPromptAsksForCornerQuotes() {
+        let rule = LoungeEngine.quoteRule
+        let member = MemberCard(agent: .claude, name: "Claude")
+        var room = TeamRoom()
+        room.entries = [RoomEntry(speaker: .user, displayName: "我", body: "嗨")]
+        XCTAssertTrue(LoungeEngine.turnPrompt(room: room, member: member, present: [member], state: LoungeState(), ownerName: "我", language: .zhTW).contains(rule))
+        XCTAssertTrue(LoungeEngine.turnDelta(room: room, member: member, state: LoungeState(), since: room.entries[0].id, ownerName: "我", language: .zhTW).contains(rule))
+        XCTAssertTrue(LoungeEngine.handPrompt(room: room, member: member, state: LoungeState(style: .meeting), language: .zhTW).contains(rule))
+        XCTAssertTrue(MemberLife.proposalPrompt(member: member, topic: Conversation(agent: .claude), ownerName: "我").contains(rule))
+        var flow = ProjectFlow(title: "x", folder: "/tmp/x", members: [.claude, .codex])
+        flow.lead = .claude
+        XCTAssertTrue(ProjectFlowEngine.planPrompt(flow, discussion: "", names: [:], ownerName: "我").contains(rule))
+        let task = FlowTask(key: "t1", roundKey: "r1", title: "t", member: .codex, goal: "g")
+        XCTAssertTrue(ProjectFlowEngine.taskReviewPrompt(task, reviewer: .claude, names: [:]).contains(rule))
+        XCTAssertTrue(LoungeEngine.turnPrompt(room: room, member: member, present: [member], state: LoungeState(), ownerName: "me", language: .english)
+            .contains(LoungeEngine.quoteRuleEnglish))
+    }
 }

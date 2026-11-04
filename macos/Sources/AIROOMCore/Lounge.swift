@@ -305,6 +305,10 @@ public enum LoungeEngine {
         return HandVote(want: want, why: object["why"] as? String ?? "")
     }
 
+    /// Asked of every JSON reply: an unescaped "…" inside a value breaks the JSON.
+    public static let quoteRule = "文字內容裡需要引號時用「」，不要用英文雙引號。"
+    public static let quoteRuleEnglish = "Inside text values, quote with single quotes, never unescaped double quotes."
+
     static func jsonObject(in text: String) -> [String: Any]? {
         var candidate = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if candidate.hasPrefix("```") {
@@ -396,8 +400,8 @@ public enum LoungeEngine {
             """
         }
         let format = language == .english
-            ? "Reply with ONE JSON object only, no text outside it: {\"action\":\"speak\",\"body\":\"…\"} (optional fields: emoji, next, questions). Only body is shown."
-            : "只回傳一個 JSON 物件，物件外不要有任何文字，例如：{\"action\":\"speak\",\"body\":\"……\"}（可選欄位：emoji、next、questions）。介面只顯示 body。"
+            ? "Reply with ONE JSON object only, no text outside it: {\"action\":\"speak\",\"body\":\"…\"} (optional fields: emoji, next, questions). Only body is shown. \(quoteRuleEnglish)"
+            : "只回傳一個 JSON 物件，物件外不要有任何文字，例如：{\"action\":\"speak\",\"body\":\"……\"}（可選欄位：emoji、next、questions）。介面只顯示 body。\(quoteRule)"
         return """
         你是 \(member.name)（\(member.executor.rawValue)），在 AIROOM 茶歇室與其他成員和\(ownerName)交流。
         你的人物設定：\(String(member.persona.prefix(1_500)))
@@ -440,7 +444,7 @@ public enum LoungeEngine {
         === 新內容結束 ===
         \(notes.joined(separator: " "))
         \(pending.isEmpty ? "" : "尚未回答的問題（留著即可）：\n\(pending)")
-        只回傳一個 JSON 物件（action、body，可選 emoji、next、questions），物件外不要有文字。
+        只回傳一個 JSON 物件（action、body，可選 emoji、next、questions），物件外不要有文字。\(quoteRule)
         """
     }
 
@@ -449,7 +453,7 @@ public enum LoungeEngine {
         return """
         你是 \(member.name)（\(member.executor.rawValue)），在 AIROOM 的會議中。這一輪每位成員都已發言，現在是舉手補充時間：以自己的人物性格判斷是否還想補充、回應或糾正。這只是舉手意願，不是正式發言。不要使用工具或讀寫檔案。
         \(state.supplemented.contains(member.agent) ? "你這輪已補充過，除非有關鍵新內容否則填 0。" : "")
-        只回傳一個 JSON 物件：{"want":0,"why":"一句簡短理由"}。want 為 0–3：0 沒有補充，1 可簡短回應，2 有明確新觀點，3 有關鍵問題或迫切補充。沒有新內容不要為了發言而打高分。
+        只回傳一個 JSON 物件：{"want":0,"why":"一句簡短理由"}。want 為 0–3：0 沒有補充，1 可簡短回應，2 有明確新觀點，3 有關鍵問題或迫切補充。沒有新內容不要為了發言而打高分。\(quoteRule)
         === 近期紀錄 ===
         \(String(transcript.suffix(8_000)))
         """

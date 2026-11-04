@@ -327,7 +327,7 @@ public enum ProjectFlowEngine {
         === 紀錄結束 ===
         \(previous)
         方案要分輪：每輪有清楚的目標；每項任務只交給一位成員，寫清楚目標、怎樣算完成（criteria）、依賴哪些前面的任務（dependencies 填任務 key）、預計會修改的檔案或資料夾（files，相對路徑）。不同成員、檔案不重疊、彼此不依賴的任務會同時進行，所以 files 要寫準；不確定就留空，那項任務會單獨進行。任務要小而具體，能在一次工作中完成。不要編造檔案現狀。
-        只回傳一個 JSON 物件，物件外不要有文字：
+        只回傳一個 JSON 物件，物件外不要有文字。\(LoungeEngine.quoteRule)
         {"objective":"…","scope":"…","deliverables":["…"],"acceptance":["…"],
          "rounds":[{"key":"r1","title":"…","goal":"…"}],
          "tasks":[{"key":"t1","round":"r1","title":"…","member":"參加成員括號裡的 member 值","goal":"…","criteria":["…"],"dependencies":[],"files":["src/…"]}]}
@@ -398,7 +398,7 @@ public enum ProjectFlowEngine {
         他的說明：\(String(task.summary.prefix(4_000)))
         \(notes)
         \(settled)
-        實際查看檔案核對每個完成標準。只回傳一個 JSON 物件：
+        實際查看檔案核對每個完成標準。只回傳一個 JSON 物件（\(LoungeEngine.quoteRule)）：
         {"verdict":"pass 或 changes","summary":"一兩句結論","findings":[{"severity":"blocking/should-fix/optional","location":"檔案或位置","request":"要怎麼改"}]}
         只有 blocking 或 should-fix 的問題才判 changes。
         """
