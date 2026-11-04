@@ -62,6 +62,8 @@ macos/
 | `PrivacyGuard.swift` | 子程序環境變數白名單、副本中的機密檔案過濾、輸出遮蔽 |
 | `LiveStage.swift`、`VTubeStudio.swift` | 直播舞台：情緒標籤、TTS 事件、VTube Studio API（見 [LIVE_STAGE.md](../LIVE_STAGE.md)） |
 
+送給模型的所有提示詞（用範例資料實際產生）見 [PROMPTS.md](../PROMPTS.md)。
+
 ## 資料
 
 - 存放位置：`~/Library/Application Support/AIROOMNative`。
