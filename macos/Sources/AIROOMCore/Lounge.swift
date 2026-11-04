@@ -312,7 +312,46 @@ public enum LoungeEngine {
                 .joined(separator: "\n").replacingOccurrences(of: "```", with: "")
         }
         guard let start = candidate.firstIndex(of: "{"), let end = candidate.lastIndex(of: "}"), start < end else { return nil }
-        return try? JSONSerialization.jsonObject(with: Data(candidate[start...end].utf8)) as? [String: Any]
+        let json = String(candidate[start...end])
+        if let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] { return object }
+        // Models often quote words inside a value without escaping them
+        // (`"body":"他說 "好" 就走了"`) or break a line inside a string.
+        return try? JSONSerialization.jsonObject(with: Data(repairedJSON(json).utf8)) as? [String: Any]
+    }
+
+    /// Escapes quotes and line breaks inside string values. A quote closes a
+    /// string only when what follows is JSON structure (`,` `}` `]` `:` or the end).
+    static func repairedJSON(_ json: String) -> String {
+        let characters = Array(json)
+        var out = ""
+        var inString = false
+        var escaped = false
+        for (index, character) in characters.enumerated() {
+            guard inString else {
+                if character == "\"" { inString = true }
+                out.append(character)
+                continue
+            }
+            if escaped { escaped = false; out.append(character); continue }
+            switch character {
+            case "\\":
+                escaped = true
+                out.append(character)
+            case "\"":
+                let next = characters[(index + 1)...].first { !$0.isWhitespace }
+                if next == nil || [",", "}", "]", ":"].contains(next!) {
+                    inString = false
+                    out.append(character)
+                } else {
+                    out.append("\\\"")
+                }
+            case "\n": out.append("\\n")
+            case "\r": out.append("\\r")
+            case "\t": out.append("\\t")
+            default: out.append(character)
+            }
+        }
+        return out
     }
 
     // MARK: Prompts

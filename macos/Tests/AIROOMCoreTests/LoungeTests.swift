@@ -143,4 +143,28 @@ final class LoungeTests: XCTestCase {
         XCTAssertEqual(legacy.lounge.style, .chat)
         XCTAssertEqual(legacy.entries.count, 3)
     }
+
+    /// Seen live from DeepSeek: quotes inside the body weren't escaped, so the raw JSON was shown.
+    func testUnescapedQuotesInsideTheBodyStillParse() {
+        let raw = #"{"action":"speak","body":"最精彩的是 please work 之後隔兩分鐘那筆 revert "please work"，等於神明已讀不回，只好自己把祈禱收回來 😄","emoji":"😄"}"#
+        let reply = LoungeEngine.parseReply(raw)
+        XCTAssertFalse(reply.unstructured)
+        XCTAssertEqual(reply.action, .speak)
+        XCTAssertEqual(reply.body, #"最精彩的是 please work 之後隔兩分鐘那筆 revert "please work"，等於神明已讀不回，只好自己把祈禱收回來 😄"#)
+        XCTAssertEqual(reply.emoji, "😄")
+    }
+
+    func testRepairKeepsValidJSONAndFixesCommonSlips() {
+        // Raw line breaks inside a string, and quotes followed by ordinary text.
+        let broken = "{\"action\":\"speak\",\"body\":\"第一行\n他說 \"好\" 就走了\",\"next\":\"Claude\"}"
+        let reply = LoungeEngine.parseReply(broken)
+        XCTAssertEqual(reply.body, "第一行\n他說 \"好\" 就走了")
+        XCTAssertEqual(reply.next, "Claude")
+        // Valid JSON is left exactly as it was.
+        let valid = #"{"action":"speak","body":"引號 \"已跳脫\" 沒問題","questions":["要嗎？"]}"#
+        XCTAssertEqual(LoungeEngine.repairedJSON(valid), valid)
+        XCTAssertEqual(LoungeEngine.parseReply(valid).questions, ["要嗎？"])
+        // Prose that isn't JSON at all is still shown as is.
+        XCTAssertTrue(LoungeEngine.parseReply("只是普通的一句話").unstructured)
+    }
 }
