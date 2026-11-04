@@ -22,7 +22,11 @@ public struct FlowFinding: Codable, Equatable, Identifiable, Sendable {
 public struct FlowDispute: Codable, Equatable, Sendable {
     public var findingID: String
     public var reason: String
-    public init(findingID: String, reason: String) { self.findingID = findingID; self.reason = String(reason.prefix(1_500)) }
+    /// What the lead said when they couldn't settle it and handed it to the owner.
+    public var leadNote: String?
+    public init(findingID: String, reason: String, leadNote: String? = nil) {
+        self.findingID = findingID; self.reason = String(reason.prefix(1_500)); self.leadNote = leadNote.map { String($0.prefix(1_500)) }
+    }
 }
 
 public enum FlowVerdict: String, Codable, Sendable {
@@ -32,12 +36,25 @@ public enum FlowVerdict: String, Codable, Sendable {
 
 public struct FlowRuling: Codable, Equatable, Sendable {
     public var finding: FlowFinding
+    /// The author's reason for disputing.
     public var reason: String
     public var verdict: FlowVerdict
     public var at: Date
-    public init(finding: FlowFinding, reason: String, verdict: FlowVerdict, at: Date = .now) {
+    /// The lead who ruled; nil when the owner did.
+    public var judge: MemberID?
+    /// The lead's grounds for the ruling.
+    public var note: String?
+    public init(finding: FlowFinding, reason: String, verdict: FlowVerdict, at: Date = .now, judge: MemberID? = nil, note: String? = nil) {
         self.finding = finding; self.reason = reason; self.verdict = verdict; self.at = at
+        self.judge = judge; self.note = note.map { String($0.prefix(1_500)) }
     }
+}
+
+/// The lead's answer on one dispute; `nil` verdict means unsure (the owner decides).
+public struct LeadRuling: Equatable, Sendable {
+    public var findingID: String
+    public var verdict: FlowVerdict?
+    public var reason: String
 }
 
 public struct FlowReview: Equatable, Sendable {
@@ -193,7 +210,8 @@ extension ProjectFlowEngine {
 
     /// Applies the owner's rulings. A ruling for the author gives one return back (at most
     /// `maxWaivers` per task); findings upheld for the review go back to the author to fix.
-    public static func applyRulings(_ task: inout FlowTask, verdicts: [String: FlowVerdict], at now: Date = .now) {
+    public static func applyRulings(_ task: inout FlowTask, verdicts: [String: FlowVerdict], judge: MemberID? = nil,
+                                    notes: [String: String] = [:], at now: Date = .now) {
         let disputed = task.disputes.filter { verdicts[$0.findingID] != nil }
         guard !disputed.isEmpty, disputed.count == task.disputes.count else { return }
         var upheld: [FlowFinding] = []
@@ -201,7 +219,8 @@ extension ProjectFlowEngine {
         for dispute in disputed {
             guard let finding = task.openFindings.first(where: { $0.id == dispute.findingID }),
                   let verdict = verdicts[dispute.findingID] else { continue }
-            task.rulings.append(FlowRuling(finding: finding, reason: dispute.reason, verdict: verdict, at: now))
+            task.rulings.append(FlowRuling(finding: finding, reason: dispute.reason, verdict: verdict, at: now,
+                                           judge: judge, note: notes[dispute.findingID]))
             if verdict == .review { upheld.append(finding) } else { forAuthor = true }
         }
         if forAuthor, task.returns > 0, task.waivers < maxWaivers { task.returns -= 1; task.waivers += 1 }
@@ -215,6 +234,60 @@ extension ProjectFlowEngine {
             task.findings = upheld.map { "- " + $0.line }.joined(separator: "\n")
             task.status = .fixing
         }
+    }
+}
+
+// MARK: The lead rules on disputes (three or more members)
+
+extension ProjectFlowEngine {
+    /// The lead may rule only when they are neither the author nor the reviewer.
+    public static func leadCanRule(_ task: FlowTask, lead: MemberID?) -> Bool {
+        guard let lead else { return false }
+        return lead != task.member && lead != (task.reviewer ?? task.member)
+    }
+
+    public static func adjudicationPrompt(_ task: FlowTask, lead: MemberID, names: [MemberID: String], ownerName: String = "使用者",
+                                          round: FlowRound? = nil, persona: String = "") -> String {
+        func name(_ id: MemberID) -> String { names[id] ?? id.rawValue }
+        let reviewer = task.reviewer.map(name) ?? "複核者"
+        let notes = [round.map(\.startNote).flatMap { $0.isEmpty ? nil : "\(ownerName)開始這一輪時的附言：\($0)" },
+                     round.map(\.userOpinion).flatMap { $0.isEmpty ? nil : "\(ownerName)上次驗收的意見：\($0)" }]
+            .compactMap { $0 }.joined(separator: "\n")
+        let items = task.disputes.compactMap { dispute -> String? in
+            guard let finding = task.openFindings.first(where: { $0.id == dispute.findingID }) else { return nil }
+            return "- \(finding.line)\n  作者的理由：\(dispute.reason)"
+        }.joined(separator: "\n")
+        return """
+        你是 \(name(lead))，AIROOM 專案的負責人。\(name(task.member)) 修正任務「\(task.title)」時，對 \(reviewer) 的部分複核意見提出異議，請你逐條裁定。目前資料夾是作者修正後的副本，只讀查看，不要修改檔案。
+        \(persona)
+        任務目標：\(task.goal)
+        完成標準：\n\(task.criteria.map { "- \($0)" }.joined(separator: "\n"))
+        變更的檔案：\(task.changes.map { "\($0.kind.rawValue) \($0.path)" }.joined(separator: "、"))
+        作者這次的說明：\(String(task.summary.prefix(3_000)))
+        \(notes)
+        有異議的複核意見：
+        \(items)
+        實際查看檔案，對照任務目標與完成標準核實每一條。只回傳一個 JSON 物件（\(LoungeEngine.quoteRule)）：
+        {"rulings":[{"finding":"f1","verdict":"author 或 review 或 unsure","reason":"你核實到的依據"}]}
+        author：異議成立，這條不用改；review：複核意見成立，作者必須修正；unsure：查不清楚或需要\(ownerName)取捨，交給\(ownerName)決定。每一條都要裁定，不要因為誰的語氣比較肯定就偏向誰；只裁定問題，不要修改檔案。
+        """
+    }
+
+    /// Reads the lead's rulings. Nil unless every dispute got exactly one ruling.
+    public static func parseAdjudication(_ text: String, disputes: [FlowDispute]) -> [LeadRuling]? {
+        guard let object = LoungeEngine.jsonObject(in: text), let items = object["rulings"] as? [[String: Any]] else { return nil }
+        let wanted = Set(disputes.map(\.findingID))
+        var rulings: [LeadRuling] = []
+        for item in items {
+            let id = ((item["finding"] as? String) ?? (item["findingId"] as? String) ?? "").trimmingCharacters(in: .whitespaces)
+            guard wanted.contains(id), !rulings.contains(where: { $0.findingID == id }) else { continue }
+            let word = ((item["verdict"] as? String) ?? "").lowercased().trimmingCharacters(in: .whitespaces)
+            let verdict: FlowVerdict? = ["author", "uphold-author"].contains(word) ? .author
+                : ["review", "uphold-review"].contains(word) ? .review : nil
+            let reason = ((item["reason"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            rulings.append(LeadRuling(findingID: id, verdict: verdict, reason: String(reason.prefix(1_500))))
+        }
+        return rulings.count == wanted.count ? rulings : nil
     }
 }
 
@@ -250,9 +323,13 @@ extension ProjectFlowEngine {
                  : "【驗收 · \(round.title)】駁回：" + clip(opinion, 1_000)
     }
 
-    public static func rulingCard(_ task: FlowTask, rulings: [FlowRuling]) -> String {
-        let lines = rulings.map { "- \($0.verdict == .author ? "支持作者" : "維持複核")：\(clip($0.finding.request, 200))" }
-        return "【裁定 · \(task.title)】\n" + lines.joined(separator: "\n")
+    public static func rulingCard(_ task: FlowTask, rulings: [FlowRuling], names: [MemberID: String] = [:]) -> String {
+        let lines = rulings.map { ruling in
+            "- \(ruling.verdict == .author ? "支持作者" : "維持複核")：\(clip(ruling.finding.request, 200))"
+                + (ruling.note.map { "\n  理由：" + clip($0, 300) } ?? "")
+        }
+        let judge = rulings.first?.judge.map { "（負責人 \(names[$0] ?? $0.rawValue) 裁定）" } ?? ""
+        return "【裁定 · \(task.title)】\(judge)\n" + lines.joined(separator: "\n")
     }
 
     public static func completionCard(_ summary: String) -> String {

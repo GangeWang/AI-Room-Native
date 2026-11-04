@@ -112,7 +112,7 @@ final class ProjectFlowExtrasTests: XCTestCase {
         XCTAssertEqual(cleared.status, .reviewing)
         XCTAssertEqual(cleared.returns, 1, "no refund past the limit")
         let review = ProjectFlowEngine.taskReviewPrompt(cleared, reviewer: .codex, names: [:], ownerName: "小明")
-        XCTAssertTrue(review.contains("小明已裁定支持作者") && review.contains("a：x"))
+        XCTAssertTrue(review.contains("已裁定支持作者，不要再提") && review.contains("a：x"))
         var noted = FlowRound(key: "r", title: "r", goal: "")
         noted.startNote = "只改 a.txt"
         noted.userOpinion = "結尾要換行"

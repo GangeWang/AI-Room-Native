@@ -282,9 +282,18 @@ public enum ProjectFlowEngine {
     }
 
     /// Who reviews a task: another member, preferring the lead.
-    public static func reviewer(for task: FlowTask, lead: MemberID, members: [MemberID]) -> MemberID {
-        if task.member != lead { return lead }
-        return members.first { $0 != task.member } ?? lead
+    /// Who reviews a task, after upstream: anyone but the author, fewest reviews so far first, the
+    /// lead last (so with three or more members the lead stays free to rule on disputes), members
+    /// out of quota after everyone else. A task keeps its reviewer while that member can still do it.
+    public static func reviewer(for task: FlowTask, lead: MemberID, members: [MemberID],
+                                assigned: [FlowTask] = [], unavailable: Set<MemberID> = []) -> MemberID {
+        if let kept = task.reviewer, kept != task.member, members.contains(kept), !unavailable.contains(kept) { return kept }
+        let candidates = members.filter { $0 != task.member }
+        func count(_ id: MemberID) -> Int { assigned.filter { $0.id != task.id && $0.reviewer == id }.count }
+        func rank(_ id: MemberID) -> [Int] {
+            [unavailable.contains(id) ? 1 : 0, count(id), id == lead ? 1 : 0, members.firstIndex(of: id) ?? 0]
+        }
+        return candidates.min { rank($0).lexicographicallyPrecedes(rank($1)) } ?? lead
     }
 
     public static func parseVerdict(_ text: String) -> (pass: Bool, findings: String) {
@@ -368,14 +377,18 @@ public enum ProjectFlowEngine {
         lines += disputable.map { "- " + $0.line }
         if !upheld.isEmpty {
             // The ruling is the owner's last word: it outranks the round note and the earlier discussion.
-            lines.append("以下已由\(ownerName)裁定維持複核。這是\(ownerName)最後的決定，優先於先前的附言、討論和你自己的判斷；必須照著修改檔案，不能再提異議，也不能只用說明代替修改：")
-            lines += upheld.map { "- " + $0.line }
+            lines.append("以下異議已裁定維持複核。這是最後的決定，優先於先前的附言、討論和你自己的判斷；必須照著修改檔案，不能再提異議，也不能只用說明代替修改：")
+            lines += upheld.map { finding in
+                let ruling = task.rulings.last { $0.finding.id == finding.id }
+                let note = ruling?.note.map { "（裁定理由：\($0)）" } ?? ""
+                return "- " + finding.line + note
+            }
         }
         if !disputable.isEmpty {
             lines.append("""
             如果你確定上面某一條不成立（例如誤解需求、和完成標準矛盾），可以不改它，改在報告最後單獨一行寫：
             \(disputeMarker) {"disputes":[{"finding":"f1","reason":"為什麼這條不成立"}]}
-            由\(ownerName)裁定。其餘問題仍要修正；沒有異議就不要寫這一行。
+            由專案負責人或\(ownerName)裁定。其餘問題仍要修正；沒有異議就不要寫這一行。
             """)
         }
         return lines.joined(separator: "\n") + "\n"
@@ -388,7 +401,7 @@ public enum ProjectFlowEngine {
                      round.map(\.userOpinion).flatMap { $0.isEmpty ? nil : "\(ownerName)上次驗收的意見：\($0)" }]
             .compactMap { $0 }.joined(separator: "\n")
         let ruled = task.rulings.filter { $0.verdict == .author }
-        let settled = ruled.isEmpty ? "" : "以下問題\(ownerName)已裁定支持作者，不要再提：\n" + ruled.map { "- \($0.finding.location)：\($0.finding.request)" }.joined(separator: "\n")
+        let settled = ruled.isEmpty ? "" : "以下問題已裁定支持作者，不要再提：\n" + ruled.map { "- \($0.finding.location)：\($0.finding.request)" }.joined(separator: "\n")
         return """
         你是 \(names[reviewer] ?? reviewer.rawValue)，請複核 \(names[task.member] ?? task.member.rawValue) 完成的任務「\(task.title)」。目前資料夾是他做完後的副本，只讀查看，不要修改檔案。
         \(persona)

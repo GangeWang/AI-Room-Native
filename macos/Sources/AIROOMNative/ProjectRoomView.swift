@@ -253,7 +253,14 @@ struct FlowDetailView: View {
                     parallelControl
                 }
                 ForEach(flow.quotaWaits) { wait in FlowQuotaBanner(flow: flow, wait: wait) }
-                ForEach(tasks.filter { $0.status == .disputed }) { task in DisputeRulingCard(flow: flow, task: task) }
+                ForEach(tasks.filter { $0.status == .disputed }) { task in
+                    if let lead = model.leadRulings[task.id] {
+                        Label(t("「\(task.title)」的複核異議由負責人 \(model.memberName(lead)) 裁定中……", "\(model.memberName(lead)) is ruling on \(task.title)"),
+                              systemImage: "scale.3d").font(.caption)
+                    } else {
+                        DisputeRulingCard(flow: flow, task: task)
+                    }
+                }
                 if let failed = tasks.first(where: { $0.status == .failed }) {
                     Label(t("「\(failed.title)」沒有完成：\(failed.error ?? "")", "\(failed.title) failed: \(failed.error ?? "")"), systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.orange)
@@ -329,6 +336,9 @@ struct DisputeRulingCard: View {
                         Text("\(task.reviewer.map(model.memberName) ?? t("複核者", "Reviewer"))：\(finding.location.isEmpty ? "" : finding.location + "：")\(finding.request)")
                             .font(.callout)
                         Text(t("作者異議：", "Author: ") + dispute.reason).font(.callout).foregroundStyle(.secondary)
+                        if let note = dispute.leadNote {
+                            Text(note).font(.caption).foregroundStyle(StudioTheme.orange)
+                        }
                         Picker("", selection: Binding(get: { verdicts[dispute.findingID] }, set: { verdicts[dispute.findingID] = $0 })) {
                             Text(t("支持作者", "Author")).tag(Optional(FlowVerdict.author))
                             Text(t("維持複核", "Review")).tag(Optional(FlowVerdict.review))
@@ -520,7 +530,9 @@ struct FlowBoard: View {
         case .fixing: return t("依複核修正（第 \(task.returns) 次退回）", "Fixing (return \(task.returns))")
         case .done: return t("完成", "Done") + (task.changes.isEmpty ? "" : t(" · 改了 \(task.changes.count) 個檔案", " · \(task.changes.count) files"))
         case .failed: return t("沒有完成：", "Failed: ") + (task.error ?? "")
-        case .disputed: return t("對複核有異議，等你裁定", "Disputed, waiting for your ruling")
+        case .disputed: return model.leadRulings[task.id] != nil
+            ? t("對複核有異議，負責人裁定中", "Disputed, the lead is ruling")
+            : t("對複核有異議，等你裁定", "Disputed, waiting for your ruling")
         }
     }
 }

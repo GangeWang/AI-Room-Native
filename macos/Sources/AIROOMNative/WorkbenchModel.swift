@@ -790,7 +790,11 @@ final class WorkbenchModel: ObservableObject {
 
     // MARK: Workstation: login, stop-all, attention
     var attentionItems: [AttentionItem] { AttentionBuilder.visible(allAttentionItems, dismissed: archive.attentionDismissals) }
-    private var allAttentionItems: [AttentionItem] { AttentionBuilder.items(state: archive, cli: officialCLIStatuses) }
+    private var allAttentionItems: [AttentionItem] {
+        // A dispute the lead is still ruling on isn't the owner's yet.
+        AttentionBuilder.items(state: archive, cli: officialCLIStatuses)
+            .filter { item in !leadRulings.keys.contains { item.id == "flow-dispute-\($0)" } }
+    }
     /// Ignored reminders that would otherwise still show.
     var ignoredAttentionCount: Int { allAttentionItems.count - attentionItems.count }
 
@@ -1605,6 +1609,8 @@ final class WorkbenchModel: ObservableObject {
     @Published var flowRunning = false
     /// What the project room is doing right now, shown inline.
     @Published var flowActivity: String?
+    /// Disputed tasks the lead is ruling on right now (task → lead); the owner's card waits.
+    @Published var leadRulings: [UUID: MemberID] = [:]
     private var flowRunIDs: Set<UUID> = []
     private var cancelFlow = false
     /// What each running task is doing; joined into `flowActivity`.
@@ -2593,8 +2599,14 @@ extension WorkbenchModel {
                     : (summary: reply, disputes: [])
                 updateTask(id, taskID) { $0.summary = parsed.summary; $0.changes = workspace.taskChanges(taskID) }
                 if !parsed.disputes.isEmpty {
-                    // The owner rules; the copy waits as it is.
+                    // The copy waits as it is. With three or more members the lead (neither author
+                    // nor reviewer) rules first; what the lead can't settle goes to the owner.
                     updateTask(id, taskID) { $0.status = .disputed; $0.disputes = parsed.disputes }
+                    if await leadRules(id, taskID: taskID, round: round, folder: folder),
+                       let ruled = task(id, taskID), ruled.status != .disputed {
+                        needsWork = ruled.status == .fixing
+                        continue
+                    }
                     Notifier.post(t("有複核異議等你裁定"), "\(flow.title)：\(current.title)")
                     return
                 }
@@ -2602,7 +2614,8 @@ extension WorkbenchModel {
             needsWork = true
             // 深入複核: another member checks each task; up to two returns.
             guard level == .deep, let checked = task(id, taskID) else { break }
-            let reviewer = ProjectFlowEngine.reviewer(for: checked, lead: lead, members: members)
+            let reviewer = ProjectFlowEngine.reviewer(for: checked, lead: lead, members: members,
+                                                      assigned: flow.plan?.tasks ?? [], unavailable: unavailableMembers(id))
             updateTask(id, taskID) { $0.status = .reviewing; $0.reviewer = reviewer }
             if unavailableMembers(id).contains(reviewer) { return }
             setFlowActivity(taskID, t("\(memberName(reviewer)) 正在複核「\(checked.title)」……"))
@@ -2628,14 +2641,66 @@ extension WorkbenchModel {
         updateTask(id, taskID) { $0.status = .done }
     }
 
+    /// The lead rules on the author's disputes when the lead is neither author nor reviewer
+    /// (only possible with three or more members). True when every dispute was settled; false
+    /// leaves them to the owner, with the lead's notes on any the lead couldn't decide.
+    private func leadRules(_ id: UUID, taskID: UUID, round: FlowRound, folder: URL) async -> Bool {
+        guard let index = flowIndex(id), let lead = archive.projectFlows[index].lead, let current = task(id, taskID),
+              archive.projectFlows[index].members.contains(lead), ProjectFlowEngine.leadCanRule(current, lead: lead) else { return false }
+        func handBack(_ note: String) {
+            updateTask(id, taskID) { task in
+                for d in task.disputes.indices where task.disputes[d].leadNote == nil { task.disputes[d].leadNote = note }
+            }
+        }
+        if unavailableMembers(id).contains(lead) {
+            handBack(t("負責人 \(memberName(lead)) 的額度用完了，沒有裁定。")); return false
+        }
+        leadRulings[taskID] = lead
+        defer { leadRulings[taskID] = nil }
+        setFlowActivity(taskID, t("負責人 \(memberName(lead)) 正在裁定「\(current.title)」的複核異議……"))
+        let reply: String
+        do {
+            reply = try await flowCall(id, agent: lead,
+                prompt: ProjectFlowEngine.adjudicationPrompt(current, lead: lead, names: memberNames, ownerName: archive.settings.ownerName,
+                                                            round: archive.projectFlows[index].plan?.rounds.first { $0.id == round.id } ?? round,
+                                                            persona: workPersona(lead)),
+                folder: folder.path, access: .readFiles, inPlace: true, stage: t("裁定「\(current.title)」的複核異議"))
+        } catch {
+            handBack(t("負責人 \(memberName(lead)) 沒有完成裁定：\(error.localizedDescription)")); return false
+        }
+        // The owner may have ruled meanwhile; the lead's answer then no longer applies.
+        guard let latest = task(id, taskID), latest.status == .disputed, latest.disputes == current.disputes else { return false }
+        guard let rulings = ProjectFlowEngine.parseAdjudication(reply, disputes: current.disputes) else {
+            handBack(t("負責人 \(memberName(lead)) 的裁定讀不出來，請你裁定。")); return false
+        }
+        if rulings.contains(where: { $0.verdict == nil }) {
+            // Upstream hands the whole set to the owner when any one is unsure; the lead's view stays as a note.
+            updateTask(id, taskID) { task in
+                for d in task.disputes.indices {
+                    guard let r = rulings.first(where: { $0.findingID == task.disputes[d].findingID }) else { continue }
+                    let view = r.verdict == .author ? t("傾向支持作者") : r.verdict == .review ? t("傾向維持複核") : t("無法確定")
+                    task.disputes[d].leadNote = "\(memberName(lead))（負責人）\(view)：\(r.reason)"
+                }
+            }
+            return false
+        }
+        var ruled = latest
+        ProjectFlowEngine.applyRulings(&ruled, verdicts: Dictionary(uniqueKeysWithValues: rulings.compactMap { r in r.verdict.map { (r.findingID, $0) } }),
+                                       judge: lead, notes: Dictionary(uniqueKeysWithValues: rulings.map { ($0.findingID, $0.reason) }))
+        guard ruled.status != .disputed else { return false }
+        updateTask(id, taskID) { $0 = ruled }
+        postFlowRecord(id, from: lead, ProjectFlowEngine.rulingCard(ruled, rulings: Array(ruled.rulings.dropFirst(latest.rulings.count)), names: memberNames))
+        return true
+    }
+
     /// The owner rules on an author's disputes (支持作者 / 維持複核), then the task goes on.
     func ruleDisputes(_ id: UUID, taskID: UUID, verdicts: [String: FlowVerdict]) {
-        guard let current = task(id, taskID), current.status == .disputed else { return }
+        guard let current = task(id, taskID), current.status == .disputed, leadRulings[taskID] == nil else { return }
         var ruled = current
         ProjectFlowEngine.applyRulings(&ruled, verdicts: verdicts)
         guard ruled.status != .disputed else { statusMessage = t("請逐條裁定每一項異議。"); return }
         updateTask(id, taskID) { $0 = ruled }
-        postFlowRecord(id, from: nil, ProjectFlowEngine.rulingCard(ruled, rulings: Array(ruled.rulings.dropFirst(current.rulings.count))))
+        postFlowRecord(id, from: nil, ProjectFlowEngine.rulingCard(ruled, rulings: Array(ruled.rulings.dropFirst(current.rulings.count)), names: memberNames))
         continueRound(id)
     }
 
