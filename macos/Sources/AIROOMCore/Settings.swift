@@ -16,6 +16,8 @@ public struct NativeSettings: Codable, Equatable, Sendable {
     public var language: InterfaceLanguage
     /// How members address the user (設定 → 個人資料). Empty = a neutral default.
     public var userName: String
+    /// Look for a newer release on GitHub (at most once a day).
+    public var checkForUpdates: Bool
 
     public init(claudePath: String = "", codexPath: String = "", deepseekPath: String = "", workspacePath: String = "",
                 language: InterfaceLanguage = .zhTW, userName: String = "") {
@@ -25,9 +27,10 @@ public struct NativeSettings: Codable, Equatable, Sendable {
         self.workspacePath = workspacePath
         self.language = language
         self.userName = String(userName.prefix(40))
+        checkForUpdates = true
     }
 
-    private enum CodingKeys: String, CodingKey { case claudePath, codexPath, deepseekPath, workspacePath, language, userName }
+    private enum CodingKeys: String, CodingKey { case claudePath, codexPath, deepseekPath, workspacePath, language, userName, checkForUpdates }
 
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
@@ -37,6 +40,7 @@ public struct NativeSettings: Codable, Equatable, Sendable {
         workspacePath = try box.decodeIfPresent(String.self, forKey: .workspacePath) ?? ""
         language = try box.decodeIfPresent(InterfaceLanguage.self, forKey: .language) ?? .zhTW
         userName = try box.decodeIfPresent(String.self, forKey: .userName) ?? ""
+        checkForUpdates = (try? box.decodeIfPresent(Bool.self, forKey: .checkForUpdates)) ?? true
     }
 
     /// Name used in prompts for the human owner.

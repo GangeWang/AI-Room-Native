@@ -185,24 +185,27 @@ struct SettingsView: View {
     }
 
     private var about: some View {
-        StudioPanel {
-            VStack(alignment: .leading, spacing: 15) {
-                Label("AIROOM Native", systemImage: "apple.logo").font(.title2.bold())
-                Divider()
-                HStack {
-                    Text(t("外觀模式", "Appearance"))
-                    Spacer()
-                    Picker(t("外觀模式", "Appearance"), selection: $appearance) {
-                        Text(t("系統", "System")).tag("system")
-                        Text(t("亮色", "Light")).tag("light")
-                        Text(t("暗色", "Dark")).tag("dark")
-                    }.labelsHidden().pickerStyle(.segmented).frame(width: 250)
+        VStack(spacing: 15) {
+            UpdateSettingsPanel()
+            StudioPanel {
+                VStack(alignment: .leading, spacing: 15) {
+                    Label("AIROOM Native", systemImage: "apple.logo").font(.title2.bold())
+                    Divider()
+                    HStack {
+                        Text(t("外觀模式", "Appearance"))
+                        Spacer()
+                        Picker(t("外觀模式", "Appearance"), selection: $appearance) {
+                            Text(t("系統", "System")).tag("system")
+                            Text(t("亮色", "Light")).tag("light")
+                            Text(t("暗色", "Dark")).tag("dark")
+                        }.labelsHidden().pickerStyle(.segmented).frame(width: 250)
+                    }
+                    LabeledContent(t("介面", "Interface"), value: "SwiftUI / AppKit")
+                    LabeledContent(t("架構", "Architecture"), value: t("原生 ARM64 · 無 Electron", "Native ARM64 · No Electron"))
+                    LabeledContent(t("最低版本", "Minimum macOS"), value: "macOS 14")
+                    LabeledContent(t("本機資料", "Local Storage"), value: "~/Library/Application Support/AIROOMNative/state.aesgcm")
+                    StudioNotice(message: t("這是 offAice 的獨立原生實作。和原版的逐項對照見 FEATURE_PARITY.md。", "This is an independent native implementation. See FEATURE_PARITY.md for a feature-by-feature comparison."))
                 }
-                LabeledContent(t("介面", "Interface"), value: "SwiftUI / AppKit")
-                LabeledContent(t("架構", "Architecture"), value: t("原生 ARM64 · 無 Electron", "Native ARM64 · No Electron"))
-                LabeledContent(t("最低版本", "Minimum macOS"), value: "macOS 14")
-                LabeledContent(t("本機資料", "Local Storage"), value: "~/Library/Application Support/AIROOMNative/state.aesgcm")
-                StudioNotice(message: t("這是 offAice 的獨立原生實作。原版所有多人工作流程尚未完整移植。", "This is an independent native implementation. Not all original multi-agent workflows are available."))
             }
         }
     }

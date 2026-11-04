@@ -31,6 +31,12 @@ struct AIROOMNativeApp: App {
             StudioMenuBar().environmentObject(workbench)
         }
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button(StudioI18n.t("檢查更新…", "Check for Updates…", workbench.archive.settings.language)) {
+                    workbench.checkForUpdates(manual: true, announce: true)
+                }
+                .disabled(workbench.updateChecking)
+            }
             CommandGroup(replacing: .newItem) {
                 Button(LocalizedUI.text("開始新對話", language: workbench.archive.settings.language)) { workbench.resetConversation(for: .claude) }
                     .keyboardShortcut("n", modifiers: .command)
@@ -57,6 +63,9 @@ struct StudioMenuBar: View {
         if model.roomRunning { Text(t("茶歇室討論中", "Lounge is talking")) }
         if !model.attentionItems.isEmpty {
             Text(t("\(model.attentionItems.count) 項待你處理", "\(model.attentionItems.count) items need you"))
+        }
+        if let release = model.availableUpdate {
+            Button(t("有新版本 \(release.version)，前往下載", "Download version \(release.version)")) { model.openUpdatePage() }
         }
         Divider()
         Button(t("打開 AIROOM 工作室", "Open AIROOM")) {

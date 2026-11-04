@@ -27,7 +27,7 @@
 | 成員長期記憶 | 長期記憶、生活狀態 | **完成**：記憶條目（手寫／從 Codex、Claude 記憶檔匯入／成員從書桌話題提議、主人確認），可逐條關閉，上限 200 條、每條 2000 字、啟用合計 8000 字；隨人物設定送進書桌、茶歇室、圓桌、專案；延續中的 CLI 對話會收到設定更新；作息四時段、小習慣、成員關係、發言傾向（加權聊天輪次）、側欄狀態列 | 書桌「提議記憶」已實際跑過（保留、不要都試過） |
 | DeepSeek Harness 執行端 | DSH（ACP） | **已實作**（用 `dsh` 的 headless 模式，不經 ACP） | 自動找 DeepSeek Harness.app 內附的 `dsh`；API 金鑰由 DeepSeek Harness 自己保存與讀取，AIROOM 只檢查是否已存過金鑰。可選 DeepSeek-V4.1-Flash（預設）、DeepSeek-V4-Pro；延續對話用 `--session-id`（DSH 的對話綁定資料夾，所以唯讀房間給每位成員固定的副本路徑；接不上時自動改用完整前情重開）；唯讀房間用 DSH 的 read-only 沙箱，改檔被擋不會卡住；只收文字，不能附圖片或 PDF；DeepSeek API 按用量計費，沒有額度視窗可查。已實際跑過工位（延續對話、改檔）、茶歇室、圓桌（和 Claude 同時準備、互評、審議）、專案（DS 當負責人寫方案、執行、驗收寫回） |
 | 其他 AI（Gemini、Kimi、GLM 等） | 多執行端 | **暫緩** | 成員已能選執行端、形象模板已備好；Gemini 改用 Antigravity CLI（`agy`）、Kimi CLI、ZCode 都還沒接 |
-| DMG、Apple 公證、自動更新 | Windows 發行包 | **部分** | `Scripts/make-dmg.sh` 產生可拖曳安裝的 DMG（App 與 DMG 都用 Apple Development 憑證簽章）；未公證（使用者決定不加入付費開發者計畫），在別台 Mac 第一次開啟需到「隱私權與安全性」允許；沒有自動更新（原版也沒有） |
+| DMG、Apple 公證、自動更新 | Windows 發行包 | **部分** | `Scripts/make-dmg.sh` 產生可拖曳安裝的 DMG（App 與 DMG 都用 Apple Development 憑證簽章）；未公證（使用者決定不加入付費開發者計畫），在別台 Mac 第一次開啟需到「隱私權與安全性」允許；不會自動更新（原版也沒有），但有新版本提醒：每天最多查一次 GitHub 最新 Release，以頂部橫幅提示並可略過該版本；設定可關閉，選單有「檢查更新…」 |
 | TTS、Live2D（VTube Studio） | 原版本身不提供 | **新增** `LiveEvent`、macOS TTS、VTS 表情熱鍵與嘴型同步 | 單一 VTS 模型；VTS 實機待驗收；見 `LIVE_STAGE.md` |
 | OBS、直播聊天連接器 | 原版本身不提供 | **未完成** | 下一階段：YouTube／Bilibili 留言匯入、OBS + 直播姬雙端推流 |
 

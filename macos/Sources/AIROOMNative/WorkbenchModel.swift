@@ -8,6 +8,11 @@ final class WorkbenchModel: ObservableObject {
         didSet { if archive.members != oldValue.members { applyMemberSettings() } }
     }
     @Published var storageAvailable = true
+    /// A newer release on GitHub the owner hasn't skipped (see UpdateReminder.swift).
+    @Published var availableUpdate: ReleaseInfo?
+    @Published var updateChecking = false
+    /// The result of the last check the owner asked for.
+    @Published var updateStatus: String?
     @Published var officialCLIStatuses: [Executor: OfficialCLIStatus] = [:]
     @Published var accountQuotas: [Executor: AccountQuota] = [:]
     @Published var quotaRefreshing: Set<Executor> = []
@@ -3022,6 +3027,7 @@ extension WorkbenchModel {
 
     /// The window was opened (or the app brought forward): the first time each day, one member greets.
     func windowOpened(now: Date = .now) {
+        checkForUpdates(manual: false, now: now)
         guard storageAvailable else { return }
         let due = archive.dailyOpening.opened(now: now)
         persist()

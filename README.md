@@ -39,7 +39,7 @@
 
 - **macOS 原生**：SwiftUI／AppKit，沒有 Electron 或 Node.js；只支援 Apple Silicon。原版是 Windows 的 Electron 程式。
 - **執行端有 Claude Code、Codex、DeepSeek Harness**：原版另外支援的 Qwen、Kimi、GLM 等執行端暫未支援；Gemini、Kimi、GLM 形象目前由上述程式代跑。
-- **沒有自動更新、未經公證**：更新請到 Releases 下載新版 DMG。
+- **不會自動更新、未經公證**：有新版本時 App 會提醒，請到 Releases 下載新版 DMG，拖進「應用程式」取代舊版即可，資料會保留。
 - **加密方式不同**：資料以這台 Mac 鑰匙圈裡的金鑰加密，備份無法直接拿到另一台 Mac 還原。
 
 ## 資源用量比較
@@ -86,6 +86,7 @@ swift test                     # 單元測試
 - AIROOM 不讀取、也不保存任何官方 CLI 的登入憑證；登入一律在終端機使用官方流程。
 - 對話、人物卡與設定只存在這台 Mac：`~/Library/Application Support/AIROOMNative`，以鑰匙圈金鑰加密。
 - 你傳給成員的內容會送到對應的服務商（Anthropic、OpenAI）。茶歇室與專案中已完成的發言，會作為共同上下文送給其他成員所屬的服務商。
+- 更新提醒每天最多向 GitHub 讀取一次公開的最新版本資訊，不傳送你的任何資料，也不會自動下載或安裝；可在「設定 → 工作台」關閉。
 - 修改檔案的工作在副本進行，由你確認後才寫回；副本是檢查機制，不是作業系統沙箱，CLI 仍以你的使用者權限執行。詳見 [macos/SECURITY.md](macos/SECURITY.md)。
 
 ## 素材與授權

@@ -41,6 +41,10 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 topBar
                 Divider().overlay(StudioTheme.border(scheme))
+                if let release = model.availableUpdate {
+                    UpdateBanner(release: release)
+                    Divider().overlay(StudioTheme.border(scheme))
+                }
                 Group {
                     switch route {
                     case .home:
