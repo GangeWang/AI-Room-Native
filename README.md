@@ -42,6 +42,24 @@
 - **沒有自動更新、未經公證**：更新請到 Releases 下載新版 DMG。
 - **加密方式不同**：資料以這台 Mac 鑰匙圈裡的金鑰加密，備份無法直接拿到另一台 Mac 還原。
 
+## 資源用量比較
+
+2026-11-04 在同一台 Apple Silicon Mac 上實測。原版（[tonyAmadeus/offAice](https://github.com/tonyAmadeus/offAice) commit `c6e2b59`，Electron 44.5.1）從原始碼以開發模式啟動；AIROOM Native 為 0.2.58。記憶體是 macOS `footprint` 量到的實際佔用（也就是「活動監視器」顯示的記憶體），加總 App 的所有程序。
+
+| 狀況 | 原版（Electron） | AIROOM Native |
+| --- | --- | --- |
+| 剛啟動、閒置 30 秒 | 250 MB | 134 MB |
+| 開過茶歇室、圓桌、用量、設定之後 | 約 350 MB | 115 MB |
+| 長時間使用後（多輪對話） | 未量測 | 約 180 MB（高峰 280 MB） |
+| 程序數 | 5 個（主程序、GPU、畫面、網路服務、執行服務） | 1 個 |
+| 程式本體大小 | Electron 執行環境 288 MB＋程式 10 MB | 16 MB |
+| 閒置時 CPU | 約 0.1% | 約 0% |
+
+- 原版的記憶體大多在 GPU 程序：開過幾個畫面後，從 132 MB 漲到 223 MB。
+- 量測時原版是全新安裝，沒有成員和對話；AIROOM Native 已載入三位成員、立繪和茶歇室紀錄。即使如此，原版的用量仍約為 2–3 倍。
+- 原版正式支援 Windows，這裡是在 Mac 上用開發模式跑，Windows 正式版的數字可能不同；但 Electron 分成多個程序的架構相同。
+- 兩邊都沒有算進 Claude Code、Codex、DeepSeek Harness 這些成員程式本身：它們工作時用多少記憶體，換哪種介面架構都一樣。
+
 ## 從原始碼建置
 
 需要 Xcode 與 Swift 工具鏈。
