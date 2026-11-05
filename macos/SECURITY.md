@@ -15,6 +15,9 @@ using a dedicated standard (non-admin) macOS account for sensitive testing.
   random 256-bit key stored in the login Keychain, scoped to this machine.
 - Moving to another Mac: optional password export, see limitation 6.
 - No token/password input fields; vendor CLI logins remain vendor-owned.
+- Antigravity (`agy`) runs with its terminal sandbox on, `--mode plan` unless a task may
+  write, per-run settings that keep approvals on and stay inside the workspace, and
+  never `--dangerously-skip-permissions`. `agy` updates itself in the background.
 - Minimal environment passed to subprocesses; unknown variables (including
   `*TOKEN*`, `*API_KEY*`, `NODE_OPTIONS`, `DYLD_*`, proxies, SSH agent) excluded.
 - Common credential file names and selected secret-text signatures excluded from

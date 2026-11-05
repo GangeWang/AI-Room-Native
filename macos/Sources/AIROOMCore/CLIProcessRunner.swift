@@ -138,7 +138,7 @@ public final class CLIProcessRunner {
     private func runBlocking(id: UUID, agent: Executor, member: MemberID, binary: URL, cwd: URL, prompt: String,
                              access: ExecutionAccess, options: CLIRunOptions, delivered: () -> Void,
                              onUpdate: (String) -> Void) throws -> CLIRunResult {
-        if agent == .deepseek, let file = options.attachments.first {
+        if !agent.acceptsFiles, let file = options.attachments.first {
             throw AttachmentError.filesNotSupported(file.attachment.fileName)
         }
         let process = Process()
@@ -186,7 +186,8 @@ public final class CLIProcessRunner {
         defer { if let patch { try? FileManager.default.removeItem(at: patch) } }
         process.executableURL = binary
         process.arguments = CommandPlan.arguments(for: agent, access: access, options: options, patch: patch?.path)
-        let input = options.attachments.isEmpty ? Data(prompt.utf8)
+        let input = agent == .antigravity ? try Antigravity.userMessage(prompt: prompt)
+            : options.attachments.isEmpty ? Data(prompt.utf8)
             : try ClaudeStreamInput.userMessage(prompt: prompt, attachments: options.attachments)
         process.currentDirectoryURL = actualCWD
         var environment = PrivacyGuard.cliEnvironment(
@@ -258,10 +259,14 @@ public final class CLIProcessRunner {
             let message = parser.failure ?? stderrText.trimmingCharacters(in: .whitespacesAndNewlines)
             throw NativeCLIError.processFailed("\(agent.rawValue) 執行失敗（exit \(process.terminationStatus)）：\(String(PrivacyGuard.redact(message).prefix(2_000)))")
         }
+        if agent == .antigravity, Antigravity.lostConversation(resumeID: options.session?.resumeID, reported: parser.sessionID) {
+            throw SessionUnavailable()
+        }
         if parser.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw NativeCLIError.noResponse(agent.rawValue)
         }
-        let model = parser.model ?? (agent == .deepseek ? (options.model.isEmpty ? DeepSeekHarness.defaultModel : options.model) : nil)
+        let model = parser.model ?? (agent == .deepseek ? (options.model.isEmpty ? DeepSeekHarness.defaultModel : options.model)
+                                     : agent == .antigravity && !options.model.isEmpty ? options.model : nil)
         return CLIRunResult(text: PrivacyGuard.redact(parser.text), model: model, sessionID: parser.sessionID)
     }
 
@@ -271,6 +276,32 @@ public final class CLIProcessRunner {
 
     /// Asks Claude Code for its model catalog through the SDK `initialize`
     /// control request. No user message is sent and no tokens are spent.
+    public func antigravityModels(settings: NativeSettings, timeout: TimeInterval = 15) async throws -> [ModelChoice] {
+        let binary = try CommandPlan.resolveExecutable(agent: .antigravity, settings: settings)
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                do {
+                    let process = Process()
+                    process.executableURL = binary
+                    process.arguments = ["models"]
+                    process.currentDirectoryURL = FileManager.default.temporaryDirectory
+                    process.environment = PrivacyGuard.cliEnvironment(from: ProcessInfo.processInfo.environment, executable: binary)
+                    let output = Pipe()
+                    process.standardInput = FileHandle.nullDevice
+                    process.standardOutput = output
+                    process.standardError = FileHandle.nullDevice
+                    try process.run()
+                    let watchdog = DispatchWorkItem { if process.isRunning { process.terminate() } }
+                    DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
+                    let data = output.fileHandleForReading.readDataToEndOfFile()
+                    process.waitUntilExit()
+                    watchdog.cancel()
+                    continuation.resume(returning: Antigravity.parseModels(String(decoding: data, as: UTF8.self)))
+                } catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
     public func claudeModels(settings: NativeSettings, timeout: TimeInterval = 10) async throws -> [ModelChoice] {
         let binary = try CommandPlan.resolveExecutable(agent: .claude, settings: settings)
         return try await withCheckedThrowingContinuation { continuation in

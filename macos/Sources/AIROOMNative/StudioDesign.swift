@@ -83,6 +83,7 @@ extension Executor {
         case .claude: return "Claude"
         case .codex: return "Codex"
         case .deepseek: return "DeepSeek"
+        case .antigravity: return "Antigravity"
         }
     }
 }

@@ -342,12 +342,13 @@ public struct PersonaFile: Identifiable, Equatable, Sendable {
     public var text: String
     public var truncated: Bool
 
-    /// Codex keeps ~/.codex/AGENTS.md; Claude Code keeps ~/.claude/CLAUDE.md; DeepSeek Harness ~/.dsh/AGENTS.md.
+    /// Codex keeps ~/.codex/AGENTS.md; Claude Code keeps ~/.claude/CLAUDE.md; DeepSeek Harness ~/.dsh/AGENTS.md; Antigravity ~/.gemini/GEMINI.md.
     public static func location(for agent: Executor, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         switch agent {
         case .claude: return home.appendingPathComponent(".claude/CLAUDE.md")
         case .codex: return home.appendingPathComponent(".codex/AGENTS.md")
         case .deepseek: return home.appendingPathComponent(".dsh/AGENTS.md")
+        case .antigravity: return home.appendingPathComponent(".gemini/GEMINI.md")
         }
     }
 
@@ -403,7 +404,7 @@ public enum MemoryImport {
 
     public static func sources(for agent: Executor, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [MemoryImportSource] {
         switch agent {
-        case .deepseek:
+        case .deepseek, .antigravity:
             return []
         case .codex:
             return FileManager.default.fileExists(atPath: codexSummary(home).path)

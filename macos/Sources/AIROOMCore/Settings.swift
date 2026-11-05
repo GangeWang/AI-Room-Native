@@ -12,6 +12,7 @@ public struct NativeSettings: Codable, Equatable, Sendable {
     public var codexPath: String
     /// The `dsh` launcher; empty finds the one inside DeepSeek Harness.app.
     public var deepseekPath: String
+    public var antigravityPath: String
     public var workspacePath: String
     public var language: InterfaceLanguage
     /// How members address the user (設定 → 個人資料). Empty = a neutral default.
@@ -19,24 +20,26 @@ public struct NativeSettings: Codable, Equatable, Sendable {
     /// Look for a newer release on GitHub (at most once a day).
     public var checkForUpdates: Bool
 
-    public init(claudePath: String = "", codexPath: String = "", deepseekPath: String = "", workspacePath: String = "",
+    public init(claudePath: String = "", codexPath: String = "", deepseekPath: String = "", antigravityPath: String = "", workspacePath: String = "",
                 language: InterfaceLanguage = .zhTW, userName: String = "") {
         self.claudePath = claudePath
         self.codexPath = codexPath
         self.deepseekPath = deepseekPath
+        self.antigravityPath = antigravityPath
         self.workspacePath = workspacePath
         self.language = language
         self.userName = String(userName.prefix(40))
         checkForUpdates = true
     }
 
-    private enum CodingKeys: String, CodingKey { case claudePath, codexPath, deepseekPath, workspacePath, language, userName, checkForUpdates }
+    private enum CodingKeys: String, CodingKey { case claudePath, codexPath, deepseekPath, antigravityPath, workspacePath, language, userName, checkForUpdates }
 
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
         claudePath = try box.decodeIfPresent(String.self, forKey: .claudePath) ?? ""
         codexPath = try box.decodeIfPresent(String.self, forKey: .codexPath) ?? ""
         deepseekPath = (try? box.decodeIfPresent(String.self, forKey: .deepseekPath)) ?? ""
+        antigravityPath = (try? box.decodeIfPresent(String.self, forKey: .antigravityPath)) ?? ""
         workspacePath = try box.decodeIfPresent(String.self, forKey: .workspacePath) ?? ""
         language = try box.decodeIfPresent(InterfaceLanguage.self, forKey: .language) ?? .zhTW
         userName = try box.decodeIfPresent(String.self, forKey: .userName) ?? ""
@@ -54,6 +57,7 @@ public struct NativeSettings: Codable, Equatable, Sendable {
         case .claude: return claudePath
         case .codex: return codexPath
         case .deepseek: return deepseekPath
+        case .antigravity: return antigravityPath
         }
     }
 
@@ -62,6 +66,7 @@ public struct NativeSettings: Codable, Equatable, Sendable {
         case .claude: claudePath = path
         case .codex: codexPath = path
         case .deepseek: deepseekPath = path
+        case .antigravity: antigravityPath = path
         }
     }
 }
@@ -191,6 +196,7 @@ public enum CommandPlan {
             case .codex: bundled = bundledCodexPaths(home: home)
             case .claude: bundled = bundledClaudePaths(home: home)
             case .deepseek: bundled = bundledDeepSeekPaths(home: home)
+            case .antigravity: bundled = [] // installed on its own, in ~/.local/bin
             }
             candidates = bundled + (path + fallbackPATH + homeDirs).map {
                 ($0 as NSString).appendingPathComponent(agent.executableName)
@@ -212,6 +218,8 @@ public enum CommandPlan {
     public static func arguments(for agent: Executor, access: ExecutionAccess = .readOnly,
                                  options: CLIRunOptions = CLIRunOptions(), patch: String? = nil) -> [String] {
         switch agent {
+        case .antigravity:
+            return Antigravity.arguments(access: access, options: options)
         case .deepseek:
             // One task per run through the headless profile; the prompt arrives on stdin.
             // Access is enforced by DSH's own sandbox (DSH_PERMISSION_MODE).

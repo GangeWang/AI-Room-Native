@@ -284,8 +284,8 @@ final class WorkbenchModel: ObservableObject {
             modelCatalogLoading.insert(agent)
             Task {
                 do {
-                    let models = agent == .claude
-                        ? try await runner.claudeModels(settings: settings)
+                    let models = agent == .claude ? try await runner.claudeModels(settings: settings)
+                        : agent == .antigravity ? try await runner.antigravityModels(settings: settings)
                         : try await runner.codexModels(settings: settings)
                     if !models.isEmpty { modelCatalogs[agent] = models }
                 } catch {
@@ -337,7 +337,7 @@ final class WorkbenchModel: ObservableObject {
                 let data = try Data(contentsOf: url)
                 let attachment = try AttachmentPolicy.classify(fileName: url.lastPathComponent, data: data)
                 if attachment.kind == .pdf && executor(of: agent) == .codex { throw AttachmentError.pdfNotSupported(attachment.fileName) }
-                if attachment.kind != .text && executor(of: agent) == .deepseek { throw AttachmentError.filesNotSupported(attachment.fileName) }
+                if attachment.kind != .text && !executor(of: agent).acceptsFiles { throw AttachmentError.filesNotSupported(attachment.fileName) }
                 try persistence.storeAttachment(data, id: attachment.id)
                 list.append(attachment)
             } catch {
@@ -375,7 +375,7 @@ final class WorkbenchModel: ObservableObject {
             if !list.contains(where: { $0.id == item.id }) { list.append(item) }
         }.suffix(AttachmentPolicy.maxPerMessage))
         if executor(of: agent) == .codex { files.removeAll { $0.kind == .pdf } }
-        if executor(of: agent) == .deepseek { files.removeAll() } // text only; texts are inlined below
+        if !executor(of: agent).acceptsFiles { files.removeAll() } // text only; texts are inlined below
         let texts = attachments.filter { $0.kind == .text }.compactMap { item in
             (try? persistence.loadAttachment(id: item.id)).map { (item, $0) }
         }
@@ -1665,7 +1665,7 @@ final class WorkbenchModel: ObservableObject {
                     guard let member = archive.members.first(where: { $0.agent == agent }) else { continue }
                     let prompt = RoundtableFlow.preparePrompt(material, member: member, ownerName: archive.settings.ownerName,
                                                               team: archive.members)
-                    let files = executor(of: agent) == .deepseek ? []
+                    let files = !executor(of: agent).acceptsFiles ? []
                         : executor(of: agent) == .codex ? prepared.files.filter { $0.attachment.kind != .pdf } : prepared.files
                     group.addTask { @MainActor [self] in
                         cancelRoundtableQueue ? nil : await roundtableCall(id, agent: agent, prompt: prompt, files: files)

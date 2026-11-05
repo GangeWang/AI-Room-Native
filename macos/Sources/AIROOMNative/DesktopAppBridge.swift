@@ -19,6 +19,13 @@ extension WorkbenchModel {
             if let app { NSWorkspace.shared.open(app) } else { statusMessage = archive.settings.language == .english ? "DeepSeek Harness.app was not found." : "找不到 DeepSeek Harness.app。" }
             return
         }
+        // Antigravity has no new-session link either.
+        if agent == .antigravity {
+            let app = URL(fileURLWithPath: "/Applications/Antigravity.app")
+            if FileManager.default.fileExists(atPath: app.path) { NSWorkspace.shared.open(app) }
+            else { statusMessage = archive.settings.language == .english ? "Antigravity.app was not found." : "找不到 Antigravity.app。" }
+            return
+        }
         do {
             let url = try DesktopAppHandoff.newCodeSession(
                 agent: agent,

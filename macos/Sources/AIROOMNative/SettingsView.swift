@@ -105,6 +105,8 @@ struct SettingsView: View {
                                      ? t("官方 App Server（自動使用 ChatGPT App 內附 Codex）", "Official App Server (uses bundled ChatGPT Codex)")
                                      : agent == .deepseek
                                      ? t("自動使用 DeepSeek Harness.app 內附的 dsh（headless）", "Uses the dsh bundled with DeepSeek Harness.app (headless)")
+                                     : agent == .antigravity
+                                     ? t("Google 官方 Antigravity CLI（agy，headless）", "Google's official Antigravity CLI (agy, headless)")
                                      : t("自動使用 Claude Desktop 內附 Claude Code", "Auto-detect Claude Code bundled with Claude Desktop"))
                                     .font(.caption).foregroundStyle(.secondary)
                             }
@@ -132,6 +134,8 @@ struct SettingsView: View {
                         }
                         Text(agent == .deepseek
                              ? t("DeepSeek 留空會使用 DeepSeek Harness.app 內附的 dsh。API 金鑰請在 DeepSeek Harness 的設定裡填寫；AIROOM 不讀取也不保存金鑰，只檢查 DeepSeek Harness 是否已存過金鑰。", "Leave empty to use the dsh inside DeepSeek Harness.app. Set the API key in DeepSeek Harness; AIROOM never reads or stores it and only checks that one is saved.")
+                             : agent == .antigravity
+                             ? t("留空會找 ~/.local/bin/agy。agy 要另外安裝，和 Antigravity App 共用登入；AIROOM 不讀取登入資料。登入檢查是看它能不能列出模型。", "Leave empty to use ~/.local/bin/agy. agy is installed separately and shares its sign-in with the Antigravity app; AIROOM never reads it. The login check asks agy to list models.")
                              : agent == .codex
                              ? t("Codex 留空會先找 ChatGPT.app 內附的 codex-cli，再找 Codex.app 或 PATH。使用 App Server JSON-RPC；不會讀取 Token，也不會自動匯入桌面對話。", "Leave Codex path empty to prefer bundled ChatGPT.app codex-cli, then Codex.app or PATH. Uses App Server JSON-RPC; no token scraping or desktop transcript import.")
                              : t("Claude 路徑留空會先找 Claude Desktop Code 分頁安裝的最新 Claude Code，再找 PATH。檢查 CLI 登入不會讀取 Token，也不代表桌面 App 對話已同步。", "Leave the Claude path empty to use the latest Claude Code installed by Claude Desktop’s Code tab, falling back to PATH. Login checks never read tokens or sync desktop conversations."))
@@ -150,6 +154,9 @@ struct SettingsView: View {
             case .notLoggedIn: return t("DeepSeek Harness 還沒有存 API 金鑰：請打開 DeepSeek Harness，在設定的模型頁填好。", "DeepSeek Harness has no saved API key: open it and set one on its Models page.")
             default: break
             }
+        }
+        if agent == .antigravity, result == .notLoggedIn {
+            return t("agy 尚未登入：請在 Antigravity App 登入，或在終端機執行一次 agy。", "agy is not signed in: sign in in the Antigravity app, or run agy once in Terminal.")
         }
         switch result {
         case .authenticated: return t("官方 CLI 已登入（不代表桌面 App 的對話可讀取）", "Official CLI signed in (desktop conversations are not imported)")

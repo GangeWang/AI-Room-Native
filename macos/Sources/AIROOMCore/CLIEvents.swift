@@ -17,12 +17,40 @@ public struct CLIEventAccumulator {
 
     public init(agent: Executor) { self.agent = agent }
 
+    /// agy stream-json: one init, step_update events, then one result. Text between
+    /// tool steps streams as it comes; the result's response is the final answer.
+    private mutating func consumeAntigravity(_ value: [String: Any]) -> String? {
+        switch value["event"] as? String {
+        case "init":
+            if let id = value["conversation_id"] as? String, !id.isEmpty { sessionID = id }
+        case "step_update":
+            guard let step = value["step_update"] as? [String: Any], step["step_type"] as? String == "agent_response",
+                  let part = step["text_delta"] as? String, !part.isEmpty else { return nil }
+            streamed += part
+            text = streamed
+            return text
+        case "result":
+            guard let result = value["result"] as? [String: Any] else { return nil }
+            if let id = result["conversation_id"] as? String, !id.isEmpty { sessionID = id }
+            guard result["status"] as? String == "SUCCESS" else {
+                failure = (result["error"] as? String) ?? "Antigravity 沒有完成這一輪（\(result["status"] as? String ?? "未知狀態")）"
+                return nil
+            }
+            if let final = result["response"] as? String, !final.isEmpty { text = final; return text }
+        default: break
+        }
+        return nil
+    }
+
     @discardableResult public mutating func consume(line: String) -> String? {
         guard let data = line.data(using: .utf8),
-              let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = value["type"] as? String else { return nil }
+              let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        if agent == .antigravity { return consumeAntigravity(value) }
+        guard let type = value["type"] as? String else { return nil }
 
         switch agent {
+        case .antigravity:
+            break // handled above: its events are keyed "event", not "type"
         case .deepseek:
             // dsh headless --json: session, status, thinking, text, tool_call, tool_result, final.
             switch type {

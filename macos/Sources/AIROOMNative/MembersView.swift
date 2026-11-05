@@ -121,7 +121,7 @@ struct MembersView: View {
                                         else { model.statusMessage = t("沒有找到 \(PersonaFile.location(for: member.executor).path)，或檔案是空的。",
                                                                        "\(PersonaFile.location(for: member.executor).path) was not found or is empty.") }
                                     } label: {
-                                        Label(t("從 \(member.executor == .claude ? "CLAUDE.md" : "AGENTS.md") 匯入…", "Import from \(member.executor == .claude ? "CLAUDE.md" : "AGENTS.md")…"),
+                                        Label(t("從 \(PersonaFile.location(for: member.executor).lastPathComponent) 匯入…", "Import from \(PersonaFile.location(for: member.executor).lastPathComponent)…"),
                                               systemImage: "square.and.arrow.down")
                                     }
                                     .buttonStyle(.borderless).font(.caption)
@@ -336,6 +336,8 @@ private struct MemoryImportSheet: View {
                      "Only the sections about you in ~/.codex/memories/memory_summary.md are read.")
                  : agent.executor == .deepseek
                  ? t("DeepSeek Harness 沒有可以匯入的記憶檔。", "DeepSeek Harness has no memory files to import.")
+                 : agent.executor == .antigravity
+                 ? t("Antigravity 沒有可以匯入的記憶檔。", "Antigravity has no memory files to import.")
                  : t("只讀取 ~/.claude/projects/*/memory/ 裡的記憶檔，不讀登入資料或對話紀錄。",
                      "Only memory files in ~/.claude/projects/*/memory/ are read — never credentials or transcripts."))
                 .font(.caption).foregroundStyle(.secondary)

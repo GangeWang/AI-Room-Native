@@ -21,7 +21,7 @@ public enum DesktopAppHandoff {
     /// ever added to these URLs. Workspace handoff only happens after the user
     /// explicitly chooses a folder and presses the corresponding button.
     public static func newCodeSession(agent: Executor, selectedWorkspace: String = "") throws -> URL {
-        guard agent != .deepseek else { throw LinkError.noSessionLink(agent.rawValue) }
+        guard agent == .claude || agent == .codex else { throw LinkError.noSessionLink(agent.rawValue) }
         let destination = agent == .codex ? "codex://threads/new" : "claude://code/new"
         guard var components = URLComponents(string: destination) else {
             preconditionFailure("Invalid hardcoded official application URL")
@@ -64,7 +64,7 @@ public enum OfficialCLIProbe {
         if agent == .deepseek { return DeepSeekHarness.hasSavedCredentials(home: home) ? .authenticated : .notLoggedIn }
         let child = Process()
         child.executableURL = executable
-        child.arguments = agent == .codex ? ["login", "status"] : ["auth", "status"]
+        child.arguments = agent == .antigravity ? ["models"] : agent == .codex ? ["login", "status"] : ["auth", "status"]
         child.environment = PrivacyGuard.cliEnvironment(from: environment, executable: executable, home: home)
         child.standardInput = FileHandle.nullDevice
         // `claude auth status` prints a small JSON report (no token values).
@@ -80,6 +80,7 @@ public enum OfficialCLIProbe {
             return .timedOut
         }
         let report = output.fileHandleForReading.readDataToEndOfFile()
+        if agent == .antigravity { return Antigravity.status(modelsOutput: report) }
         return interpret(exitCode: child.terminationStatus, output: report)
     }
 

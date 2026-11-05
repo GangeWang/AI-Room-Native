@@ -49,9 +49,9 @@ final class MemberRosterTests: XCTestCase {
         XCTAssertEqual(decoded.members[2], state.members[2])
     }
 
-    func testTemplatesCoverTheFourUpcomingPrograms() {
+    func testTemplatesCoverTheUpcomingPrograms() {
         let planned = MemberTemplate.all.compactMap(\.plannedProgram)
-        XCTAssertEqual(planned, ["Gemini CLI", "Kimi CLI", "ZCode"])
+        XCTAssertEqual(planned, ["Kimi CLI", "ZCode"])
         XCTAssertEqual(MemberTemplate.named("deepseek")?.suggestedExecutor, .deepseek)
         for template in MemberTemplate.all {
             XCTAssertNotNil(template.color.range(of: #"^#[0-9a-f]{6}$"#, options: .regularExpression), template.id)

@@ -5,6 +5,7 @@ public enum Executor: String, Codable, CaseIterable, Identifiable, Hashable, Sen
     case claude = "Claude Code"
     case codex = "Codex"
     case deepseek = "DeepSeek Harness"
+    case antigravity = "Antigravity"
 
     public var id: String { rawValue }
     public var executableName: String {
@@ -12,13 +13,17 @@ public enum Executor: String, Codable, CaseIterable, Identifiable, Hashable, Sen
         case .claude: return "claude"
         case .codex: return "codex"
         case .deepseek: return "dsh"
+        case .antigravity: return "agy"
         }
     }
+    /// Whether images and files can be sent; the others get text only.
+    public var acceptsFiles: Bool { self == .claude || self == .codex }
     public var symbol: String {
         switch self {
         case .claude: return "brain.head.profile"
         case .codex: return "chevron.left.forwardslash.chevron.right"
         case .deepseek: return "fish"
+        case .antigravity: return "sparkles"
         }
     }
 }

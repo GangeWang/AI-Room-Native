@@ -45,6 +45,7 @@ struct StudioQuotaView: View {
                                     }
                                     Text(agent == .codex ? "Codex App Server · account/rateLimits/read"
                                          : agent == .deepseek ? t("DeepSeek API 按用量計費，沒有 5 小時或每週額度", "DeepSeek's API is pay-as-you-go: no 5-hour or weekly windows")
+                                         : agent == .antigravity ? t("agy 不提供額度查詢；請到 Antigravity App 查看", "agy has no quota report; check the Antigravity app")
                                          : "Claude Code · /usage")
                                         .font(.caption2.monospaced()).foregroundStyle(.secondary)
                                 }
@@ -54,7 +55,7 @@ struct StudioQuotaView: View {
                                 } label: {
                                     Label(t("刷新額度", "Refresh Quota"), systemImage: "arrow.clockwise")
                                 }
-                                .disabled(model.quotaRefreshing.contains(agent) || agent == .deepseek)
+                                .disabled(model.quotaRefreshing.contains(agent) || agent == .deepseek || agent == .antigravity)
                                 if model.quotaRefreshing.contains(agent) { ProgressView().controlSize(.small) }
                             }
                             VStack(alignment: .leading, spacing: 3) {

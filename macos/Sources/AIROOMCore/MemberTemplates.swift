@@ -31,7 +31,7 @@ public struct MemberTemplate: Identifiable, Equatable, Sendable {
                        plannedProgram: nil, suggestedExecutor: .deepseek),
         MemberTemplate(id: "gemini", name: "Gemini", motto: "星星還在路上，很快見。", color: "#a35bdb",
                        art: "gemini.webp", face: PortraitFaceAnchor(x: 0.490, y: 0.128, zoom: 3.6),
-                       plannedProgram: "Gemini CLI", suggestedExecutor: .claude),
+                       plannedProgram: nil, suggestedExecutor: .antigravity),
         MemberTemplate(id: "kimi", name: "Kimi", motto: "長篇資料交給我，讀完再說。", color: "#2f8f86",
                        art: nil, face: initialFace, plannedProgram: "Kimi CLI", suggestedExecutor: .claude),
         MemberTemplate(id: "glm", name: "GLM", motto: "先列好步驟，再一步步做完。", color: "#3d8b4f",
