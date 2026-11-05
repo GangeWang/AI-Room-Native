@@ -1,8 +1,37 @@
 import SwiftUI
+import AppKit
 import AIROOMCore
+
+/// The menu bar icon keeps AIROOM running after its window is closed, and a click on
+/// the Dock icon then opened nothing by itself, so the app looked stuck.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    var openWorkbench: (() -> Void)?
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        // Not the flag: the menu bar icon's own window can count as visible.
+        let showing = sender.windows.contains { $0.canBecomeMain && $0.isVisible && !$0.isMiniaturized }
+        guard !showing else { return true }
+        openWorkbench?()
+        sender.activate(ignoringOtherApps: true)
+        return false
+    }
+}
+
+/// The menu bar icon. It exists from launch whether or not a window ever opened, so it
+/// is what hands the open-window action to the delegate, which has no SwiftUI environment.
+private struct MenuBarIcon: View {
+    let delegate: AppDelegate
+    let busy: Bool
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        Image(systemName: busy ? "circle.hexagongrid.fill" : "circle.hexagongrid")
+            .onAppear { delegate.openWorkbench = { openWindow(id: "main") } }
+    }
+}
 
 @main
 struct AIROOMNativeApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var workbench = WorkbenchModel()
 
     init() {
@@ -27,8 +56,10 @@ struct AIROOMNativeApp: App {
         }
         .defaultSize(width: 1180, height: 780)
         // Like upstream's tray icon: closing the window keeps AIROOM available here.
-        MenuBarExtra("AIROOM", systemImage: workbench.anythingRunning ? "circle.hexagongrid.fill" : "circle.hexagongrid") {
+        MenuBarExtra {
             StudioMenuBar().environmentObject(workbench)
+        } label: {
+            MenuBarIcon(delegate: delegate, busy: workbench.anythingRunning)
         }
         .commands {
             CommandGroup(after: .appInfo) {
