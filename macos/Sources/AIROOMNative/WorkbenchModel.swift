@@ -2265,18 +2265,48 @@ final class WorkbenchModel: ObservableObject {
             guard let persistence, canRestore else { return }
             let scoped = file.startAccessingSecurityScopedResource()
             defer { if scoped { file.stopAccessingSecurityScopedResource() } }
-            var restored = try persistence.restore(from: file)
-            let paused = restored.autoChat.enabled || restored.schedules.contains(where: \.enabled)
-            restored.autoChat.enabled = false
-            for index in restored.schedules.indices { restored.schedules[index].enabled = false }
-            archive = restored
-            if archive.rooms.isEmpty { archive.rooms = [TeamRoom()] }
-            selectedRoomID = archive.rooms.first?.id
-            roomTarget = nil
-            persist()
-            statusMessage = t("恢復完成，原本的資料已先備份。請重新核對各 CLI 登入狀態。")
-                + (paused ? t("排程與成員閒聊已暫停，需要時到「排程與直播」重新打開。") : "")
+            adopt(try persistence.restore(from: file), done: t("恢復完成，原本的資料已先備份。請重新核對各 CLI 登入狀態。"))
         } catch { statusMessage = "\(t("恢復失敗")): \(error.localizedDescription)" }
+    }
+
+    /// Takes restored data in, with schedules and member chat paused so nothing starts on its own.
+    private func adopt(_ incoming: SavedState, done: String) {
+        var restored = incoming
+        let paused = restored.autoChat.enabled || restored.schedules.contains(where: \.enabled)
+        restored.autoChat.enabled = false
+        for index in restored.schedules.indices { restored.schedules[index].enabled = false }
+        archive = restored
+        if archive.rooms.isEmpty { archive.rooms = [TeamRoom()] }
+        selectedRoomID = archive.rooms.first?.id
+        roomTarget = nil
+        persist()
+        statusMessage = done + (paused ? t("排程與成員閒聊已暫停，需要時到「排程與直播」重新打開。") : "")
+    }
+
+    /// Writes everything, attachments included, to a file sealed with the password.
+    func exportPortable(to file: URL, password: String) -> Bool {
+        guard let persistence else { return false }
+        do {
+            try persistence.exportPortable(password: password).write(to: file, options: .atomic)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+            statusMessage = "\(t("匯出完成")): \(file.path)"
+            return true
+        } catch { statusMessage = "\(t("匯出失敗")): \(error.localizedDescription)"; return false }
+    }
+
+    /// Decrypts an export to look at; nothing changes.
+    func openPortable(_ file: URL, password: String) -> Result<PortableExport, Error> {
+        guard let persistence else { return .failure(WorkspaceError.missing("Application Support/AIROOMNative")) }
+        let scoped = file.startAccessingSecurityScopedResource()
+        defer { if scoped { file.stopAccessingSecurityScopedResource() } }
+        return Result { try persistence.openPortable(file, password: password) }
+    }
+
+    func importPortable(_ export: PortableExport) {
+        do {
+            guard let persistence, canRestore else { return }
+            adopt(try persistence.importPortable(export), done: t("匯入完成，原本的資料已先備份。請在這台 Mac 重新登入各 CLI。"))
+        } catch { statusMessage = "\(t("匯入失敗")): \(error.localizedDescription)" }
     }
 
     private func setProjectReport(id: UUID, text: String) {

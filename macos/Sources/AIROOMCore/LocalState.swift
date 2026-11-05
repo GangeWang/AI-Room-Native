@@ -162,7 +162,7 @@ public final class LocalStateStore {
 
     /// Backups contain conversations and metadata, never official CLI credentials.
     /// On macOS they are encrypted with the device-bound Keychain key and cannot be
-    /// restored on another Mac without an explicit export/rewrapping design.
+    /// restored on another Mac; use the password export (`exportPortable`) for that.
     public var backupDirectory: URL { root.appendingPathComponent("backups", isDirectory: true) }
     static let beforeRestoreTag = "-before-restore"
 
@@ -213,6 +213,41 @@ public final class LocalStateStore {
             throw WorkspaceError.unsafeFile(file.lastPathComponent)
         }
         try FileManager.default.removeItem(at: file)
+    }
+
+    // MARK: Password export — the way to move to another Mac.
+
+    /// Ids of the attachments stored here (pictures, avatars, files).
+    func attachmentIDs() -> [UUID] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: attachmentDirectory, includingPropertiesForKeys: nil)) ?? []
+        return files.filter { $0.pathExtension == "aesgcm" }
+            .compactMap { UUID(uuidString: $0.deletingPathExtension().lastPathComponent) }
+    }
+
+    /// The current data and every attachment, decrypted and sealed again with the password.
+    public func exportPortable(password: String, rounds: UInt32 = PortableExportCodec.defaultRounds) throws -> Data {
+        var attachments: [String: Data] = [:]
+        for id in attachmentIDs() { attachments[id.uuidString] = try loadAttachment(id: id) }
+        return try PortableExportCodec.seal(PortableExport(state: load(), attachments: attachments), password: password, rounds: rounds)
+    }
+
+    /// Opens an export without changing anything; a wrong password fails here.
+    public func openPortable(_ file: URL, password: String) throws -> PortableExport {
+        let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        guard size <= PortableExportCodec.maximumBytes else { throw PortableExportError.tooLarge }
+        return try PortableExportCodec.open(Data(contentsOf: file), password: password)
+    }
+
+    /// Backs up the current data first, stores the attachments under this Mac's key,
+    /// then replaces the state. Attachments already here are kept.
+    public func importPortable(_ export: PortableExport) throws -> SavedState {
+        _ = try backup(beforeRestore: true)
+        for (name, data) in export.attachments {
+            guard let id = UUID(uuidString: name) else { continue }
+            try storeAttachment(data, id: id)
+        }
+        try save(export.state)
+        return export.state
     }
 
     private func decodeBackup(_ file: URL) throws -> SavedState {

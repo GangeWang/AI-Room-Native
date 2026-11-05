@@ -13,6 +13,7 @@ using a dedicated standard (non-admin) macOS account for sensitive testing.
 
 - macOS: application conversation state and backups encrypted by AES-256-GCM;
   random 256-bit key stored in the login Keychain, scoped to this machine.
+- Moving to another Mac: optional password export, see limitation 6.
 - No token/password input fields; vendor CLI logins remain vendor-owned.
 - Minimal environment passed to subprocesses; unknown variables (including
   `*TOKEN*`, `*API_KEY*`, `NODE_OPTIONS`, `DYLD_*`, proxies, SSH agent) excluded.
@@ -41,8 +42,13 @@ using a dedicated standard (non-admin) macOS account for sensitive testing.
 5. **Cancelled child trees.** `Process.terminate()` does not guarantee all spawned
    grandchildren are stopped.
 6. **Encrypted backups are device-bound.** Losing the Keychain key or migrating
-   to another Mac may make them unreadable. An authenticated export/recovery
-   mechanism has not yet been implemented.
+   to another Mac makes them unreadable. To move, use the password export
+   (Settings → Data & Backup): state and attachments are decrypted and sealed
+   again with AES-256-GCM under a key derived from the password
+   (PBKDF2-HMAC-SHA256, 600,000 rounds, random 16-byte salt; the header is
+   authenticated). The password is never stored, so a forgotten password means
+   the export can't be opened, and its strength is the export's strength.
+   CLI sign-ins and API keys are never included.
 7. Release DMGs are signed with an Apple Development certificate but **not
    notarized**; verify a downloaded build against a local build from source if
    that matters to you.

@@ -180,7 +180,7 @@ struct SettingsView: View {
                 }
             }
             StudioPanel { BackupsPanel() }
-            StudioNotice(icon: "lock.shield", message: t("如果更換裝置或遺失 Keychain 金鑰，目前的加密備份無法直接在另一台 Mac 還原。", "If the Keychain key is lost, encrypted backups cannot currently be restored on another Mac."))
+            StudioPanel { PortableExportPanel() }
         }
     }
 
@@ -373,5 +373,180 @@ private struct BackupsPanel: View {
         picker.allowsMultipleSelection = false
         picker.message = t("選取加密備份檔", "Choose an encrypted backup")
         if picker.runModal() == .OK, let url = picker.url { inspect(url) }
+    }
+}
+
+/// Moving to another Mac: everything, attachments included, sealed with a password
+/// instead of this Mac's Keychain key.
+private struct PortableExportPanel: View {
+    @EnvironmentObject private var model: WorkbenchModel
+    private enum Step: Identifiable {
+        case export(URL), unlock(URL)
+        var id: String {
+            switch self { case .export(let url): return "export:" + url.path; case .unlock(let url): return "unlock:" + url.path }
+        }
+    }
+    @State private var step: Step?
+    @State private var opened: PortableExport?
+    @State private var openedName = ""
+    @State private var confirmingImport = false
+    private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, model.archive.settings.language) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(t("搬到另一台 Mac：密碼匯出", "Move to Another Mac: Password Export"), systemImage: "key.horizontal").font(.headline)
+            HStack(spacing: 12) {
+                Button(t("匯出加密檔…", "Export…")) { chooseDestination() }
+                    .buttonStyle(.borderedProminent).disabled(!model.storageAvailable)
+                Button(t("從匯出檔匯入…", "Import…")) { chooseExport() }
+                    .disabled(!model.canRestore)
+            }
+            Text(t("匯出檔包含話題、茶歇室、圓桌、專案、人物卡、記憶、附件與頭像，用你設定的密碼加密（PBKDF2 + AES-256-GCM），不依賴這台 Mac 的 Keychain，所以能在新的 Mac 匯入。官方 CLI 的登入憑證與 API 金鑰不包含在內，到新 Mac 要重新登入。",
+                   "The export holds topics, lounge, roundtables, projects, member cards, memories, attachments and avatars, sealed with a password you choose (PBKDF2 + AES-256-GCM) instead of this Mac's Keychain key, so another Mac can import it. CLI sign-ins and API keys are never included; sign in again on the new Mac."))
+                .font(.caption).foregroundStyle(.secondary)
+            StudioNotice(icon: "lock.shield", message: t("密碼不會被儲存，也無法找回。忘記密碼，這個匯出檔就打不開。", "The password isn't stored and can't be recovered. Without it, the export can't be opened."))
+            if let opened { preview(opened) }
+        }
+        .sheet(item: $step) { step in
+            switch step {
+            case .export(let url):
+                PasswordSheet(language: model.archive.settings.language, confirming: true,
+                              title: t("設定匯出密碼", "Set an Export Password"),
+                              message: t("至少 \(PortableExportCodec.minimumPasswordLength) 個字。匯入時要輸入同一組密碼。", "At least \(PortableExportCodec.minimumPasswordLength) characters. You'll need it to import."),
+                              action: t("匯出", "Export")) { password in
+                    model.exportPortable(to: url, password: password) ? nil : model.statusMessage
+                }
+            case .unlock(let url):
+                PasswordSheet(language: model.archive.settings.language, confirming: false,
+                              title: t("輸入匯出密碼", "Enter the Export Password"),
+                              message: url.lastPathComponent,
+                              action: t("解密並預覽", "Decrypt & Preview")) { password in
+                    switch model.openPortable(url, password: password) {
+                    case .success(let value): opened = value; openedName = url.lastPathComponent; return nil
+                    case .failure(let error): return describe(error)
+                    }
+                }
+            }
+        }
+        .confirmationDialog(t("匯入 \(openedName)？", "Import \(openedName)?"), isPresented: $confirmingImport) {
+            Button(t("先備份目前資料，再匯入", "Back up current data, then import"), role: .destructive) {
+                guard let opened else { return }
+                model.importPortable(opened)
+                self.opened = nil
+            }
+        } message: {
+            Text(t("目前的資料會先在這台 Mac 備份，再換成匯出檔的內容；附件會加入這台 Mac。排程與成員閒聊會先暫停。",
+                   "Current data is backed up on this Mac first, then replaced; attachments are added here. Schedules and member chat are paused."))
+        }
+    }
+
+    @ViewBuilder private func preview(_ export: PortableExport) -> some View {
+        let summary = BackupSummary(export.state)
+        VStack(alignment: .leading, spacing: 8) {
+            Label(t("\(openedName) · 已解密並讀取成功", "\(openedName) · decrypted and read"), systemImage: "checkmark.seal")
+                .font(.subheadline.weight(.semibold)).foregroundStyle(.green)
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 4) {
+                row(t("匯出時間", "Exported"), export.createdAt.formatted(date: .abbreviated, time: .shortened))
+                row(t("成員工位", "Desks"), t("\(summary.deskTopics) 個話題，\(summary.deskMessages) 則訊息", "\(summary.deskTopics) topics, \(summary.deskMessages) messages"))
+                row(t("茶歇室", "Lounge"), t("\(summary.loungeTopics) 個話題，\(summary.loungeMessages) 則發言", "\(summary.loungeTopics) topics, \(summary.loungeMessages) messages"))
+                row(t("人物卡", "Member cards"), summary.memberNames.joined(separator: "、") + t("（\(summary.memories) 條記憶）", " (\(summary.memories) memories)"))
+                row(t("圓桌與專案", "Roundtables & projects"), t("\(summary.roundtables) 個圓桌議題，\(summary.projects) 個專案", "\(summary.roundtables) roundtables, \(summary.projects) projects"))
+                row(t("附件與頭像", "Attachments"), t("\(export.attachments.count) 個", "\(export.attachments.count)"))
+            }
+            .font(.caption)
+            HStack {
+                Button(t("匯入這份資料…", "Import this data…")) { confirmingImport = true }
+                    .disabled(!model.canRestore)
+                Button(t("取消", "Cancel")) { opened = nil }
+            }
+            if !model.canRestore {
+                Text(t("有成員正在工作時不能匯入；等工作結束或全部中止後再試。", "Can't import while members are working; wait or stop everything first."))
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func row(_ name: String, _ value: String) -> some View {
+        GridRow { Text(name).foregroundStyle(.secondary); Text(value).textSelection(.enabled) }
+    }
+
+    private func describe(_ error: Error) -> String {
+        switch error as? PortableExportError {
+        case .wrongPasswordOrDamaged: return t("密碼不對，或檔案已損壞、被改過。目前的資料沒有任何改變。", "Wrong password, or the file is damaged or was altered. Nothing was changed.")
+        case .notAnExport: return t("這不是 AIROOM 的匯出檔。", "This file is not an AIROOM export.")
+        case .unsupportedVersion: return t("這個匯出檔來自較新的 AIROOM，請先更新。", "This export comes from a newer AIROOM. Update first.")
+        case .tooLarge: return t("匯出檔太大，無法開啟。", "The export is too large to open.")
+        case .passwordTooShort(let n): return t("密碼至少要 \(n) 個字。", "The password needs at least \(n) characters.")
+        case .cryptoUnavailable: return t("這台電腦無法使用密碼加密。", "Password encryption isn't available here.")
+        case nil: return error.localizedDescription
+        }
+    }
+
+    private func chooseDestination() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "AIROOM-\(Date.now.formatted(.iso8601.year().month().day())).\(PortableExportCodec.fileExtension)"
+        panel.message = t("匯出檔請存到外接硬碟或雲端硬碟，帶到新的 Mac。", "Save it somewhere you can reach from the new Mac.")
+        if panel.runModal() == .OK, let url = panel.url { step = .export(url) }
+    }
+
+    private func chooseExport() {
+        let picker = NSOpenPanel()
+        picker.canChooseFiles = true
+        picker.canChooseDirectories = false
+        picker.allowsMultipleSelection = false
+        picker.message = t("選取 .\(PortableExportCodec.fileExtension) 匯出檔", "Choose an .\(PortableExportCodec.fileExtension) export")
+        if picker.runModal() == .OK, let url = picker.url { opened = nil; step = .unlock(url) }
+    }
+}
+
+/// Asks for a password; `submit` returns an error to show, or nil to close.
+private struct PasswordSheet: View {
+    var language: InterfaceLanguage
+    var confirming: Bool
+    var title: String
+    var message: String
+    var action: String
+    var submit: (String) -> String?
+    @Environment(\.dismiss) private var dismiss
+    @State private var password = ""
+    @State private var again = ""
+    @State private var error: String?
+    private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, language) }
+
+    private var problem: String? {
+        if password.count < PortableExportCodec.minimumPasswordLength { return nil }
+        if confirming && !again.isEmpty && again != password { return t("兩次輸入的密碼不一樣。", "The passwords don't match.") }
+        return nil
+    }
+    private var ready: Bool {
+        password.count >= PortableExportCodec.minimumPasswordLength && (!confirming || again == password)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title).font(.headline)
+            Text(message).font(.caption).foregroundStyle(.secondary)
+            SecureField(t("密碼", "Password"), text: $password).textFieldStyle(.roundedBorder)
+            if confirming {
+                SecureField(t("再輸入一次", "Repeat password"), text: $again).textFieldStyle(.roundedBorder)
+            }
+            if let message = error ?? problem {
+                Label(message, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+            }
+            HStack {
+                Spacer()
+                Button(t("取消", "Cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(action) {
+                    error = submit(password)
+                    if error == nil { password = ""; again = ""; dismiss() }
+                }
+                .keyboardShortcut(.defaultAction).disabled(!ready)
+            }
+        }
+        .padding(20)
+        .frame(width: 380)
     }
 }
