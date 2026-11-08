@@ -105,9 +105,13 @@ public static class CommandPlan
 
     /// <summary>
     /// The Claude desktop app installs an independent, versioned Claude Code
-    /// executable after its Code tab has been used, under %APPDATA%\Claude.
-    /// Re-resolve on each invocation: the desktop updater can replace or remove
-    /// a version directory. Store installs redirect to their package LocalCache.
+    /// executable after its Code tab has been used. Re-resolve on each
+    /// invocation: the desktop updater can replace or remove a version
+    /// directory. Three layouts are probed (newest observed first):
+    /// - Store 2026:  %LOCALAPPDATA%\Claude-Data\claude_pzs8sxrjxfjjc\claude-code\<ver>\<hash>\claude.exe
+    /// - Store older: %LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude-code\…
+    /// - Direct exe:  %APPDATA%\Claude\claude-code\<ver>\claude.exe
+    /// Hash subfolders marked `.verified` are preferred, as on macOS.
     /// </summary>
     public static List<string> BundledClaudePaths(string? home = null, string? appData = null, string? localAppData = null)
     {
@@ -116,8 +120,9 @@ public static class CommandPlan
         localAppData ??= Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var parents = new[]
         {
-            Path.Combine(appData, "Claude", "claude-code"),
+            Path.Combine(localAppData, "Claude-Data", "claude_pzs8sxrjxfjjc", "claude-code"),
             Path.Combine(localAppData, "Packages", "Claude_pzs8sxrjxfjjc", "LocalCache", "Roaming", "Claude", "claude-code"),
+            Path.Combine(appData, "Claude", "claude-code"),
         };
         var results = new List<string>();
         foreach (var parent in parents)
@@ -125,9 +130,19 @@ public static class CommandPlan
             if (!Directory.Exists(parent)) continue;
             foreach (var version in VersionedDirectories(parent))
             {
-                results.Add(Path.Combine(parent, version, "claude.exe"));
-                // Older desktop builds nested the binary one level deeper.
-                results.Add(Path.Combine(parent, version, "claude", "claude.exe"));
+                var versionDir = Path.Combine(parent, version);
+                // Newest desktop builds add a content-hash level, with `.verified`
+                // marking the copy the updater checked.
+                var hashes = SafeDirectories(versionDir)
+                    .Where(hash => hash.All(char.IsLetterOrDigit))
+                    .OrderByDescending(hash => File.Exists(Path.Combine(versionDir, hash, ".verified")))
+                    .ToList();
+                foreach (var hash in hashes)
+                {
+                    results.Add(Path.Combine(versionDir, hash, "claude.exe"));
+                }
+                results.Add(Path.Combine(versionDir, "claude.exe"));
+                results.Add(Path.Combine(versionDir, "claude", "claude.exe"));
             }
         }
         return results;

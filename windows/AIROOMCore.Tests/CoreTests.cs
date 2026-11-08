@@ -153,21 +153,25 @@ public class CoreTests
         var home = NewTempDirectory();
         try
         {
-            var parent = Path.Combine(home, "AppData", "Roaming", "Claude", "claude-code");
-            Directory.CreateDirectory(Path.Combine(parent, "2.1.121"));
-            Directory.CreateDirectory(Path.Combine(parent, "2.1.227"));
-            Directory.CreateDirectory(Path.Combine(parent, "not-a-version"));
-            Directory.CreateDirectory(Path.Combine(parent, "2.1.227", "claude"));
-            File.WriteAllText(Path.Combine(parent, "2.1.227", "claude", "claude.exe"), "binary");
-            File.WriteAllText(Path.Combine(parent, "2.1.121", "claude.exe"), "binary");
+            // Store 2026 layout: Claude-Data\<pkg>\claude-code\<version>\<hash>\claude.exe
+            var storeParent = Path.Combine(home, "AppData", "Local", "Claude-Data", "claude_pzs8sxrjxfjjc", "claude-code");
+            var newHash = Path.Combine(storeParent, "2.1.317", "a33aa5518497");
+            Directory.CreateDirectory(newHash);
+            File.WriteAllText(Path.Combine(newHash, "claude.exe"), "binary");
+            File.WriteAllText(Path.Combine(newHash, ".verified"), "");
+            // Classic layout: %APPDATA%\Claude\claude-code\<version>\claude.exe
+            var classicParent = Path.Combine(home, "AppData", "Roaming", "Claude", "claude-code");
+            Directory.CreateDirectory(Path.Combine(classicParent, "2.1.121"));
+            Directory.CreateDirectory(Path.Combine(classicParent, "not-a-version"));
+            File.WriteAllText(Path.Combine(classicParent, "2.1.121", "claude.exe"), "binary");
             var paths = CommandPlan.BundledClaudePaths(home: home, appData: Path.Combine(home, "AppData", "Roaming"), localAppData: Path.Combine(home, "AppData", "Local"));
-            // Newest version first; both candidate layouts for each version.
             Assert.Equal(
             [
-                Path.Combine(parent, "2.1.227", "claude.exe"),
-                Path.Combine(parent, "2.1.227", "claude", "claude.exe"),
-                Path.Combine(parent, "2.1.121", "claude.exe"),
-                Path.Combine(parent, "2.1.121", "claude", "claude.exe"),
+                Path.Combine(storeParent, "2.1.317", "a33aa5518497", "claude.exe"),
+                Path.Combine(storeParent, "2.1.317", "claude.exe"),
+                Path.Combine(storeParent, "2.1.317", "claude", "claude.exe"),
+                Path.Combine(classicParent, "2.1.121", "claude.exe"),
+                Path.Combine(classicParent, "2.1.121", "claude", "claude.exe"),
             ], paths);
         }
         finally { TryDelete(home); }
