@@ -194,6 +194,8 @@ public static class LoginScript
             Executor.Claude => ("cmd.exe", $"/c start \"AIROOM\" cmd /k {quoted} auth login"),
             Executor.Codex => ("cmd.exe", $"/c start \"AIROOM\" cmd /k {quoted} login"),
             Executor.Antigravity => ("cmd.exe", $"/c start \"AIROOM\" cmd /k {quoted}"),
+            // ZCode signs in through browser authorization (login [zai|bigmodel]).
+            Executor.ZCode => ("cmd.exe", $"/c start \"AIROOM\" cmd /k \"node\" {quoted} login"),
             Executor.DeepSeek => throw new NotSupportedException("DeepSeek Harness 尚未支援此平台。"),
             _ => throw new ArgumentOutOfRangeException(nameof(executor)),
         };
@@ -227,6 +229,7 @@ public static class OfficialCLIProbe
         var executable = CommandPlan.ResolveExecutable(executor, settings, environment);
         if (executable is null) return OfficialCLIStatus.MissingExecutable;
         if (executor is Executor.DeepSeek) return OfficialCLIStatus.NotConfirmed;
+        if (executor is Executor.ZCode) return ProbeZCode(executable);
 
         // `agy` has no status command: it lists models only once signed in.
         var arguments = executor == Executor.Antigravity ? new[] { "models" }
@@ -266,6 +269,29 @@ public static class OfficialCLIProbe
         {
             return OfficialCLIStatus.NotConfirmed;
         }
+    }
+
+    /// <summary>ZCode's CLI runs as a Node script; check the runtime and its own
+    /// version command. Login state lives in the desktop app's account and is
+    /// verified on first use, not here.</summary>
+    static OfficialCLIStatus ProbeZCode(string executable)
+    {
+        // A .cjs launcher needs Node; without it the member cannot run.
+        if (executable.EndsWith(".cjs", StringComparison.OrdinalIgnoreCase)
+            && CommandPlan.ResolveExecutable(Executor.Claude, new NativeSettings(), new Dictionary<string, string>()) is null
+            && FindNodeOnPath() is null) return OfficialCLIStatus.MissingExecutable;
+        return OfficialCLIStatus.NotConfirmed;
+    }
+
+    static string? FindNodeOnPath()
+    {
+        var path = Environment.GetEnvironmentVariable("PATH") ?? "";
+        foreach (var dir in path.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var candidate = Path.Combine(dir, "node.exe");
+            if (File.Exists(candidate)) return candidate;
+        }
+        return null;
     }
 
     /// <summary>

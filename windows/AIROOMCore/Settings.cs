@@ -11,6 +11,7 @@ public sealed class NativeSettings
     /// <summary>The dsh launcher; empty finds the DeepSeek Harness install (not shipped on Windows yet).</summary>
     public string DeepseekPath { get; set; } = "";
     public string AntigravityPath { get; set; } = "";
+    public string ZCodePath { get; set; } = "";
     public string WorkspacePath { get; set; } = "";
     public InterfaceLanguage Language { get; set; } = InterfaceLanguage.ZhTW;
 
@@ -37,6 +38,7 @@ public sealed class NativeSettings
         Executor.Codex => CodexPath,
         Executor.DeepSeek => DeepseekPath,
         Executor.Antigravity => AntigravityPath,
+        Executor.ZCode => ZCodePath,
         _ => throw new ArgumentOutOfRangeException(nameof(executor)),
     };
 
@@ -48,6 +50,7 @@ public sealed class NativeSettings
             case Executor.Codex: CodexPath = path; break;
             case Executor.DeepSeek: DeepseekPath = path; break;
             case Executor.Antigravity: AntigravityPath = path; break;
+            case Executor.ZCode: ZCodePath = path; break;
             default: throw new ArgumentOutOfRangeException(nameof(executor));
         }
     }
@@ -196,6 +199,22 @@ public static class CommandPlan
         return results;
     }
 
+    /// <summary>
+    /// The ZCode desktop app ships its CLI as a Node script at
+    /// resources\glm\zcode.cjs; it runs through a Node runtime (see
+    /// CliProcessRunner for how .cjs launchers are spawned).
+    /// </summary>
+    public static List<string> BundledZCodePaths(string? localAppData = null, string? home = null)
+    {
+        localAppData ??= Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        home ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return
+        [
+            Path.Combine(localAppData, "Programs", "ZCode", "resources", "glm", "zcode.cjs"),
+            Path.Combine(home, ".zcode", "cli", "zcode.cjs"),
+        ];
+    }
+
     /// <summary>Directory names that parse as version numbers, newest first ("2.1.227" &gt; "2.1.121").</summary>
     public static List<string> VersionedDirectories(string parent)
     {
@@ -270,6 +289,7 @@ public static class CommandPlan
                 Executor.Codex => BundledCodexPaths(),
                 Executor.Claude => BundledClaudePaths(home: home),
                 Executor.Antigravity => BundledAntigravityPaths(home: home),
+                Executor.ZCode => BundledZCodePaths(home: home),
                 _ => [],
             };
             var override_ = executor == Executor.Codex
@@ -286,6 +306,8 @@ public static class CommandPlan
                 "codex" => new[] { "codex.exe", "codex.cmd", "codex" },
                 var other => new[] { other + ".exe", other },
             };
+            // Search order: exact names first, then .cjs launchers (ZCode ships one).
+            if (executor == Executor.ZCode) names = [.. names, "zcode.cjs"];
             candidates = [.. bundled, .. dirs.SelectMany(d => names.Select(n => Path.Combine(d, n)))];
         }
 
@@ -303,7 +325,9 @@ public static class CommandPlan
         {
             if (!File.Exists(path)) return false;
             var extension = Path.GetExtension(path);
-            return extension is ".exe" or ".cmd" or ".bat" or "";
+            // .cjs/.js are Node launchers (ZCode's CLI ships as zcode.cjs) and
+            // are spawned through the Node runtime by CliProcessRunner.
+            return extension is ".exe" or ".cmd" or ".bat" or ".cjs" or ".js" or "";
         }
         catch (Exception)
         {

@@ -14,6 +14,8 @@ public enum Executor
     DeepSeek,
     [JsonPropertyName("Antigravity")]
     Antigravity,
+    [JsonPropertyName("ZCode")]
+    ZCode,
 }
 
 public static class ExecutorExtensions
@@ -25,11 +27,12 @@ public static class ExecutorExtensions
         Executor.Codex => "codex",
         Executor.DeepSeek => "dsh",
         Executor.Antigravity => "agy",
+        Executor.ZCode => "zcode",
         _ => throw new ArgumentOutOfRangeException(nameof(executor)),
     };
 
     /// <summary>Whether images and files can be sent; the others get text only.</summary>
-    public static bool AcceptsFiles(this Executor executor) => executor is Executor.Claude or Executor.Codex;
+    public static bool AcceptsFiles(this Executor executor) => executor is Executor.Claude or Executor.Codex or Executor.ZCode;
 
     /// <summary>"Claude" / "Codex", for labels that name the program.</summary>
     public static string ShortName(this Executor executor) => executor switch
@@ -38,6 +41,7 @@ public static class ExecutorExtensions
         Executor.Codex => "Codex",
         Executor.DeepSeek => "DeepSeek",
         Executor.Antigravity => "Antigravity",
+        Executor.ZCode => "ZCode",
         _ => throw new ArgumentOutOfRangeException(nameof(executor)),
     };
 
@@ -53,7 +57,7 @@ public static class ExecutorExtensions
 
 public static class ExecutorList
 {
-    public static readonly Executor[] All = [Executor.Claude, Executor.Codex, Executor.DeepSeek, Executor.Antigravity];
+    public static readonly Executor[] All = [Executor.Claude, Executor.Codex, Executor.DeepSeek, Executor.Antigravity, Executor.ZCode];
 }
 
 /// <summary>The exact strings the executors serialize as (kept from the Swift rawValues).</summary>
@@ -65,6 +69,7 @@ public static class ExecutorName
         Executor.Codex => "Codex",
         Executor.DeepSeek => "DeepSeek Harness",
         Executor.Antigravity => "Antigravity",
+        Executor.ZCode => "ZCode",
         _ => throw new ArgumentOutOfRangeException(nameof(executor)),
     };
 }
