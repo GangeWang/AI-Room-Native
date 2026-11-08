@@ -19,13 +19,14 @@ public static class Antigravity
 
     /// <summary>Plan mode can't change files, and the terminal sandbox holds in
     /// every mode. The prompt arrives on stdin, so it never shows in the process
-    /// list.</summary>
+    /// list. Note: agy warns that --mode has no effect while slash command
+    /// expansion is disabled, so --disable-slash-commands stays off.</summary>
     public static List<string> Arguments(ExecutionAccess access, CLIRunOptions options)
     {
         var agy = new List<string>
         {
             "--input-format", "stream-json", "--output-format", "stream-json", "--sandbox",
-            "--disable-slash-commands", "--settings", RunSettings,
+            "--settings", RunSettings,
             "--mode", access == ExecutionAccess.StagedWrite ? "accept-edits" : "plan",
         };
         var model = ModelCatalog.Sanitize(options.Model);
