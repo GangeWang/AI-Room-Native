@@ -222,7 +222,7 @@ public sealed partial class MembersPage : Page
         var executorBox = new ComboBox { Header = "執行端", MinWidth = 200 };
         foreach (var executor in ExecutorList.All)
         {
-            executorBox.Items.Add(executor.ShortName() + (executor is Executor.DeepSeek or Executor.Antigravity
+            executorBox.Items.Add(executor.ShortName() + (executor is Executor.DeepSeek
                 ? "（此平台尚未支援）" : ""));
         }
         executorBox.SelectedIndex = Array.IndexOf(ExecutorList.All, card.Executor);
@@ -437,7 +437,7 @@ public sealed partial class MembersPage : Page
         var executorBox = new ComboBox { Header = "執行端", MinWidth = 220 };
         foreach (var executor in ExecutorList.All)
         {
-            executorBox.Items.Add(executor.ShortName() + (executor is Executor.DeepSeek or Executor.Antigravity
+            executorBox.Items.Add(executor.ShortName() + (executor is Executor.DeepSeek
                 ? "（此平台尚未支援）" : ""));
         }
         executorBox.SelectedIndex = 0;
