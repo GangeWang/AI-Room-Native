@@ -336,6 +336,8 @@ public static class CommandPlan
         options ??= new CLIRunOptions();
         switch (executor)
         {
+            case Executor.Antigravity:
+                return Antigravity.Arguments(access, options);
             case Executor.Codex:
             {
                 var sandbox = access == ExecutionAccess.StagedWrite ? "workspace-write" : "read-only";
