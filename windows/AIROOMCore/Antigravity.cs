@@ -14,8 +14,11 @@ public static class Antigravity
 {
     /// <summary>Settings for this run only, so a looser choice saved for `agy`
     /// itself can't widen what a member may do. Actions that need approval are
-    /// refused: headless runs have nobody to ask.</summary>
-    const string RunSettings = """{"toolPermission":"request-review","allowNonWorkspaceAccess":false}""";
+    /// refused: headless runs have nobody to ask — and an auto-denied tool ends
+    /// the turn with no reply, so the read-only tools a desk prompt needs are
+    /// allowlisted explicitly. Writes stay gated by the mode (plan / accept-edits).</summary>
+    const string RunSettings =
+        """{"toolPermission":"request-review","allowNonWorkspaceAccess":false,"permissions":{"allow":["list_dir","view_file","grep_search","find_by_name","read_url_content","read_resource"]}}""";
 
     /// <summary>Plan mode can't change files, and the terminal sandbox holds in
     /// every mode. The prompt arrives on stdin, so it never shows in the process
