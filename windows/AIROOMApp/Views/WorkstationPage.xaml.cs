@@ -140,12 +140,15 @@ public sealed partial class WorkstationPage : Page
         if (selectedAgent is null)
         {
             SendButton.IsEnabled = true;
+            SendButton.Content = "送出";
             StopButton.IsEnabled = false;
             return;
         }
         var busy = Model.BusyAgents.Contains(selectedAgent.Value);
-        SendButton.IsEnabled = !busy;
-        SendButton.Content = busy ? "工作中…" : "送出";
+        // Pressable while busy: pressing queues the draft to auto-send when
+        // the reply lands (clearing the input cancels the queue).
+        SendButton.IsEnabled = true;
+        SendButton.Content = busy ? "排隊送出" : "送出";
         StopButton.IsEnabled = busy;
     }
 

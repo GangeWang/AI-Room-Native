@@ -18,6 +18,7 @@ public sealed class WorkbenchModel : ObservableObject
 
     Dictionary<MemberID, Guid> activeRuns = [];
     Dictionary<Guid, CancellationTokenSource> runCancellations = [];
+    HashSet<MemberID> autoSendQueued = [];
     List<AttentionItem> allAttentionItems = [];
     DateTimeOffset? lastUpdateCheckAt;
     string? updateStatus;
@@ -482,7 +483,17 @@ public sealed class WorkbenchModel : ObservableObject
         if (!StorageAvailable || Persistence is null || Desk is null) return;
         if (BusyAgents.Contains(agent))
         {
-            StatusMessage = "這位成員正在工作中，請等回覆或按「停止」。";
+            // Queuing beats silence: the member replies, then this draft goes
+            // out on its own. Clearing the draft before the run ends cancels it.
+            var queuedDraft = (ChatDrafts.GetValueOrDefault(agent) ?? "").Trim();
+            var queuedAttachments = ChatAttachments.GetValueOrDefault(agent) ?? [];
+            if (queuedDraft.Length == 0 && queuedAttachments.Count == 0)
+            {
+                StatusMessage = "這位成員工作中——先輸入訊息再按「排隊送出」。";
+                return;
+            }
+            autoSendQueued.Add(agent);
+            StatusMessage = "這位成員工作中——這則訊息會在回覆後自動送出（清掉輸入即取消）。";
             return;
         }
         var index = Archive.Conversations.FindIndex(conversation => conversation.Agent == agent && !conversation.Archived);
@@ -598,6 +609,7 @@ public sealed class WorkbenchModel : ObservableObject
 
         var settings = CloneSettingsWithWorkspace(folder);
         var topicID = topic.Id;
+        var succeeded = false;
         _ = Task.Run(async () =>
         {
             try
@@ -606,6 +618,7 @@ public sealed class WorkbenchModel : ObservableObject
                     fallbackWorkspace: folder, access: ExecutionAccess.StagedWrite, options: options,
                     onUpdate: text => RunOnDispatcher(() => UpdateReply(agent, replyID, text)),
                     cancellationToken: cancellations.Token);
+                succeeded = true;
                 RunOnDispatcher(() =>
                 {
                     UpdateReply(agent, replyID, result.Text, force: true);
@@ -634,6 +647,14 @@ public sealed class WorkbenchModel : ObservableObject
                     runCancellations.Remove(runID);
                     BusyAgents.Remove(agent);
                     Persist();
+                    // A send pressed while this run was working goes out now.
+                    // Only on success: after a failure the draft stays for the
+                    // user to reword or drop.
+                    if (succeeded && autoSendQueued.Remove(agent)
+                        && (ChatDrafts.GetValueOrDefault(agent) ?? "").Trim().Length > 0)
+                    {
+                        Submit(agent);
+                    }
                 });
             }
         });
