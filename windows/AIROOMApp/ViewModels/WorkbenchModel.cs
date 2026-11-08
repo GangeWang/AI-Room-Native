@@ -764,9 +764,10 @@ public sealed class WorkbenchModel : ObservableObject
         var statuses = new Dictionary<Executor, OfficialCLIStatus>();
         foreach (var executor in ExecutorList.All)
         {
-            statuses[executor] = executor is Executor.DeepSeek or Executor.Antigravity
+            statuses[executor] = executor is Executor.DeepSeek
                 ? OfficialCLIStatus.NotConfirmed
                 : OfficialCLIProbe.Check(executor, Archive.Settings);
+            Program.Log($"probe {executor.ShortName()}: {statuses[executor]}");
         }
         OfficialCLIStatuses = statuses;
         OnPropertyChanged(nameof(OfficialCLIStatuses));

@@ -67,9 +67,12 @@ public sealed partial class SettingsPage : Page
                 VerticalAlignment = VerticalAlignment.Center,
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             });
+            var label = executor == Executor.DeepSeek
+                ? "此平台尚未支援"
+                : StatusLabel(status) + (resolved is null ? "：找不到執行檔" : "");
             row.Children.Add(new TextBlock
             {
-                Text = StatusLabel(status) + (resolved is null ? "：找不到執行檔" : ""),
+                Text = label,
                 VerticalAlignment = VerticalAlignment.Center,
                 Opacity = 0.85,
             });
