@@ -54,7 +54,13 @@ public sealed class WorkbenchModel : ObservableObject
             }
         };
         ApplyMemberSettings();
-        BusyAgents.CollectionChanged += (_, _) => OnPropertyChanged(nameof(AnyBusyAgent));
+        BusyAgents.CollectionChanged += (_, _) => RunOnDispatcher(() =>
+        {
+            OnPropertyChanged(nameof(AnyBusyAgent));
+            // The workstation re-renders member rows and the send/stop buttons
+            // off this, exactly like a topic change.
+            OnPropertyChanged(nameof(TopicsVersion));
+        });
         RefreshCLIStatuses();
         _ = CheckForUpdateAsync();
     }
@@ -103,15 +109,16 @@ public sealed class WorkbenchModel : ObservableObject
         {
             lock (Archive)
             {
-                return ExecutorList.All
-                    .Select(executor => Archive.Calls.Usage(ExecutorMember(executor)))
+                // Every real member counts — the executor defaults were the
+                // only ones summed before, which read as zero for teams of
+                // added members.
+                return Archive.Members
+                    .Select(member => Archive.Calls.Usage(member.Agent))
                     .Aggregate(new CallUsage(), (a, b) => a + b)
                     .Label(Archive.Settings.Language);
             }
         }
     }
-
-    static MemberID ExecutorMember(Executor executor) => new(ExecutorName.Of(executor));
 
     public bool AnyBusyAgent => BusyAgents.Count > 0;
 
@@ -309,7 +316,14 @@ public sealed class WorkbenchModel : ObservableObject
     public void NewTopic(MemberID agent)
     {
         var index = Archive.Conversations.FindIndex(conversation => conversation.Agent == agent && !conversation.Archived);
-        if (index < 0) return;
+        if (index < 0)
+        {
+            // No open topic yet: "new topic" simply opens the first one.
+            Archive.Conversations.Add(new Conversation(agent));
+            Persist();
+            OnPropertyChanged(nameof(TopicsVersion));
+            return;
+        }
         var topic = Archive.Conversations[index];
         topic.Archived = true;
         topic.Draft = "";
@@ -465,9 +479,20 @@ public sealed class WorkbenchModel : ObservableObject
 
     public void Submit(MemberID agent)
     {
-        if (!StorageAvailable || BusyAgents.Contains(agent) || Persistence is null || Desk is null) return;
+        if (!StorageAvailable || Persistence is null || Desk is null) return;
+        if (BusyAgents.Contains(agent))
+        {
+            StatusMessage = "這位成員正在工作中，請等回覆或按「停止」。";
+            return;
+        }
         var index = Archive.Conversations.FindIndex(conversation => conversation.Agent == agent && !conversation.Archived);
-        if (index < 0) return;
+        if (index < 0)
+        {
+            // Built-in members start with no desk topic at all; the first
+            // message opens one instead of silently dropping the text.
+            Archive.Conversations.Add(new Conversation(agent));
+            index = Archive.Conversations.Count - 1;
+        }
         var prompt = (ChatDrafts.GetValueOrDefault(agent) ?? "").Trim();
         var attachments = ChatAttachments.GetValueOrDefault(agent) ?? [];
         if (prompt.Length == 0 && attachments.Count == 0) return;
@@ -929,8 +954,24 @@ public sealed class WorkbenchModel : ObservableObject
 
     void RunOnDispatcher(Action action)
     {
-        if (dispatcher.HasThreadAccess) action();
-        else _ = dispatcher.TryEnqueue(() => action());
+        if (dispatcher.HasThreadAccess)
+        {
+            action();
+            return;
+        }
+        _ = dispatcher.TryEnqueue(() =>
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception error)
+            {
+                // One failing callback must not leave the run bookkeeping or
+                // the rendering half-done, invisibly.
+                Program.Log($"dispatcher callback failed: {error}");
+            }
+        });
     }
 
     public event Action<string, string>? NotificationRequested;

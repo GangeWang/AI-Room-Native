@@ -132,6 +132,21 @@ public sealed partial class WorkstationPage : Page
         RenderChat();
         RenderDraftAttachments();
         RenderDeskBar();
+        RenderRunButtons();
+    }
+
+    void RenderRunButtons()
+    {
+        if (selectedAgent is null)
+        {
+            SendButton.IsEnabled = true;
+            StopButton.IsEnabled = false;
+            return;
+        }
+        var busy = Model.BusyAgents.Contains(selectedAgent.Value);
+        SendButton.IsEnabled = !busy;
+        SendButton.Content = busy ? "工作中…" : "送出";
+        StopButton.IsEnabled = busy;
     }
 
     void RenderModelEffort()
