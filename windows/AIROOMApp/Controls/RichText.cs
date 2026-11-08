@@ -95,7 +95,7 @@ public static class RichText
                 if (end > i + 1)
                 {
                     Flush();
-                    target.Inlines.Add(new Run { Text = line[(i + 1)..end], FontStyle = FontStyle.Italic });
+                    target.Inlines.Add(new Run { Text = line[(i + 1)..end], FontStyle = Microsoft.UI.Text.FontStyle.Italic });
                     i = end + 1;
                     continue;
                 }
