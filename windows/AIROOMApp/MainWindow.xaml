@@ -28,9 +28,23 @@
             OpenPaneLength="196"
             SelectionChanged="OnNavSelectionChanged">
             <NavigationView.Resources>
+                <Thickness x:Key="NavigationViewContentGridBorderThickness">0</Thickness>
                 <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />
                 <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="{ThemeResource StudioSidebarColor}" />
             </NavigationView.Resources>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <InfoBar
+                    x:Name="StatusBanner"
+                    IsOpen="False"
+                    IsClosable="True"
+                    Severity="Warning"
+                    CloseButtonClick="OnStatusBannerClosed" />
+                <Frame x:Name="ContentFrame" Grid.Row="1" Padding="22,14,22,14" Background="Transparent" />
+            </Grid>
             <NavigationView.MenuItems>
                 <NavigationViewItem Tag="workstation" Content="成員工位" Icon="People" />
                 <NavigationViewItem Tag="attention" x:Name="AttentionItem" Content="待你處理">
@@ -48,7 +62,6 @@
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.FooterMenuItems>
-            <Frame x:Name="ContentFrame" Padding="22,14,22,14" Background="Transparent" />
         </NavigationView>
 
         <!-- System tray icon is deferred: H.NotifyIcon's WinUI IconSource path

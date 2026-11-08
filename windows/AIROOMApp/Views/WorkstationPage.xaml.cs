@@ -264,14 +264,15 @@ public sealed partial class WorkstationPage : Page
             }
             stack.Children.Add(header);
         }
-        stack.Children.Add(new TextBlock
-        {
-            Text = message.Body,
-            TextWrapping = TextWrapping.Wrap,
-            IsTextSelectionEnabled = true,
-            Foreground = (Brush)Application.Current.Resources["StudioInkBrush"],
-            Opacity = isUser ? 1 : 0.96,
-        });
+        stack.Children.Add(isUser
+            ? new TextBlock
+            {
+                Text = message.Body,
+                TextWrapping = TextWrapping.Wrap,
+                IsTextSelectionEnabled = true,
+                Foreground = (Brush)Application.Current.Resources["StudioInkBrush"],
+            }
+            : RichText.Block(message.Body));
         foreach (var attachment in message.Attachments)
         {
             stack.Children.Add(new TextBlock

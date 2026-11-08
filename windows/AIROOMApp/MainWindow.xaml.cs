@@ -44,7 +44,21 @@ public sealed partial class MainWindow : Window
                     ? $"待你處理（{App.Model.AttentionCount}）" : "待你處理";
             });
         }
+        if (args.PropertyName is nameof(WorkbenchModel.StatusMessage) or null)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (App.Model.StatusMessage is { Length: > 0 } message)
+                {
+                    StatusBanner.Title = message;
+                    StatusBanner.IsOpen = true;
+                    App.Model.StatusMessage = null;
+                }
+            });
+        }
     }
+
+    void OnStatusBannerClosed(Microsoft.UI.Xaml.Controls.InfoBar sender, object e) { }
 
     void BringToFront()
     {

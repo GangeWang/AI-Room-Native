@@ -33,8 +33,15 @@
     <Content Include="Assets\airoom.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <!-- Fetched by Scripts/fetch-assets.ps1; absent when not yet downloaded. -->
-    <Content Include="Assets\*.webp" Condition="Exists('Assets\claudia.webp')">
+    <!-- The CC BY-NC-SA artwork is committed once, beside the macOS app; both
+         platforms bundle the same files (Scripts/fetch-assets.ps1 is the
+         original downloader, kept for reference). -->
+    <Content Include="..\..\macos\Sources\AIROOMNative\Resources\*.webp">
+      <Link>Assets\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\macos\Sources\AIROOMNative\Resources\airoom.png">
+      <Link>Assets\airoom.png</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
