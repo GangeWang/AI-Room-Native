@@ -758,7 +758,8 @@ public class AntigravityTests
         Assert.Equal("high", arguments[arguments.IndexOf("--effort") + 1]);
         Assert.Equal("conv-1", arguments[arguments.IndexOf("--conversation") + 1]);
         Assert.DoesNotContain("--dangerously-skip-permissions", arguments);
-        Assert.DoesNotContain("--mode", arguments);
+        Assert.Equal("plan", arguments[arguments.IndexOf("--mode") + 1]);
+        Assert.Contains("--disable-slash-commands", arguments);
     }
 
     [Fact]

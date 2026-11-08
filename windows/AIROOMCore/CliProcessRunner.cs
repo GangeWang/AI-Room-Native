@@ -222,7 +222,12 @@ public sealed class CliProcessRunner
                 throw NativeCLIError.ProcessFailed(
                     $"{executor.ShortName()} 執行失敗（exit {process.ExitCode}）：{PrivacyGuard.Redact(message).Truncate(2_000)}");
             }
-            if (string.IsNullOrWhiteSpace(parser.Text)) throw NativeCLIError.NoResponse(executor.ShortName());
+            if (string.IsNullOrWhiteSpace(parser.Text))
+            {
+                var detail = stderrText.Trim();
+                throw NativeCLIError.NoResponse(executor.ShortName())
+                    .With(detail.Length > 0 ? $"（{PrivacyGuard.Redact(detail).Truncate(300)}）" : "");
+            }
             return new CLIRunResult(PrivacyGuard.Redact(parser.Text), parser.Model, parser.SessionID);
         }
         finally

@@ -7,19 +7,26 @@ namespace AIROOMCore;
 /// The Antigravity CLI (`agy`) runs one turn per call and prints newline-delimited
 /// JSON events. It signs in through its own credentials, shared with the
 /// Antigravity app; AIROOM never reads or passes those credentials.
-/// Windows headless (docs/cli/headless) matches the macOS flags except that
-/// `--mode`/`--settings` don't exist: denied permissions soft-deny the tool call
-/// and the run continues, so read-only behavior comes from the sandbox alone.
+/// (The headless doc page omits them, but `agy --help` confirms --mode,
+/// --settings and --disable-slash-commands exist on Windows too.)
 /// </summary>
 public static class Antigravity
 {
-    /// <summary>Plan mode can't change files. The prompt arrives on stdin, so it
-    /// never shows in the process list.</summary>
+    /// <summary>Settings for this run only, so a looser choice saved for `agy`
+    /// itself can't widen what a member may do. Actions that need approval are
+    /// refused: headless runs have nobody to ask.</summary>
+    const string RunSettings = """{"toolPermission":"request-review","allowNonWorkspaceAccess":false}""";
+
+    /// <summary>Plan mode can't change files, and the terminal sandbox holds in
+    /// every mode. The prompt arrives on stdin, so it never shows in the process
+    /// list.</summary>
     public static List<string> Arguments(ExecutionAccess access, CLIRunOptions options)
     {
         var agy = new List<string>
         {
             "--input-format", "stream-json", "--output-format", "stream-json", "--sandbox",
+            "--disable-slash-commands", "--settings", RunSettings,
+            "--mode", access == ExecutionAccess.StagedWrite ? "accept-edits" : "plan",
         };
         var model = ModelCatalog.Sanitize(options.Model);
         if (model.Length > 0) agy.AddRange(["--model", model]);

@@ -78,6 +78,8 @@ public sealed class NativeCLIError : Exception
     public static NativeCLIError InvalidPrompt => new("請輸入內容（最多 30,000 字）。");
     public static NativeCLIError ProcessFailed(string message) => new(message);
     public static NativeCLIError NoResponse(string name) => new($"{name} 未輸出可辨識的回覆，沒有自動重送請求。");
+
+    public NativeCLIError With(string suffix) => new(Message + suffix);
 }
 
 /// <summary>
