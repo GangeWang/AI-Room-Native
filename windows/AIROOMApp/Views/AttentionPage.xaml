@@ -1,0 +1,17 @@
+<Page
+    x:Class="AIROOMApp.Views.AttentionPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel Spacing="12">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <TextBlock Text="待你處理" Style="{StaticResource StudioTitle}" />
+            <Button x:Name="ShowIgnoredButton" Content="重新顯示已忽略" Click="OnShowIgnored" Visibility="Collapsed" VerticalAlignment="Center" />
+        </StackPanel>
+        <TextBlock
+            x:Name="EmptyText"
+            Text="目前沒有待處理的事。"
+            Style="{StaticResource StudioSubtitle}"
+            Visibility="Collapsed" />
+        <StackPanel x:Name="ItemList" Spacing="10" />
+    </StackPanel>
+</Page>
