@@ -66,8 +66,8 @@ public sealed partial class WorkstationPage : Page
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             var avatar = new StudioAvatar();
             avatar.Set(agent, Model.MemberName(agent), card?.Color, 40,
-                Model.PortraitOrTemplate(card), card?.AvatarCrop, card?.PortraitOffsetValue?.X,
-                card?.PortraitOffsetValue?.Y, Model.BusyAgents.Contains(agent));
+                Model.AvatarOrPortrait(card).Art, Model.AvatarOrPortrait(card).Crop,
+                null, null, Model.BusyAgents.Contains(agent));
             Grid.SetColumn(avatar, 0);
             var name = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 2 };
             name.Children.Add(new TextBlock

@@ -185,6 +185,138 @@ public sealed partial class SettingsPage : Page
             Model.UpdateSettings(edit);
             Model.RefreshCLIStatuses();
         }
+
+        // Encrypted backups & restore — macOS BackupsPanel parity.
+        var restoreButton = new Button { Content = "恢復選到的備份", IsEnabled = false };
+        var backupList = new StackPanel { Spacing = 8 };
+        var backupPreview = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 12,
+            Opacity = 0.8,
+        };
+        string? selectedBackup = null;
+        BackupSummary? selectedSummary = null;
+
+        void RenderBackups()
+        {
+            backupList.Children.Clear();
+            backupPreview.Text = "";
+            selectedBackup = null;
+            selectedSummary = null;
+            var files = Model.BackupFiles();
+            if (files.Count == 0)
+            {
+                backupList.Children.Add(new TextBlock
+                {
+                    Text = "還沒有備份。可以先備份一份目前的資料。",
+                    Opacity = 0.7,
+                });
+                return;
+            }
+            foreach (var file in files)
+            {
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+                var info = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+                info.Children.Add(new TextBlock
+                {
+                    Text = file.CreatedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm"),
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                });
+                info.Children.Add(new TextBlock
+                {
+                    Text = (file.BeforeRestore ? "恢復前自動備份" : "手動備份") + " · " + $"{file.Bytes / 1024.0:F0} KB",
+                    FontSize = 11,
+                    Opacity = 0.65,
+                });
+                row.Children.Add(info);
+                var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+                var previewButton = new Button { Content = "預覽" };
+                previewButton.Click += (_, _) =>
+                {
+                    selectedBackup = file.Url;
+                    selectedSummary = Model.PreviewBackup(file.Url);
+                    restoreButton.IsEnabled = selectedSummary is not null && Model.CanRestore;
+                    backupPreview.Text = selectedSummary is { } summary
+                        ? $"話題 {summary.DeskTopics} 個 · 訊息 {summary.DeskMessages} 則 · 成員 {summary.MemberNames.Count} 位（{string.Join("、", summary.MemberNames)}）· 記憶 {summary.Memories} 條 · 擁有者 {summary.OwnerName}"
+                        : "這份備份無法在此電腦讀取。";
+                };
+                buttons.Children.Add(previewButton);
+                var deleteButton = new Button { Content = "刪除" };
+                deleteButton.Click += (_, _) =>
+                {
+                    Model.DeleteBackup(file.Url);
+                    RenderBackups();
+                };
+                buttons.Children.Add(deleteButton);
+                row.Children.Add(buttons);
+                backupList.Children.Add(row);
+            }
+        }
+
+        async void RestoreAsync(string file)
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = XamlRoot,
+                Title = "恢復備份",
+                Content = "目前的資料會先自動備份，再換成這份備份的內容。成員登入不受影響；工作資料夾裡的檔案不會回到過去。確定恢復？",
+                PrimaryButtonText = "先備份目前資料，再恢復",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Close,
+            };
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+            {
+                Model.RestoreFromBackup(file);
+                RenderBackups();
+            }
+        }
+
+        var backupHeader = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        backupHeader.Children.Add(new TextBlock { Text = "加密備份與恢復", Style = (Style)Application.Current.Resources["StudioEyebrow"], VerticalAlignment = VerticalAlignment.Center });
+        var refreshButton = new Button { Content = "重新整理" };
+        refreshButton.Click += (_, _) => RenderBackups();
+        backupHeader.Children.Add(refreshButton);
+        var createBackup = new Button { Content = "立即備份", Style = (Style)Application.Current.Resources["AccentButtonStyle"] };
+        createBackup.Click += (_, _) =>
+        {
+            Model.CreateBackup();
+            RenderBackups();
+        };
+        backupHeader.Children.Add(createBackup);
+        restoreButton.Click += (_, _) => { if (selectedBackup is { } file) RestoreAsync(file); };
+        backupHeader.Children.Add(restoreButton);
+
+        Root.Children.Add(new Border
+        {
+            Style = (Style)Application.Current.Resources["StudioPanel"],
+            Child = new StackPanel
+            {
+                Spacing = 10,
+                Children =
+                {
+                    backupHeader,
+                    new TextBlock
+                    {
+                        Text = "備份包含話題、人物卡與記憶，用 DPAPI 金鑰加密，目前與這台電腦綁定。附件與圖片留在原處，不在備份檔裡；官方 CLI 的登入憑證不包含在內。",
+                        FontSize = 12,
+                        Opacity = 0.7,
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                    backupList,
+                    backupPreview,
+                    new TextBlock
+                    {
+                        Text = "還原會先自動備份現在的資料再覆蓋；選一份備份並按「預覽」確認內容。",
+                        FontSize = 11,
+                        Opacity = 0.6,
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                },
+            },
+        });
+        RenderBackups();
+        restoreButton.IsEnabled = false;
     }
 
     static string StatusLabel(OfficialCLIStatus status) => status switch

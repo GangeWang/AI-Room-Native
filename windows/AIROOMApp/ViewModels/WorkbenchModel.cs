@@ -284,6 +284,118 @@ public sealed class WorkbenchModel : ObservableObject
         return bytes;
     }
 
+    /// <summary>The art a member's circular avatar is cut from: the uploaded
+    /// avatar when one exists, else the portrait/template. Its crop follows.</summary>
+    public (byte[]? Art, PortraitFaceAnchor? Crop) AvatarOrPortrait(MemberCard? card)
+    {
+        var avatar = MemberImageData(card?.Avatar);
+        if (avatar is { Length: > 0 }) return (avatar, card?.AvatarImageCrop);
+        return (PortraitOrTemplate(card), card?.AvatarCrop);
+    }
+
+    /// <summary>Which picture the avatar crop editor edits, following macOS's
+    /// avatarSource: uploaded avatar, uploaded portrait, then template art.</summary>
+    public AvatarEditorSource? AvatarSource(MemberID agent)
+    {
+        var card = Card(agent);
+        if (card is null) return null;
+        var avatar = MemberImageData(card.Avatar);
+        if (avatar is { Length: > 0 })
+        {
+            return new AvatarEditorSource(avatar, card.AvatarImageCrop, AvatarEditorSourceKind.UploadedAvatar);
+        }
+        var portrait = PortraitOrTemplate(card);
+        if (portrait is not { Length: > 0 }) return null;
+        if (MemberImageData(card.Portrait) is not null)
+        {
+            return new AvatarEditorSource(portrait, card.AvatarCrop, AvatarEditorSourceKind.UploadedPortrait);
+        }
+        return new AvatarEditorSource(portrait, card.AvatarCrop, AvatarEditorSourceKind.TemplateArt,
+            card.Look?.Face ?? MemberTemplate.InitialFace);
+    }
+
+    // MARK: Encrypted backups
+
+    public bool CanRestore => StorageAvailable && BusyAgents.Count == 0;
+
+    public string? CreateBackup()
+    {
+        if (Persistence is null || !StorageAvailable) return null;
+        try
+        {
+            return Persistence.Backup();
+        }
+        catch (Exception error)
+        {
+            StatusMessage = $"備份失敗：{error.Message}";
+            return null;
+        }
+    }
+
+    public List<BackupFile> BackupFiles() => Persistence?.Backups() ?? [];
+
+    /// <summary>Reads a backup without changing anything; null means unreadable here.</summary>
+    public BackupSummary? PreviewBackup(string file)
+    {
+        try
+        {
+            return Persistence?.Preview(file);
+        }
+        catch (Exception error)
+        {
+            StatusMessage = $"無法讀取備份：{error.Message}";
+            return null;
+        }
+    }
+
+    public void DeleteBackup(string file)
+    {
+        try
+        {
+            Persistence?.DeleteBackup(file);
+            StatusMessage = "備份已刪除。";
+        }
+        catch (Exception error)
+        {
+            StatusMessage = $"刪除失敗：{error.Message}";
+        }
+    }
+
+    /// <summary>Replaces the in-memory archive with the restored one; the store
+    /// has already written it to disk (with a before-restore backup). Members
+    /// must be idle: runs hold session ids and drafts that the snapshot owns.</summary>
+    public void RestoreFromBackup(string file)
+    {
+        if (Persistence is null || !CanRestore)
+        {
+            StatusMessage = "成員工作中時不能還原備份。";
+            return;
+        }
+        try
+        {
+            Archive = Persistence.Restore(file);
+            ApplyMemberSettings();
+            ChatDrafts.Clear();
+            ChatAttachments.Clear();
+            activeRuns.Clear();
+            runCancellations.Clear();
+            BusyAgents.Clear();
+            queuedSends.Clear();
+            DeskUndoable.Clear();
+            DeskChanges.Clear();
+            Persist();
+            OnPropertyChanged(nameof(MemberIDs));
+            OnPropertyChanged(nameof(TopicsVersion));
+            OnPropertyChanged(nameof(CallUsageText));
+            OnPropertyChanged(nameof(AttachmentsVersion));
+            StatusMessage = "已恢復備份（恢復前的資料已自動存一份備份）。";
+        }
+        catch (Exception error)
+        {
+            StatusMessage = $"恢復失敗：{error.Message}";
+        }
+    }
+
     /// <summary>The persona line: what the member is told about themself and the owner.</summary>
     public string MemberProfile(MemberID agent)
     {
@@ -1023,3 +1135,19 @@ public sealed class WorkbenchModel : ObservableObject
         try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
     }
 }
+
+/// <summary>What picture the avatar crop editor works on, with the crop that
+/// was saved for it. The dialog computes the default anchor from the decoded
+/// size, following macOS's avatarSource rules per kind.</summary>
+public enum AvatarEditorSourceKind
+{
+    UploadedAvatar,
+    UploadedPortrait,
+    TemplateArt,
+}
+
+public sealed record AvatarEditorSource(
+    byte[] Image,
+    PortraitFaceAnchor? Saved,
+    AvatarEditorSourceKind Kind,
+    PortraitFaceAnchor? DefaultFace = null);

@@ -300,16 +300,197 @@ public sealed partial class MembersPage : Page
         };
         memoryPanel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { newMemory, addButton } });
 
-        // Portrait
-        var portraitRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        portraitRow.Children.Add(new TextBlock
+        // Portrait & avatar — macOS MemberArtworkEditor parity: upload/replace
+        // both pictures, adjust the avatar crop, portrait framing sliders.
+        var liveCard = CoreJson.Deserialize<MemberCard>(CoreJson.Serialize(card))!;
+        var portraitPreview = new StudioCardPortrait { Height = 190, Width = 150 };
+        portraitPreview.Set(liveCard, Model.PortraitOrTemplate(liveCard));
+        DispatcherTimer? framingCommit = null;
+
+        void ApplyFraming(double? scale, double? x, double? y)
         {
-            Text = card.Portrait is null ? "立繪：使用模板圖" : "立繪：已上傳",
-            VerticalAlignment = VerticalAlignment.Center,
+            if (scale is { } s) liveCard.PortraitScale = s;
+            if (x is not null || y is not null)
+            {
+                var current = liveCard.PortraitOffsetValue?.Clamped ?? new PortraitOffset(0, 0);
+                liveCard.PortraitOffsetValue = new PortraitOffset(
+                    x is { } hx ? hx : current.X,
+                    y is { } hy ? hy : current.Y);
+            }
+            portraitPreview.Set(liveCard, Model.PortraitOrTemplate(liveCard));
+            if (framingCommit is null)
+            {
+                framingCommit = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+                framingCommit.Tick += (_, _) =>
+                {
+                    framingCommit.Stop();
+                    var committed = CoreJson.Deserialize<MemberCard>(CoreJson.Serialize(card))!;
+                    committed.PortraitScale = liveCard.PortraitScale;
+                    committed.PortraitOffsetValue = liveCard.PortraitOffsetValue;
+                    Model.UpdateMember(committed);
+                    card = Model.Card(card.Agent) ?? card;
+                };
+            }
+            framingCommit.Stop();
+            framingCommit.Start();
+        }
+
+        Slider FramingSlider(string header, double min, double max, double initial, Action<double> apply)
+        {
+            var slider = new Slider { Header = header, Minimum = min, Maximum = max, StepFrequency = 0.01, Value = initial };
+            slider.ValueChanged += (_, args) => apply(args.NewValue);
+            return slider;
+        }
+
+        async void AdjustAvatarAsync()
+        {
+            var editorSource = Model.AvatarSource(card.Agent);
+            if (editorSource is null) return;
+            var newCrop = await AvatarCropEditorDialog.ShowAsync(Model, card, editorSource);
+            var clone = CoreJson.Deserialize<MemberCard>(CoreJson.Serialize(card))!;
+            if (editorSource.Kind == AvatarEditorSourceKind.UploadedAvatar) clone.AvatarImageCrop = newCrop;
+            else clone.AvatarCrop = newCrop;
+            Model.UpdateMember(clone);
+            card = Model.Card(card.Agent) ?? card;
+            RenderCards();
+            RenderEditor();
+        }
+
+        async void PickImageAsync(bool asAvatar)
+        {
+            if (App.Window is null) return;
+            var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
+            foreach (var type in new[] { ".png", ".jpg", ".jpeg", ".webp" })
+            {
+                picker.FileTypeFilter.Add(type);
+            }
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, WindowId(App.Window));
+            var file = await picker.PickSingleFileAsync();
+            if (file is null) return;
+            var attachment = Model.StoreMemberImage(file.Path);
+            if (attachment is null) return;
+            var clone = CoreJson.Deserialize<MemberCard>(CoreJson.Serialize(card))!;
+            if (asAvatar)
+            {
+                clone.Avatar = attachment;
+                clone.AvatarImageCrop = null; // a new picture starts with fresh framing
+            }
+            else
+            {
+                clone.Portrait = attachment;
+            }
+            Model.UpdateMember(clone);
+            card = Model.Card(card.Agent) ?? card;
+            RenderCards();
+            RenderEditor();
+        }
+
+        Button UploadPortraitButton(MemberCard forCard)
+        {
+            var button = new Button { Content = forCard.Portrait is null ? "上傳立繪…" : "更換立繪…" };
+            button.Click += (_, _) => PickImageAsync(asAvatar: false);
+            return button;
+        }
+
+        Button ResetPortraitButton(MemberCard forCard, Action refresh)
+        {
+            var button = new Button { Content = "用回原版立繪" };
+            button.Click += (_, _) =>
+            {
+                var clone = CoreJson.Deserialize<MemberCard>(CoreJson.Serialize(forCard))!;
+                clone.Portrait = null;
+                clone.PortraitScale = null;
+                clone.PortraitOffsetValue = null;
+                clone.AvatarCrop = null;
+                Model.UpdateMember(clone);
+                refresh();
+            };
+            return button;
+        }
+
+        Button UploadAvatarButton(MemberCard forCard)
+        {
+            var button = new Button { Content = forCard.Avatar is null ? "上傳單獨頭像…" : "更換頭像…" };
+            button.Click += (_, _) => PickImageAsync(asAvatar: true);
+            return button;
+        }
+
+        Button RemoveAvatarButton(MemberCard forCard, Action refresh)
+        {
+            var button = new Button { Content = "移除頭像" };
+            button.Click += (_, _) =>
+            {
+                var clone = CoreJson.Deserialize<MemberCard>(CoreJson.Serialize(forCard))!;
+                clone.Avatar = null;
+                clone.AvatarImageCrop = null;
+                Model.UpdateMember(clone);
+                refresh();
+            };
+            return button;
+        }
+
+        Button AdjustAvatarButton(MemberCard forCard)
+        {
+            var button = new Button { Content = "調整頭像…", IsEnabled = Model.AvatarSource(forCard.Agent) is not null };
+            button.Click += (_, _) => AdjustAvatarAsync();
+            return button;
+        }
+
+        Button ResetFramingButton(MemberCard forCard, Action refresh)
+        {
+            var button = new Button { Content = "立繪位置恢復預設" };
+            button.Click += (_, _) =>
+            {
+                var clone = CoreJson.Deserialize<MemberCard>(CoreJson.Serialize(forCard))!;
+                clone.PortraitScale = null;
+                clone.PortraitOffsetValue = null;
+                Model.UpdateMember(clone);
+                refresh();
+            };
+            return button;
+        }
+
+        var artButtons = new StackPanel { Spacing = 6 };
+        artButtons.Children.Add(new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Children =
+            {
+                UploadPortraitButton(card),
+            },
         });
-        var upload = new Button { Content = "上傳立繪…" };
-        upload.Click += async (_, _) => await UploadPortraitAsync(card);
-        portraitRow.Children.Add(upload);
+        if (card.Portrait is not null)
+        {
+            artButtons.Children.Add(ResetPortraitButton(card, () => { card = Model.Card(card.Agent) ?? card; RenderCards(); RenderEditor(); }));
+        }
+        var avatarRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        var (avatarArt, avatarCropNow) = Model.AvatarOrPortrait(card);
+        var avatarPreview = new StudioAvatar();
+        avatarPreview.Set(card.Agent, card.Name, card.Color, 44, avatarArt, avatarCropNow, null, null, false);
+        avatarRow.Children.Add(avatarPreview);
+        avatarRow.Children.Add(UploadAvatarButton(card));
+        if (card.Avatar is not null)
+        {
+            avatarRow.Children.Add(RemoveAvatarButton(card, () => { card = Model.Card(card.Agent) ?? card; RenderCards(); RenderEditor(); }));
+        }
+        avatarRow.Children.Add(AdjustAvatarButton(card));
+        artButtons.Children.Add(avatarRow);
+
+        var artPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 18 };
+        artPanel.Children.Add(portraitPreview);
+        var artSliders = new StackPanel { Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        artSliders.Children.Add(FramingSlider("立繪大小", MemberCard.PortraitScaleRange.Item1, MemberCard.PortraitScaleRange.Item2,
+            liveCard.PortraitScale ?? 1, value => ApplyFraming(value, null, null)));
+        artSliders.Children.Add(FramingSlider("左右位置", -0.5, 0.5,
+            liveCard.PortraitOffsetValue?.Clamped.X ?? 0, value => ApplyFraming(null, value, null)));
+        artSliders.Children.Add(FramingSlider("上下位置", -0.5, 0.5,
+            liveCard.PortraitOffsetValue?.Clamped.Y ?? 0, value => ApplyFraming(null, null, value)));
+        if (card.PortraitScale is not null || card.PortraitOffsetValue is not null)
+        {
+            artSliders.Children.Add(ResetFramingButton(card, () => { card = Model.Card(card.Agent) ?? card; RenderCards(); RenderEditor(); }));
+        }
+        artPanel.Children.Add(new StackPanel { Spacing = 10, Children = { artButtons, artSliders } });
 
         var saveButton = new Button
         {
@@ -331,7 +512,7 @@ public sealed partial class MembersPage : Page
                     new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { executorBox, defaultModel, defaultEffort } },
                     new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, Children = { enabled, hidden } },
                     memoryPanel,
-                    portraitRow,
+                    artPanel,
                     saveButton,
                     card.Agent.IsBuiltIn
                         ? (FrameworkElement)new TextBlock { Text = "內建成員不能刪除；可以隱藏或停用。", FontSize = 11, Opacity = 0.6 }
@@ -365,9 +546,8 @@ public sealed partial class MembersPage : Page
     FrameworkElement EditorHeader(MemberCard card)
     {
         var avatar = new StudioAvatar();
-        avatar.Set(card.Agent, card.Name, card.Color, 42,
-            Model.PortraitOrTemplate(card), card.AvatarCrop, card.PortraitOffsetValue?.X,
-            card.PortraitOffsetValue?.Y, false);
+        var (headerArt, headerCrop) = Model.AvatarOrPortrait(card);
+        avatar.Set(card.Agent, card.Name, card.Color, 42, headerArt, headerCrop, null, null, false);
         var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 4 };
         titles.Children.Add(new TextBlock
         {
@@ -383,27 +563,6 @@ public sealed partial class MembersPage : Page
     {
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
         return (nint)Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd).Value;
-    }
-
-    async System.Threading.Tasks.Task UploadPortraitAsync(MemberCard card)
-    {
-        if (App.Window is null) return;
-        var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
-        foreach (var type in new[] { ".png", ".jpg", ".jpeg", ".webp" })
-        {
-            picker.FileTypeFilter.Add(type);
-        }
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, WindowId(App.Window));
-        var file = await picker.PickSingleFileAsync();
-        if (file is null) return;
-        var attachment = Model.StoreMemberImage(file.Path);
-        if (attachment is null) return;
-        var clone = CoreJson.Deserialize<MemberCard>(CoreJson.Serialize(card))!;
-        clone.Portrait = attachment;
-        Model.UpdateMember(clone);
-        editing = Model.Card(card.Agent);
-        RenderCards();
-        RenderEditor();
     }
 
     async void OnDeleteMember(object sender, RoutedEventArgs e)
