@@ -270,7 +270,10 @@ public sealed class WorkbenchModel : ObservableObject
     {
         var uploaded = MemberImageData(card?.Portrait);
         if (uploaded is not null) return uploaded;
-        return Services.StudioAssets.Image(card?.Look?.Art);
+        var art = card?.Look?.Art;
+        var bytes = Services.StudioAssets.Image(art);
+        if (art is not null && bytes is null) Program.Log($"portrait[{card?.Agent}] art {art} MISSING");
+        return bytes;
     }
 
     /// <summary>The persona line: what the member is told about themself and the owner.</summary>

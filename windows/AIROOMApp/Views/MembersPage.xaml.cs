@@ -46,56 +46,115 @@ public sealed partial class MembersPage : Page
     void RenderCards()
     {
         CardList.Children.Clear();
+        if (editing is null && Model.Archive.Members.Count > 0)
+        {
+            editing = Model.Archive.Members[0];
+            RenderEditor();
+        }
         foreach (var card in Model.Archive.Members)
         {
-            var row = new Grid { ColumnSpacing = 10 };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            CardList.Children.Add(BuildMemberCard(card));
+        }
+        CardList.Children.Add(BuildAddCard());
+    }
 
-            var avatar = new StudioAvatar();
-            avatar.Set(card.Agent, card.Name, card.Color, 44,
-                Model.PortraitOrTemplate(card), card.AvatarCrop, card.PortraitOffsetValue?.X,
-                card.PortraitOffsetValue?.Y, false);
-            Grid.SetColumn(avatar, 0);
+    FrameworkElement BuildMemberCard(MemberCard card)
+    {
+        var selected = editing?.Agent == card.Agent;
+        var color = MemberColor(card);
 
-            var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 2 };
-            text.Children.Add(new TextBlock
+        var stack = new StackPanel { Spacing = 8 };
+        var portrait = new StudioCardPortrait { Height = 190 };
+        portrait.Set(card, Model.PortraitOrTemplate(card));
+        stack.Children.Add(portrait);
+        stack.Children.Add(new TextBlock
+        {
+            Text = card.Name + (card.CardHidden ? "（已隱藏）" : ""),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = card.Executor.ShortName() + (card.CardHidden ? " · 人物卡已隱藏" : card.Enabled ? "" : " · 已停用"),
+            FontSize = 11,
+            Opacity = 0.6,
+        });
+        if (card.Motto.Length > 0)
+        {
+            stack.Children.Add(new TextBlock
             {
-                Text = card.Name + (card.CardHidden ? "（已隱藏）" : ""),
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            });
-            if (card.Motto.Length > 0)
-            {
-                text.Children.Add(new TextBlock { Text = card.Motto, FontSize = 12, Opacity = 0.7 });
-            }
-            text.Children.Add(new TextBlock
-            {
-                Text = $"跑在 {card.Executor.ShortName()}" + (card.Enabled ? "" : " · 已停用"),
+                Text = $"「{card.Motto}」",
                 FontSize = 11,
-                Opacity = 0.6,
-            });
-            Grid.SetColumn(text, 1);
-
-            var edit = new Button { Content = "編輯" };
-            var captured = card;
-            edit.Click += (_, _) =>
-            {
-                editing = captured;
-                RenderEditor();
-            };
-            Grid.SetColumn(edit, 2);
-
-            row.Children.Add(avatar);
-            row.Children.Add(text);
-            row.Children.Add(edit);
-            CardList.Children.Add(new Border
-            {
-                Child = row,
-                Style = (Style)Application.Current.Resources["StudioPanel"],
-                Padding = new Thickness(12),
+                Opacity = 0.7,
+                TextWrapping = TextWrapping.Wrap,
+                MaxLines = 2,
             });
         }
+
+        var border = new Border
+        {
+            Child = stack,
+            Style = (Style)Application.Current.Resources["StudioPanel"],
+            Width = 200,
+            Padding = new Thickness(12),
+            CornerRadius = new CornerRadius(15),
+            BorderThickness = new Thickness(selected ? 2 : 1),
+            BorderBrush = selected
+                ? new SolidColorBrush(color)
+                : (Brush)Application.Current.Resources["StudioBorderBrush"],
+        };
+        var captured = card;
+        border.Tapped += (_, _) =>
+        {
+            editing = captured;
+            RenderCards();
+        };
+        return border;
+    }
+
+    FrameworkElement BuildAddCard()
+    {
+        var stack = new StackPanel { Spacing = 10, VerticalAlignment = VerticalAlignment.Center };
+        stack.Children.Add(new FontIcon { Glyph = "\uE8FA", FontSize = 34, Opacity = 0.7 });
+        stack.Children.Add(new TextBlock
+        {
+            Text = "新增成員",
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Opacity = 0.7,
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = "可套用 DS、Gemini、Kimi、GLM 等形象",
+            FontSize = 11,
+            Opacity = 0.6,
+            TextWrapping = TextWrapping.Wrap,
+            TextAlignment = TextAlignment.Center,
+            MaxWidth = 170,
+        });
+        var border = new Border
+        {
+            Child = stack,
+            Style = (Style)Application.Current.Resources["StudioPanel"],
+            Width = 200,
+            MinHeight = 250,
+            Padding = new Thickness(12),
+            CornerRadius = new CornerRadius(15),
+            BorderThickness = new Thickness(1),
+            BorderBrush = (Brush)Application.Current.Resources["StudioBorderBrush"],
+            Opacity = 0.85,
+        };
+        border.Tapped += (_, _) => OnAddMember(border, new RoutedEventArgs());
+        return border;
+    }
+
+    Windows.UI.Color MemberColor(MemberCard card)
+    {
+        var color = StudioColors.ParseHex(card.Color);
+        if (color == default)
+        {
+            color = card.Agent == MemberID.Codex ? StudioColors.Violet : StudioColors.Orange;
+        }
+        return color;
     }
 
     // MARK: Editor
@@ -267,7 +326,7 @@ public sealed partial class MembersPage : Page
                 Spacing = 12,
                 Children =
                 {
-                    new TextBlock { Text = card.Name, Style = (Style)Application.Current.Resources["StudioTitle"] },
+                    EditorHeader(card),
                     memberName, motto, userTitle, persona, colorRow,
                     new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { executorBox, defaultModel, defaultEffort } },
                     new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, Children = { enabled, hidden } },
@@ -299,6 +358,25 @@ public sealed partial class MembersPage : Page
         var button = new Button { Content = "刪除這位成員" };
         button.Click += OnDeleteMember;
         return button;
+    }
+
+    /// <summary>The editor header: the member's 42px avatar beside the titles,
+    /// like macOS's 編輯人物卡 panel.</summary>
+    FrameworkElement EditorHeader(MemberCard card)
+    {
+        var avatar = new StudioAvatar();
+        avatar.Set(card.Agent, card.Name, card.Color, 42,
+            Model.PortraitOrTemplate(card), card.AvatarCrop, card.PortraitOffsetValue?.X,
+            card.PortraitOffsetValue?.Y, false);
+        var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 4 };
+        titles.Children.Add(new TextBlock
+        {
+            Text = "編輯人物卡",
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            FontSize = 16,
+        });
+        titles.Children.Add(new TextBlock { Text = card.Executor.ShortName(), FontSize = 11, Opacity = 0.6 });
+        return new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { avatar, titles } };
     }
 
     static nint WindowId(Window window)
