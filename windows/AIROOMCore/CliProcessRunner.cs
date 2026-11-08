@@ -180,6 +180,21 @@ public sealed class CliProcessRunner
         ExecutionAccess access, CLIRunOptions options, Action delivered,
         Action<string>? onUpdate, CancellationToken cancellationToken)
     {
+        if (executor == Executor.ZCode)
+        {
+            // The app-server speaks its own stdio protocol: node + zcode.cjs,
+            // account config pushed per run, model auth answered as an interaction.
+            var auth = ZCode.LoadAuth()
+                ?? throw NativeCLIError.ProcessFailed("ZCode 需要先安裝並登入桌面版（找不到 ~/.zcode/v2/credentials.json）");
+            var node = OfficialCLIProbe.FindNodeOnPath()
+                ?? throw NativeCLIError.ProcessFailed("ZCode 的 CLI 是 Node 腳本，需要安裝 Node.js");
+            var modelId = options.Model.Length > 0 ? options.Model : ZCode.DefaultModelId;
+            var reasoning = options.Effort.Length > 0 ? options.Effort : "max";
+            var zcodeResult = await ZCodeAppServerClient.RunAsync(node, binary, auth, prompt, cwd, modelId,
+                reasoning, options.Session?.ResumeID, delivered, onUpdate, cancellationToken);
+            return zcodeResult with { Resumed = options.Session?.ResumeID is { Length: > 0 } };
+        }
+
         var arguments = CommandPlan.Arguments(executor, access, options);
         var startInfo = BuildStartInfo(binary, arguments, cwd);
         foreach (var pair in PrivacyGuard.CliEnvironment(

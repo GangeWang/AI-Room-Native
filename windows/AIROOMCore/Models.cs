@@ -31,8 +31,9 @@ public static class ExecutorExtensions
         _ => throw new ArgumentOutOfRangeException(nameof(executor)),
     };
 
-    /// <summary>Whether images and files can be sent; the others get text only.</summary>
-    public static bool AcceptsFiles(this Executor executor) => executor is Executor.Claude or Executor.Codex or Executor.ZCode;
+    /// <summary>Whether images and files can be sent; the others get text only.
+    /// ZCode's turn input is a plain content string for now.</summary>
+    public static bool AcceptsFiles(this Executor executor) => executor is Executor.Claude or Executor.Codex;
 
     /// <summary>"Claude" / "Codex", for labels that name the program.</summary>
     public static string ShortName(this Executor executor) => executor switch

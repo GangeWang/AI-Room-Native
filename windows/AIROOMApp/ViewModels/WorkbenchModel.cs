@@ -370,7 +370,12 @@ public sealed class WorkbenchModel : ObservableObject
     {
         var catalog = ModelCatalogs.GetValueOrDefault(ExecutorOf(agent));
         if (catalog is { Count: > 0 }) return catalog;
-        return ExecutorOf(agent) == Executor.Claude ? [.. ModelCatalog.ClaudeFallback] : [];
+        return ExecutorOf(agent) switch
+        {
+            Executor.Claude => [.. ModelCatalog.ClaudeFallback],
+            Executor.ZCode => ZCode.ModelChoices(),
+            _ => [],
+        };
     }
 
     public async void RefreshModelCatalogs()

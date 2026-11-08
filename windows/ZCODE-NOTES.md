@@ -1,68 +1,108 @@
-# PR #2 交接筆記：ZCode＋Antigravity 執行端＋UI 補齊
+# ZCode 執行端：協議配方（已全打通 ✅）與 PR #3 狀態
 
-狀態：PR #1（windows-native-mvp）已轉 ready for review，commit 到 `852a929`。
-PR #2 分支名：`windows-zcode-antigravity-ui`（從 windows-native-mvp 開，PR base 設為 windows-native-mvp）。
+狀態：ZCode executor 已端到端打通——C# 管線（AIROOMCore/ZCode.cs）實測：
+新對話「收到」✓、跨程序 resume 記憶（新程序問上一題答對）✓、Core 測試 80 全綠 ✓。
 
-## 使用者需求（原話）
-「把你自己還有antigravity也做進去然後將UI補齊」→ ① ZCode 執行端（我，GLM）② Antigravity（agy）執行端 ③ UI 補齊。
+## 執行通道（唯一可行路線）
 
-## ZCode CLI 調查結果（2026-11-08 實測，本機）
+- 桌面 App：`%LOCALAPPDATA%\Programs\ZCode\ZCode.exe`（Electron），CLI 在 `resources\glm\zcode.cjs`，用系統 node 跑。
+- `-p` headless **不可用**（"Select a model before sending a message"，model 綁 session）。
+- 正確通道：`node zcode.cjs app-server`（stdio 行協定，**非 JSON-RPC**，帶 `jsonrpc` 鍵會被拒）。
 
-- 桌面 App：`%LOCALAPPDATA%\Programs\ZCode\ZCode.exe`（Electron），**CLI 在** `resources\glm\zcode.cjs`，用系統 node 跑（機器有 node 26.7.0 在 `C:\Program Files\nodejs\node.exe`）。
-- `node zcode.cjs --version` → 0.17.1 ✓
-- **`-p` headless 不可用**：任何 cwd 都拋 "Select a model before sending a message"（model 綁 session，headless 不會帶；無 `--model` 旗標；`/model` slash command 在 headless 也被擋）。
-- **正確通道：`node zcode.cjs app-server`**（stdio，自訂「ZCode Protocol」，非 JSON-RPC）。
+## 必帶環境變數（缺一 WAF/註冊表就出事）
 
-### ZCode Protocol（已探明）
-- 訊息格式：請求 `{"id":N,"method":"...","params":{…}}`、回應 `{"id":N,"result":{…}}` / `{"id":N,"error":{code,message,data}}`、通知 `{"method":"...","params":{…}}`（**無 jsonrpc 鍵**，帶 jsonrpc 會被拒）。
-- 伺服器會反問 client，**必須回答**，否則 15 秒逾時（-32022）：
-  - `session/requestRuntimePreferences`（params 含 sessionId、scope:"runtime-materialization"）→ 回 `{"id":N,"result":{"nativeSearchEnhancementsEnabled":false}}`
-  - `interaction/requestOfficialMcpAuthHeaders` → 回 `{}` 即可（測過）
-- **session id 來源**：`session/create` 的 result 裡 sessionId 是 "unknown"，**要從 `session/requestRuntimePreferences` 的 params.sessionId 拿**（notify 的 session.created 沒帶）。
-- 流程（**重大更新**）：`session/create` → **不需要 setModel**（帳號預設模型即可；setModel registry 鍵待解但不擋路）→ `session/send` **`{"sessionId","content"}`**（是 content 不是 text）→ 回 `{"accepted":true,...}` → 等 `turn.completed` → `session/messages` 取最後 assistant 文字（`m.info.role==='assistant'`，比對 turnId 最穩）。
-  - **尚未通（最新）**：`session/lifecycle/ensureReady` 回 `{completed:true}` 後 send 仍 accepted 但 turn 不啟動（status idle、turnCount 0）。**主假設**：session 沒有模型 → turn 靜默失敗 → **setModel 的 registry 鍵是必解項**。registry（class `ont`）建構 `E0r(0, providers)`；查 `new ont(` 的呼叫點看 providers 從哪來、glm 的 modelId 實際字串（可能與 model_usage 的 'GLM-5.3-Flash' 不同，例如小寫 slug）。另一線索：`session/requestRuntimePreferences` scope "runtime-materialization" 或許該在答案中帶模型偏好（zod 只收 nativeSearchEnhancementsEnabled——再確認 schema 是否 union）。
-  - 對照：TUI 裡 `/model` 顯示的 model id 就是該填的值——下次開 ZCode TUI（`node zcode.cjs`）用 `/model` 看清單字串。
-  - **建議的務實路線**：ZCode 短期以「待 CLI 支援」佔位（executor 枚舉、偵測、UI 全就位；提交時回友善錯誤「ZCode headless 模型選擇待 CLI 支援」），本 PR 先交付 Antigravity＋UI 補齊；registry 之謎留給新 session 專攻（關鍵字：app-server bootstrap 的 providers 來源、`E0r`、`resolveProviderOrder`、interaction/requestOfficialMcpAuthHeaders 的正確回答）。
-  - **已驗證的真實 modelSelection**（從 db.sqlite 的 session_entry type='runtime/model_selection' 取出）：`{"modelSelection":{"providerId":"account:zai-start-plan","modelId":"GLM-5.3-Flash","options":{"reasoningLevel":"max"}}}`——setModel 用這組仍報 Provider Registry 錯誤 → registry 在 app-server 環境裡**根本沒有註冊 glm 帳號 provider**（可能要憑證物化完成後才註冊；我對 interaction/requestOfficialMcpAuthHeaders 回 {} 可能中斷了物化）。下一步：回答該請求時研究其 params 預期（也許要真的提供 auth headers）、或查 `new ont(` registry 建構的 providers 來源鏈、或試 TUI 同時開著時 app-server 是否共用 registry。
-  - setModel registry 鍵（次要，不擋路）：ProviderRegistry.validateSelection 先查 providerId（"glm" 有過）再 getModel(providerId, modelId)——modelId 鍵不對；registry 建構在 E0r/resolveProviderOrder，GLM provider 的 models 設定來源待查。
-- **setModel 卡關（最新狀態）**：zod schema `{sessionId, model:{providerId, modelId, options?}}`。handler（zcode.cjs 行 14913 col 17686）：`typeof u==="string" ? ldi(registry,u,…,{allowMissingReasoning:true}) : ule(registry,u)`；失敗訊息 "Provider Registry 中不存在 Model: [object Object]"＝validateSelection 回 model-not-found。已試 providerId `glm`（確認常數 IG="glm"）＋modelId `GLM-5.3-Flash`（Sgr 清單有，大小寫經 RQt 正規化）＋`options:{reasoningLevel:'high'}`＋create 後等 3 秒——全部同錯。
-  - validateSelection（Yhe）：`n=t.options?.reasoningLevel`，undefined → "reasoning-level-missing"；不在 o.values → not-found 同型錯誤。reasoningLevel values 是 per-provider config（optionSpecs），GLM 的實際 values 未找到。
-  - ldi 的字串解析：`"providerId:modelId"` 切開驗證（但 session/setModel 的 zod 只收 object）。
-  - **下一個可疑點**：registry 的 providerId 可能不是 "glm"——`account:zai-start-plan` 也試過失敗。注意 `session/requestRuntimePreferences` scope:"runtime-materialization"：registry 可能在 runtime 物化後才填，且**答案內容會影響物化**（我只答了 nativeSearchEnhancementsEnabled:false）。試：① dump `session/lifecycle/changed` 通知 params（找 registry/provider 資訊）② 呼叫 `session/lifecycle/ensureReady` 再 setModel ③ 看 requestRuntimePreferences 完整 schema（zcode.cjs 搜 nativeSearchEnhancementsEnabled 附近）④ registry 建構 `resolveProviderOrder`/`effectiveProviders`（T0r 附近）看 providerId 實際值。
-  - 現實後備：若 setModel 短期解不開，headless 路線改用 **`zcode app-server` 之外**——觀察 TUI 如何帶 model（TUI 走 desktop surface？`--surface desktop`？）；或第二階段先讓 ZCode 成員以「尚待 CLI 支援 headless 模型選擇」呈現，UI/偵測/架構全部就位。
-- 探測器：`tmp-zcode-probe/probe.cjs`（已含：回答 runtime preferences、session id 從 requestRuntimePreferences params 拿、setModel 最新嘗試。改了直接 `ZC_CJS="$LOCALAPPDATA/Programs/ZCode/resources/glm/zcode.cjs" node probe.cjs` 再跑，免費）。
-- 模型清單來源：`~/.zcode/cli/db/db.sqlite` 表 `model_usage` 有 `provider_id, model_id`（唯讀查詢；App 不該碰此檔——App 端 model 清單先寫死或留空，見下）。
-- 其他可用方法：`session/stop`、`session/resume`、`session/list`、`session/compact`。通知：`turn.started/completed/failed`、`model.streaming`、`permission.requested`。
-- 權限模式：`--mode` 在 -p 有；app-server 裡 `session/create` 後 projection.mode 顯示 "build"——模式怎麼設待查（可能 setModel 類似方法或 create params）。
+| 變數 | 值 |
+|---|---|
+| `ZCODE_BUILTIN_PROVIDER_CONFIG_FILE` | 最新的 `~/.zcode/v2/runtime/provider/windows-x86_64/<ver>/endpoint-*/zcode-builtin.json` |
+| `ZCODE_PERSONAL_PROVIDER_CONFIG_FILE` | `~/.zcode/v2/provider_config.json` |
+| `ZCODE_APP_VERSION` | `3.17.2`（桌面版版本字串；直接 HTTP 會被 WAF 3012 擋，app-server 自己的請求帶這個就過） |
+| `ZCODE_TELEMETRY_DEVICE_MID` | `~/.zcode/v2/telemetry-state.json` 的 `deviceMid` |
 
-### ZCode Executor 設計（C#）
-- Executor 列舉加 `ZCode`（raw "ZCode"、ShortName "ZCode"、ExecutableName "zcode"）。
-- 偵測 `BundledZCodePaths()`：`%LOCALAPPDATA%\Programs\ZCode\resources\glm\zcode.cjs`（存在 ✓）＋ configured path。執行需要 node：先 PATH 找 `node.exe`，再查 `%LOCALAPPDATA%\Programs\ZCode\...` 內有無（無）。找不到 node → 錯誤訊息要說需要 Node.js。
-- `ZCodeAppServerClient`（新檔，仿 CodexAppServer.cs 模式）：常駐 app-server 程序＋行協定＋pending request map＋伺服器請求應答器（上面兩條）。每次 run：確保程序活著 → session/create（cwd=工作目錄）→ setModel → send → 等 turn.completed → session/messages 取最後 assistant 文字 → 回 CLIRunResult(sessionID=sess_…)；resume 用 `session/resume {sessionId}`。
-- MemberTemplates 的 GLM 模板 plannedProgram 已是 "ZCode"——把 GLM 模板 suggestedExecutor 改成 ZCode？不行——Swift 版沒有 ZCode executor；Windows 版加上後，GLM 模板 `plannedProgram: "ZCode"` 正好對上（可留 plannedProgram 字串不動，executor 由使用者選）。
+## 認證（重點：zcodejwttoken，不是 project PAT）
+
+- `~/.zcode/v2/credentials.json`，值格式 `enc:v1:<iv>.<tag>.<data>`（base64url）＝AES-256-GCM；
+  金鑰＝`sha256("zcode-credential-fallback:win32:<home>:<username>")`。
+- 模型請求的 auth 是 **`zcodejwttoken`**（start-plan 的 JWT），透過
+  `interaction/requestProviderRuntimeHeaders` 回給伺服器：
+  `{headersApplied:true, requestAuth:{apiKey:<jwt>, headers:{Authorization:"Bearer <jwt>"}}}`。
+  （`project-key-location:v1:*` 的 PAT 與模型授權無關。）
+
+## 註冊表（registry）——卡最久的關鍵
+
+App-server 的快照**必須**由 client 先推帳號設定，否則 `session/setModel` 報
+"Provider Registry 中不存在 Model"：
+
+```
+provider/updateAccountConfig {
+  revision: "airoom:<epochms>",              // 任意新 revision
+  basedOnZCodeBuiltinRevision: "zcode-builtin:43:<sha256(resolved builtin 檔完整路徑) 的小寫 hex>",
+                                             // 43 = 該檔內的 revision 欄位；快照比對不符就整份丟棄
+  providers: { "account:zai-start-plan": {
+                 builtinModelIds: [/* 從 builtin 檔讀出的 GLM 模型清單 */],
+                 access: { type: "zhipu-account", entitled: true } } },
+  states:    { "account:zai-start-plan": { availability:"available", entitled:true, current:true } }
+}
+```
+
+順序：`session/create`（workspace Path+Key）→ `provider/updateAccountConfig` →
+`session/setModel {model:{providerId, modelId, options:{reasoningLevel}}}` →
+`session/subscribe`（**必須在 send 之前同步送出**）→ `session/send {sessionId, content}`。
+
+## 伺服器反問（15 秒逾時 -32022，必答，result 鍵不可漏）
+
+- `session/requestRuntimePreferences` → `{"result":{"nativeSearchEnhancementsEnabled":false}}`；
+  **sessionId 從它的 params.sessionId 拿**（session/create 的 result 沒有）。
+- `interaction/requestProviderRuntimeHeaders` → 見上（帶 zcodejwt）。
+- 其他（`interaction/requestOfficialMcpAuthHeaders` 等）→ `{"result":{}}` 即可。
+- 回應格式：`{"id":<原 id 原樣>, "result":{…}}`——漏掉 `result` 鍵＝-32600 invalid_union。
+
+## 回合完成偵測（此版本伺服器「從不發 turn.completed」）
+
+實測（probe7/8）訂閱後只會收到 `state.updated`／`session/lifecycle/changed`／telemetry；
+`turn.*` 事件完全不出現。可用訊號：
+
+- **完成**：poll `session/messages`（900ms），最新 assistant 訊息
+  `info.time.completed` 非 null ＝回合結束（串流中是 undefined）。
+- **界線**：只認「created 晚於本回合 user 訊息」的 assistant 訊息——session 問候氣泡
+  （timeline part、無文字、created 落在 send 處理當下）與舊回合的回覆都不算。
+- **失敗**：`state.updated` 通知 `params.reason == "prompt_failed"`（失敗回合永不產生
+  assistant 訊息，poll 等不到完成）。
+- 失敗範例：setModel 給不存在的 modelId → setModel 本身先報
+  `ModelProtocolError: Provider Registry 中不存在 Model`。
+
+## 其他實測事實
+
+- `session/resume {sessionId}` 跨程序續聊 ✓（CLI 自己的 db.sqlite 持久化）。
+- 模型清單寫死在 builtin 檔的 `config.providerConfigRules.providerRules[].config.builtinModelIds`；
+  C# 動態讀最新 endpoint 檔（桌面更新後自動跟著變）。
+- 使用者方案：zai-start-plan / GLM-5.3-Flash（ZCODE WEEKEND BUILD entitlement）。
+- 探測器：`tmp-zcode-probe/probe6..8.cjs`、`tmp-zcode-probe/harness/`（C# harness， repo 外）。
+
+## ZCode Executor（C#）地圖
+
+- `AIROOMCore/ZCode.cs`：`ZCode`（常數＋LoadAuth：解密 credentials、deviceMid、builtin 檔、
+  basedOn 計算、模型清單）＋`ZCodeAppServerClient.RunAsync`（一回合一行程：create/resume →
+  updateAccountConfig → setModel → subscribe → send → poll → final fetch）。
+- `CliProcessRunner`：ZCode 分支（LoadAuth→FindNodeOnPath→RunAsync→`Resumed` 旗標）。
+- `Workstation.OfficialCLIProbe`：zcode.cjs 存在＝可偵測；LoadAuth 非 null＝已登入。
+- 檔案附件：ZCode 文字-only（`AcceptsFiles` 排除）。
+- 測試：`ZCodeTests`（解密配方/basedOn/LoadAuth 合成 home）＋`ZCodeAppServerLiveTests`
+  （有桌面+node 才跑，3 分鐘逾時）。
 
 ## Antigravity（agy）— **已由使用者完整驗收 ✅（2026-11-08）**
 - 工位對話實測成功：偵測（winget 路徑）、登入判定、plan 模式唯讀對話、串流回覆、session 記錄全通。
-- 最終修正鏈：① `CommandPlan.Arguments` 要路由到 Antigravity.Arguments（漏了會拋 not-available）② `--disable-slash-commands` 會使 `--mode` 失效→不能加 ③ run settings 必須 allowlist 唯讀工具（list_dir/view_file/grep_search/find_by_name/read_url_content/read_resource），否則被自動拒絕的工具會讓回合無聲結束、完全沒有回覆。
-- 教訓：**slnx 方案建置帶 `-p:Platform=x64` 會靜默跳過專案**（MSB4126 或 1 秒 no-op）——一律逐專案建置；且 App 執行中會鎖 bin 檔，build 前先 taskkill。
-- **winget 套件 `Google.AntigravityCLI` 1.5.3 已裝**，實際位置 `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Google.AntigravityCLI_Microsoft.Winget.Source_8wekyb3d8bbwe\agy.exe`（不是文件說的 `%LOCALAPPDATA%\agy\bin`）；winget 有加 PATH alias（新殼生效）。
-- `agy --version` → 1.5.3 ✓；`agy models` 已回清單（gemini-3.8-flash-high/medium/low、claude-sonnet-4-6、claude-opus-4-6-thinking…）＝**已登入**（憑證與桌面 App 共用），macOS 式「models 清單非空=authenticated」判定可用。
-- `agy models` 輸出格式 `slug\tTitle` 與 macOS parseModels 完全一致 ✓。
-- Headless（docs/cli/headless）與 macOS 移植一致：`-p`、`--input-format/--output-format stream-json`、stdin 一行 `{"event":"user","message":{"content":…}}`（content 可為字串或 text blocks）、事件 `init → step_update → result`、`--conversation <id>` 續聊、`--sandbox`、`--model <slug>`、**`--effort low|medium|high`（直接對應 AIROOM 思考程度！）**、`agy models`（清單=登入狀態判定 ✓）、`agy agents`。未登入時 exit 帶 authentication error（不會 hang）。
-- **與 macOS 版差異**：`--mode plan/accept-edits`、`--settings {toolPermission…}`、`--disable-slash-commands` 在 Windows headless **不存在**。權限走 `~/.gemini/antigravity-cli/settings.json` 的 `permissions.allow`（如 "command(git)"、"write_file(src/)"）；headless 中被拒的工具權限是**軟拒**（繼續執行、stderr 記事、exit 0）。
-- 引數設計（C#）：ReadOnly → `--sandbox`（軟拒寫入＝近似唯讀）；StagedWrite → 同旗組，因 --dangerously-skip-permissions 會放行所有工具（含 Bash/網路，違反 AIROOM 檔案工具-only 原則）不可用——PR#2 先讓 StagedWrite 走同組旗標並在 UI 註明 agy 寫入需在它的 settings.json 配置 permissions.allow；`--effort` 帶成員卡的 effort；`--model` 帶話題 model。
-- 偵測路徑：configured ＋ `%LOCALAPPDATA%\agy\bin\agy.exe` ＋ `%USERPROFILE%\.local\bin\agy.exe` ＋ PATH。狀態探測：跑 `agy models`，有清單=authenticated、空=notLoggedIn（macOS 同款邏輯）。
+- 最終修正鏈：① `CommandPlan.Arguments` 要路由到 Antigravity.Arguments ② `--disable-slash-commands` 會使 `--mode` 失效→不能加 ③ run settings 必須 allowlist 唯讀工具。
+- winget 套件 `Google.AntigravityCLI` 1.5.3，位置 `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Google.AntigravityCLI_...\agy.exe`。
+- `agy models` 清單非空＝已登入；`--effort low|medium|high` 直接對應思考程度。
 
-## UI 補齊清單
-1. **Markdown 渲染**（macOS RichText：標題/**粗**/*斜*/`code`/清單，連結保持純文字）→ chat bubble 用。
-2. **頭像裁切編輯器**：上傳立繪後可拖曳/縮放設 avatarCrop（PortraitFaceAnchor.Translated 已移植好）。
-3. **備份 UI**：Core 已有 backup/preview/restore/delete（LocalStateStore），Settings 頁加區塊。
-4. **狀態橫幅**：WorkbenchModel.StatusMessage 目前只清不顯示 → 殼層 InfoBar。
-5. 執行端下拉的「尚未支援」標籤更新（ZCode 支援、Antigravity 偵測、DeepSeek 仍不支援）。
+## 剩餘 UI 補齊清單
+1. **頭像裁切編輯器**：上傳立繪後可拖曳/縮放設 avatarCrop（PortraitFaceAnchor.Translated 已移植好）。
+2. **備份 UI**：Core 已有 backup/preview/restore/delete（LocalStateStore），Settings 頁加區塊。
+3. **狀態橫幅**：WorkbenchModel.StatusMessage 目前只清不顯示 → 殼層 InfoBar。
 
 ## 流程備忘
-- 所有改動走 PR。PR #2 base 設 `windows-native-mvp`。
-- 建置：`dotnet build AIROOMNative.slnx`、測試 `dotnet test AIROOMCore.Tests/...`（現 68 全綠）。
+- 所有改動走 PR。PR #3（windows-zcode-executor）base 設 `windows-antigravity-ui`。
+- 建置：逐專案 `dotnet build windows/AIROOMApp/AIROOMApp.csproj -c Release -p:Platform=x64`
+  （slnx 帶 `-p:Platform` 會靜默跳過專案）；測試 `dotnet test windows/AIROOMCore.Tests/...`（80 全綠）。
 - app.exe 執行中會鎖檔 → build 前先 `taskkill //IM AIROOM.exe //F`。
-- 啟動測試：`AIROOMApp/bin/x64/Release/net10.0-windows10.0.19041.0/AIROOM.exe`（無 RID 路徑）；log 在 `%LOCALAPPDATA%\AIROOMNative\startup.log`。
-- Start-Process 之後 Get-Process 判斷存活；UI 在使用者桌面可見。
+- 啟動測試：`AIROOMApp/bin/x64/Release/net10.0-windows10.0.19041.0/AIROOM.exe`；log 在 `%LOCALAPPDATA%\AIROOMNative\startup.log`。

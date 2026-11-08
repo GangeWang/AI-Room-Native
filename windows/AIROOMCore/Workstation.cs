@@ -271,19 +271,23 @@ public static class OfficialCLIProbe
         }
     }
 
-    /// <summary>ZCode's CLI runs as a Node script; check the runtime and its own
-    /// version command. Login state lives in the desktop app's account and is
-    /// verified on first use, not here.</summary>
+    /// <summary>ZCode's CLI runs as a Node script; Node missing means the member
+    /// cannot run, and the desktop's shared credentials mean the account is
+    /// signed in (the JWT is refreshed by the desktop app itself).</summary>
     static OfficialCLIStatus ProbeZCode(string executable)
     {
         // A .cjs launcher needs Node; without it the member cannot run.
-        if (executable.EndsWith(".cjs", StringComparison.OrdinalIgnoreCase)
-            && CommandPlan.ResolveExecutable(Executor.Claude, new NativeSettings(), new Dictionary<string, string>()) is null
-            && FindNodeOnPath() is null) return OfficialCLIStatus.MissingExecutable;
-        return OfficialCLIStatus.NotConfirmed;
+        if (executable.EndsWith(".cjs", StringComparison.OrdinalIgnoreCase) && FindNodeOnPath() is null)
+        {
+            return OfficialCLIStatus.MissingExecutable;
+        }
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return ZCode.LoadAuth(home) is not null
+            ? OfficialCLIStatus.Authenticated
+            : OfficialCLIStatus.NotConfirmed;
     }
 
-    static string? FindNodeOnPath()
+    internal static string? FindNodeOnPath()
     {
         var path = Environment.GetEnvironmentVariable("PATH") ?? "";
         foreach (var dir in path.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
