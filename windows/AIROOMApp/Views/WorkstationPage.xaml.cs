@@ -106,6 +106,10 @@ public sealed partial class WorkstationPage : Page
         if (index < 0 || index >= Model.VisibleAgents.Count) return;
         selectedAgent = Model.VisibleAgents[index];
         selectedTopic = Model.ActiveTopic(selectedAgent.Value);
+        // The box mirrors the selected member's draft; without this, text left
+        // over from the previous member leaks into the next one's draft on the
+        // first keystroke.
+        InputBox.Text = Model.LoadDraft(selectedAgent.Value);
         RenderTopic();
     }
 
@@ -253,6 +257,20 @@ public sealed partial class WorkstationPage : Page
         {
             ChatPanel.Children.Add(Bubble(message));
         }
+        if (selectedAgent is { } queuedAgent && Model.QueuedSendText(queuedAgent) is { Length: > 0 } queued)
+        {
+            // The queued follow-up must be visible where the conversation is,
+            // not only in the banner; otherwise a press reads as "didn't send".
+            var queuedStack = new StackPanel { Spacing = 4 };
+            queuedStack.Children.Add(new TextBlock { Text = "（排隊中）", FontSize = 12, Opacity = 0.8 });
+            queuedStack.Children.Add(new TextBlock { Text = queued, TextWrapping = TextWrapping.Wrap });
+            ChatPanel.Children.Add(new Border
+            {
+                Style = (Style)Application.Current.Resources["StudioBubbleUser"],
+                Opacity = 0.55,
+                Child = queuedStack,
+            });
+        }
         ChatScroll.UpdateLayout();
         ChatScroll.ChangeView(null, ChatScroll.ScrollableHeight, null, disableAnimation: true);
     }
@@ -363,6 +381,9 @@ public sealed partial class WorkstationPage : Page
     {
         if (selectedAgent is null) return;
         Model.Submit(selectedAgent.Value);
+        // Submit clears the model's draft; the box must follow, or the stale
+        // text invites a second press that finds an empty draft and drops it.
+        InputBox.Text = Model.LoadDraft(selectedAgent.Value);
         RenderTopic();
     }
 

@@ -18,7 +18,7 @@ public sealed class WorkbenchModel : ObservableObject
 
     Dictionary<MemberID, Guid> activeRuns = [];
     Dictionary<Guid, CancellationTokenSource> runCancellations = [];
-    HashSet<MemberID> autoSendQueued = [];
+    Dictionary<MemberID, string> queuedSends = [];
     List<AttentionItem> allAttentionItems = [];
     DateTimeOffset? lastUpdateCheckAt;
     string? updateStatus;
@@ -478,22 +478,29 @@ public sealed class WorkbenchModel : ObservableObject
 
     // MARK: Submitting a desk message
 
-    public void Submit(MemberID agent)
+    public void Submit(MemberID agent) => Submit(agent, null);
+
+    /// <summary>Text to append to the room. queuedText carries a message that
+    /// was queued while the member was busy; it bypasses the input box, which
+    /// was emptied the moment the user queued it.</summary>
+    public void Submit(MemberID agent, string? queuedText)
     {
         if (!StorageAvailable || Persistence is null || Desk is null) return;
         if (BusyAgents.Contains(agent))
         {
-            // Queuing beats silence: the member replies, then this draft goes
-            // out on its own. Clearing the draft before the run ends cancels it.
-            var queuedDraft = (ChatDrafts.GetValueOrDefault(agent) ?? "").Trim();
-            var queuedAttachments = ChatAttachments.GetValueOrDefault(agent) ?? [];
-            if (queuedDraft.Length == 0 && queuedAttachments.Count == 0)
+            // Queuing beats silence: the member replies, then this text goes
+            // out on its own. The draft freezes into the queue now, so the
+            // input box frees up for the next line right away.
+            var text = queuedText ?? (ChatDrafts.GetValueOrDefault(agent) ?? "").Trim();
+            if (text.Length == 0)
             {
                 StatusMessage = "這位成員工作中——先輸入訊息再按「排隊送出」。";
                 return;
             }
-            autoSendQueued.Add(agent);
-            StatusMessage = "這位成員工作中——這則訊息會在回覆後自動送出（清掉輸入即取消）。";
+            queuedSends[agent] = text;
+            if (queuedText is null) ChatDrafts[agent] = "";
+            StatusMessage = "已排隊：這則訊息會在回覆後自動送出。";
+            OnPropertyChanged(nameof(TopicsVersion));
             return;
         }
         var index = Archive.Conversations.FindIndex(conversation => conversation.Agent == agent && !conversation.Archived);
@@ -504,7 +511,7 @@ public sealed class WorkbenchModel : ObservableObject
             Archive.Conversations.Add(new Conversation(agent));
             index = Archive.Conversations.Count - 1;
         }
-        var prompt = (ChatDrafts.GetValueOrDefault(agent) ?? "").Trim();
+        var prompt = queuedText ?? (ChatDrafts.GetValueOrDefault(agent) ?? "").Trim();
         var attachments = ChatAttachments.GetValueOrDefault(agent) ?? [];
         if (prompt.Length == 0 && attachments.Count == 0) return;
         if (prompt.Length > CommandPlan.MaxPromptCharacters)
@@ -648,12 +655,17 @@ public sealed class WorkbenchModel : ObservableObject
                     BusyAgents.Remove(agent);
                     Persist();
                     // A send pressed while this run was working goes out now.
-                    // Only on success: after a failure the draft stays for the
-                    // user to reword or drop.
-                    if (succeeded && autoSendQueued.Remove(agent)
-                        && (ChatDrafts.GetValueOrDefault(agent) ?? "").Trim().Length > 0)
+                    // Only on success: after a failure the queued text returns
+                    // to the draft box for the user to reword or drop.
+                    if (succeeded && queuedSends.Remove(agent, out var queuedText)
+                        && !string.IsNullOrWhiteSpace(queuedText))
                     {
-                        Submit(agent);
+                        Submit(agent, queuedText);
+                    }
+                    else if (!succeeded && queuedSends.Remove(agent, out var dropped)
+                        && !string.IsNullOrWhiteSpace(dropped))
+                    {
+                        ChatDrafts[agent] = dropped;
                     }
                 });
             }
@@ -797,10 +809,14 @@ public sealed class WorkbenchModel : ObservableObject
     /// placeholder reply: the result is unconfirmed, and nothing is resent.</summary>
     public void Stop(MemberID agent)
     {
+        if (queuedSends.Remove(agent)) OnPropertyChanged(nameof(TopicsVersion));
         if (!activeRuns.TryGetValue(agent, out var runID)) return;
         if (runCancellations.TryGetValue(runID, out var cancellation)) cancellation.Cancel();
         runner.Cancel(runID);
     }
+
+    /// <summary>The text queued to auto-send when this member's run ends;"" when none.</summary>
+    public string QueuedSendText(MemberID agent) => queuedSends.GetValueOrDefault(agent) ?? "";
 
     /// <summary>Stops every running room: desk members now; rooms and the live
     /// stage join in later phases.</summary>
