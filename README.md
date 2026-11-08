@@ -2,13 +2,13 @@
 
 > **原出處：[tonyAmadeus/offAice](https://github.com/tonyAmadeus/offAice)（AIROOM · 我们的 AI 工作室）**
 >
-> 本專案是 AIROOM 的 macOS 原生重新實作。功能設計、四個房間的工作方式、介面風格、人物與工作流程都來自原版，感謝原作者 [@tonyAmadeus](https://github.com/tonyAmadeus)。程式碼以 Swift 重新撰寫，沒有使用原版的 TypeScript／Electron 程式碼；圖片素材來自 ZipZipPipe（CC BY-NC-SA 4.0），詳見下方〈素材與授權〉。
+> 本專案是 AIROOM 的原生重新實作：目前有 macOS 版，Windows 原生版規劃中（放在 `windows/`）。功能設計、四個房間的工作方式、介面風格、人物與工作流程都來自原版，感謝原作者 [@tonyAmadeus](https://github.com/tonyAmadeus)。程式碼以 Swift 重新撰寫，沒有使用原版的 TypeScript／Electron 程式碼；圖片素材來自 ZipZipPipe（CC BY-NC-SA 4.0），詳見下方〈素材與授權〉。
 
 把 Claude 和 Codex 請進同一個視窗，給每位成員名字、頭像和個性，讓它們像同事一樣：單獨幫你做事、一起聊天開會、各寫一稿互相比較、分工完成專案，最後由你驗收。每位成員背後都是真實的官方程式（Claude Code、Codex CLI），用你自己的帳號登入；AIROOM 負責把它們組織起來，並把說了什麼、做了什麼、改了哪些檔案都攤在你面前。
 
 ## 下載
 
-到 [Releases](https://github.com/GangeWang/AIROOMNative/releases/latest) 下載 `AIROOMNative-<版本>.dmg`，打開後把 AIROOM Native 拖到「應用程式」。
+macOS：到 [Releases](https://github.com/GangeWang/AIROOMNative/releases) 下載最新的 `AIROOMNative-<版本>.dmg`，打開後把 AIROOM Native 拖到「應用程式」。
 
 - **需求**：Apple Silicon（M 系列）Mac、macOS 14 以上。
 - **成員程式**：至少登入一個官方 CLI（Claude Code、Codex、Antigravity 的 `agy`），或在 DeepSeek Harness 裡存好 API 金鑰。`agy` 要另外安裝（見 [Antigravity CLI 文件](https://antigravity.google/docs/getting-started?tab=cli)），和 Antigravity App 共用登入。Claude 會優先使用 Claude Desktop「Code」分頁附帶的 Claude Code；Codex 會優先使用 ChatGPT App 附帶的 Codex。都找不到時才找系統 PATH。
@@ -31,9 +31,9 @@
 - **排程**：每天、一次或固定間隔的提醒與成員發言；全部暫停、最近觸發紀錄。
 - **用量與額度**：向官方查詢 5 小時與每週剩餘額度，並統計 AIROOM 自己的呼叫次數。
 - **資料與備份**：本機資料以 Keychain 金鑰加密；備份可先預覽內容再恢復。要搬到另一台 Mac，可以用密碼匯出成一個加密檔（含附件與頭像），在新 Mac 輸入密碼匯入。
-- **直播舞台（實驗中）**：macOS 語音朗讀與 VTube Studio 表情、嘴型同步，設定方式見 [LIVE_STAGE.md](LIVE_STAGE.md)。
+- **直播舞台（實驗中）**：macOS 語音朗讀與 VTube Studio 表情、嘴型同步，設定方式見 [docs/LIVE_STAGE.md](docs/LIVE_STAGE.md)。
 
-逐項和原版的對照見 [FEATURE_PARITY.md](FEATURE_PARITY.md)。
+逐項和原版的對照見 [docs/FEATURE_PARITY.md](docs/FEATURE_PARITY.md)。
 
 ## 和原版的差別
 
@@ -74,10 +74,13 @@ swift test                     # 單元測試
 
 `package-app.sh` 會自動找鑰匙圈裡的 Apple Development 憑證來簽章；找不到時改用臨時簽章，此時每次更新後鑰匙圈都會再問一次是否允許存取。設定 `AIROOM_LIVE_CLI=1` 再跑 `swift test`，會另外測試已登入的官方 CLI（只讀取模型清單，不花額度）。
 
-程式結構：
+目錄結構：
 
-- `macos/Sources/AIROOMCore`：不依賴介面的核心邏輯（流程、提示詞、加密存檔、CLI 執行），有完整單元測試。
-- `macos/Sources/AIROOMNative`：SwiftUI 介面與 App 狀態。
+- `macos/`：macOS 原生版（Swift 套件）。
+  - `macos/Sources/AIROOMCore`：不依賴介面的核心邏輯（流程、提示詞、加密存檔、CLI 執行），有完整單元測試。
+  - `macos/Sources/AIROOMNative`：SwiftUI 介面與 App 狀態。
+- `windows/`：Windows 原生版（規劃中）。
+- `docs/`：兩個平台共用的文件：和原版的功能對照、送給模型的提示詞、直播舞台設定、發版規則。
 
 腳本、簽章與各檔案的用途見 [macos/README.md](macos/README.md)。
 

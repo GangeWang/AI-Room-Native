@@ -1,6 +1,6 @@
 # AIROOM Native — 開發說明
 
-這裡是 AIROOM Native 的 Swift 套件。產品介紹、下載與原出處見[根目錄的 README](../README.md)；和原版 [tonyAmadeus/offAice](https://github.com/tonyAmadeus/offAice) 的逐項對照見 [FEATURE_PARITY.md](../FEATURE_PARITY.md)。
+這裡是 AIROOM Native 的 Swift 套件。產品介紹、下載與原出處見[根目錄的 README](../README.md)；和原版 [tonyAmadeus/offAice](https://github.com/tonyAmadeus/offAice) 的逐項對照見 [docs/FEATURE_PARITY.md](../docs/FEATURE_PARITY.md)。
 
 - 純 SwiftUI／AppKit + Foundation：沒有 Electron、WebView 或 Node.js，也沒有第三方 Swift 套件。
 - 只支援 Apple Silicon（arm64）、macOS 14 以上。
@@ -61,9 +61,9 @@ macos/
 | `AccountQuota.swift` | 向官方 CLI 查詢 5 小時與每週額度 |
 | `LocalState.swift`、`KeychainStateProtector.swift` | 加密存檔、備份與還原 |
 | `PrivacyGuard.swift` | 子程序環境變數白名單、副本中的機密檔案過濾、輸出遮蔽 |
-| `LiveStage.swift`、`VTubeStudio.swift` | 直播舞台：情緒標籤、TTS 事件、VTube Studio API（見 [LIVE_STAGE.md](../LIVE_STAGE.md)） |
+| `LiveStage.swift`、`VTubeStudio.swift` | 直播舞台：情緒標籤、TTS 事件、VTube Studio API（見 [docs/LIVE_STAGE.md](../docs/LIVE_STAGE.md)） |
 
-送給模型的所有提示詞（用範例資料實際產生）見 [PROMPTS.md](../PROMPTS.md)。
+送給模型的所有提示詞（用範例資料實際產生）見 [docs/PROMPTS.md](../docs/PROMPTS.md)。
 
 ## 資料
 

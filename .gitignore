@@ -2,3 +2,7 @@
 macos/.build/
 macos/dist/
 .build/
+
+# Windows
+Thumbs.db
+desktop.ini

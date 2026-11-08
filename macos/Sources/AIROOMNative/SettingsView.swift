@@ -211,7 +211,7 @@ struct SettingsView: View {
                     LabeledContent(t("架構", "Architecture"), value: t("原生 ARM64 · 無 Electron", "Native ARM64 · No Electron"))
                     LabeledContent(t("最低版本", "Minimum macOS"), value: "macOS 14")
                     LabeledContent(t("本機資料", "Local Storage"), value: "~/Library/Application Support/AIROOMNative/state.aesgcm")
-                    StudioNotice(message: t("這是 offAice 的獨立原生實作。和原版的逐項對照見 FEATURE_PARITY.md。", "This is an independent native implementation. See FEATURE_PARITY.md for a feature-by-feature comparison."))
+                    StudioNotice(message: t("這是 offAice 的獨立原生實作。和原版的逐項對照見 docs/FEATURE_PARITY.md。", "This is an independent native implementation. See docs/FEATURE_PARITY.md for a feature-by-feature comparison."))
                 }
             }
         }
