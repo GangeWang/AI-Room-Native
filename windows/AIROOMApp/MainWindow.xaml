@@ -2,7 +2,6 @@
     x:Class="AIROOMApp.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:tb="using:H.NotifyIcon"
     xmlns:views="using:AIROOMApp.Views">
 
     <Grid Background="{ThemeResource StudioBackgroundBrush}">
@@ -52,20 +51,8 @@
             <Frame x:Name="ContentFrame" Padding="22,14,22,14" Background="Transparent" />
         </NavigationView>
 
-        <!-- System tray -->
-        <tb:TaskbarIcon
-            x:Name="Tray"
-            ToolTipText="AIROOM Native"
-            IconSource="ms-appx:///Assets/airoom.ico"
-            LeftClickCommand="{x:Bind ShowFromTrayCommand}">
-            <tb:TaskbarIcon.ContextFlyout>
-                <MenuFlyout>
-                    <MenuFlyoutItem Text="顯示 AIROOM" Click="OnTrayShow" />
-                    <MenuFlyoutItem Text="全部中止" Click="OnTrayStopAll" />
-                    <MenuFlyoutSeparator />
-                    <MenuFlyoutItem Text="離開" Click="OnTrayExit" />
-                </MenuFlyout>
-            </tb:TaskbarIcon.ContextFlyout>
-        </tb:TaskbarIcon>
+        <!-- System tray icon is deferred: H.NotifyIcon's WinUI IconSource path
+             crashes inside System.Drawing (async void), to be replaced with a
+             direct Shell_NotifyIcon implementation in the next phase. -->
     </Grid>
 </Window>

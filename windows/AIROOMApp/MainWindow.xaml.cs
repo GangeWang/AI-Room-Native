@@ -1,5 +1,5 @@
 using System.ComponentModel;
-using System.Windows.Input;
+
 using AIROOMApp.ViewModels;
 using AIROOMApp.Views;
 using Microsoft.UI;
@@ -12,8 +12,6 @@ namespace AIROOMApp;
 
 public sealed partial class MainWindow : Window
 {
-    public ICommand ShowFromTrayCommand { get; }
-
     public MainWindow()
     {
         InitializeComponent();
@@ -30,20 +28,8 @@ public sealed partial class MainWindow : Window
             root.Background = (Brush)Application.Current.Resources["StudioBackgroundBrush"];
         }
 
-        ShowFromTrayCommand = new RelayCommand(_ => BringToFront());
         App.Model.PropertyChanged += OnModelPropertyChanged;
-        Closed += (_, _) =>
-        {
-            Tray.Dispose();
-            App.Model.StopAll();
-        };
-        Activated += (_, args) =>
-        {
-            if (args.WindowActivationState is WindowActivationState.Deactivated)
-            {
-                return; // keep running in the tray; schedules come in a later phase
-            }
-        };
+        Closed += (_, _) => App.Model.StopAll();
         Navigate("workstation");
     }
 
@@ -85,22 +71,6 @@ public sealed partial class MainWindow : Window
     void OnStopAllTapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
     {
         App.Model.StopAll();
-    }
-
-    void OnTrayShow(object sender, RoutedEventArgs e) => BringToFront();
-
-    void OnTrayStopAll(object sender, RoutedEventArgs e)
-    {
-        App.Model.StopAll();
         Services.Notifier.Post("AIROOM", "已中止所有執行中的工作。");
     }
-
-    void OnTrayExit(object sender, RoutedEventArgs e) => Close();
-}
-
-public sealed class RelayCommand(Action<object?> execute) : ICommand
-{
-    public event EventHandler? CanExecuteChanged;
-    public bool CanExecute(object? parameter) => true;
-    public void Execute(object? parameter) => execute(parameter);
 }
