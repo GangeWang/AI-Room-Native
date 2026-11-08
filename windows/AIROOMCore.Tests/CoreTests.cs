@@ -712,23 +712,85 @@ public class CoreTests
 
     // MARK: helpers
 
-    static string NewTempDirectory()
+    internal static string NewTempDirectory()
     {
         var path = Path.Combine(Path.GetTempPath(), "airoom-test-" + Guid.NewGuid().ToString("D"));
         Directory.CreateDirectory(path);
         return path;
     }
 
-    static string NewTempFile()
+    internal static string NewTempFile()
     {
         var path = Path.Combine(Path.GetTempPath(), "airoom-test-" + Guid.NewGuid().ToString("N") + ".txt");
         File.WriteAllText(path, "x");
         return path;
     }
 
-    static void TryDelete(string path)
+    internal static void TryDelete(string path)
     {
         try { Directory.Delete(path, recursive: true); }
         catch { try { File.Delete(path); } catch { /* best effort */ } }
+    }
+}
+
+public class AntigravityTests
+{
+    [Fact]
+    public void ModelsParsingSkipsProgressLines()
+    {
+        var output = "Fetching available models...\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\nclaude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n";
+        var models = Antigravity.ParseModels(output);
+        Assert.Equal(2, models.Count);
+        Assert.Equal("gemini-3.8-flash-high", models[0].Id);
+        Assert.Equal("Gemini 3.8 Flash (High)", models[0].Title);
+        Assert.Equal(OfficialCLIStatus.Authenticated, Antigravity.Status(output));
+        Assert.Equal(OfficialCLIStatus.NotLoggedIn, Antigravity.Status("Fetching...\n"));
+    }
+
+    [Fact]
+    public void ArgumentsCarrySandboxModelEffortAndConversation()
+    {
+        var arguments = Antigravity.Arguments(ExecutionAccess.ReadOnly,
+            new CLIRunOptions(model: "gemini-3.8-flash-high", effort: "high",
+                session: new SessionPlan("conv-1", "fallback")));
+        Assert.Contains("--sandbox", arguments);
+        Assert.Equal("gemini-3.8-flash-high", arguments[arguments.IndexOf("--model") + 1]);
+        Assert.Equal("high", arguments[arguments.IndexOf("--effort") + 1]);
+        Assert.Equal("conv-1", arguments[arguments.IndexOf("--conversation") + 1]);
+        Assert.DoesNotContain("--dangerously-skip-permissions", arguments);
+        Assert.DoesNotContain("--mode", arguments);
+    }
+
+    [Fact]
+    public void UserMessageIsOneStreamJsonLine()
+    {
+        var line = System.Text.Encoding.UTF8.GetString(Antigravity.UserMessage("你好"));
+        Assert.EndsWith("\n", line);
+        Assert.Contains("\"event\":\"user\"", line);
+        Assert.Contains("你好", line);
+    }
+
+    [Fact]
+    public void LostConversationIsDetected()
+    {
+        Assert.True(Antigravity.LostConversation("conv-1", "conv-2"));
+        Assert.False(Antigravity.LostConversation("conv-1", "conv-1"));
+        Assert.False(Antigravity.LostConversation(null, "anything"));
+    }
+
+    [Fact]
+    public void BundledAntigravityPathsCoverWingetAndInstaller()
+    {
+        var local = CoreTests.NewTempDirectory();
+        try
+        {
+            var wingetPackage = Path.Combine(local, "Microsoft", "WinGet", "Packages", "Google.AntigravityCLI_Microsoft.Winget.Source_8wekyb3d8bbwe");
+            Directory.CreateDirectory(wingetPackage);
+            File.WriteAllText(Path.Combine(wingetPackage, "agy.exe"), "binary");
+            var paths = CommandPlan.BundledAntigravityPaths(localAppData: local, home: Path.Combine(local, "home"));
+            Assert.Equal(Path.Combine(wingetPackage, "agy.exe"), paths[0]);
+            Assert.Contains(Path.Combine(local, "agy", "bin", "agy.exe"), paths);
+        }
+        finally { CoreTests.TryDelete(local); }
     }
 }

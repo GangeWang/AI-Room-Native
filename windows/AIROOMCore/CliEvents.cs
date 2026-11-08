@@ -10,6 +10,7 @@ public sealed class CliEventAccumulator
 {
     readonly Executor agent;
     string claudeDeltas = "";
+    string streamed = "";
 
     public CliEventAccumulator(Executor agent) => this.agent = agent;
 
@@ -42,6 +43,61 @@ public sealed class CliEventAccumulator
 
         var type = value.TryGetProperty("type", out var typeProp) && typeProp.ValueKind == JsonValueKind.String
             ? typeProp.GetString() : null;
+
+        // agy stream-json: one init, step_update events, then one result. Text
+        // between tool steps streams as it comes; the result's response is the
+        // final answer. Its events are keyed "event", not "type".
+        if (agent == Executor.Antigravity)
+        {
+            var eventName = value.TryGetProperty("event", out var eventProp) && eventProp.ValueKind == JsonValueKind.String
+                ? eventProp.GetString() : null;
+            switch (eventName)
+            {
+                case "init":
+                    if (value.TryGetProperty("conversation_id", out var conversation) && conversation.ValueKind == JsonValueKind.String
+                        && conversation.GetString() is { Length: > 0 } conversationID)
+                    {
+                        SessionID = conversationID;
+                    }
+                    return null;
+                case "step_update":
+                    if (value.TryGetProperty("step_update", out var step) && step.ValueKind == JsonValueKind.Object
+                        && step.TryGetProperty("step_type", out var stepType) && stepType.ValueKind == JsonValueKind.String
+                        && stepType.GetString() == "agent_response"
+                        && step.TryGetProperty("text_delta", out var textDelta) && textDelta.ValueKind == JsonValueKind.String
+                        && textDelta.GetString() is { Length: > 0 } delta)
+                    {
+                        streamed += delta;
+                        Text = streamed;
+                        return Text;
+                    }
+                    return null;
+                case "result":
+                    if (!value.TryGetProperty("result", out var result) || result.ValueKind != JsonValueKind.Object) return null;
+                    if (result.TryGetProperty("conversation_id", out var resultConversation) && resultConversation.ValueKind == JsonValueKind.String
+                        && resultConversation.GetString() is { Length: > 0 } resultID)
+                    {
+                        SessionID = resultID;
+                    }
+                    var status = result.TryGetProperty("status", out var statusProp) && statusProp.ValueKind == JsonValueKind.String
+                        ? statusProp.GetString() : null;
+                    if (status != "SUCCESS")
+                    {
+                        Failure = result.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String
+                            ? error.GetString() : $"Antigravity 沒有完成這一輪（{status ?? "未知狀態"}）";
+                        return null;
+                    }
+                    if (result.TryGetProperty("response", out var response) && response.ValueKind == JsonValueKind.String
+                        && response.GetString() is { Length: > 0 } final)
+                    {
+                        Text = final;
+                        return Text;
+                    }
+                    return null;
+                default:
+                    return null;
+            }
+        }
 
         switch (agent)
         {

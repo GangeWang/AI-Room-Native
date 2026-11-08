@@ -159,7 +159,15 @@ public sealed class CliProcessRunner
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return await ExecuteAsync(id, agent, executor, binary, actualCwd, prompt, access, options, delivered, onUpdate, cancellationToken);
+            var result = await ExecuteAsync(id, agent, executor, binary, actualCwd, prompt, access, options, delivered, onUpdate, cancellationToken);
+            if (executor == Executor.Antigravity
+                && Antigravity.LostConversation(options.Session?.ResumeID, result.SessionID))
+            {
+                // `agy` silently started a fresh conversation: the model never saw
+                // the earlier context, so this run cannot count as a continuation.
+                throw new SessionUnavailable();
+            }
+            return result;
         }
         finally
         {
@@ -187,8 +195,8 @@ public sealed class CliProcessRunner
         try
         {
             // Prompt is transmitted through stdin, not as an argument visible to other processes.
-            var input = options.Attachments.Count > 0
-                ? ClaudeStreamInput.UserMessage(prompt, options.Attachments)
+            var input = executor == Executor.Antigravity ? Antigravity.UserMessage(prompt)
+                : options.Attachments.Count > 0 ? ClaudeStreamInput.UserMessage(prompt, options.Attachments)
                 : Encoding.UTF8.GetBytes(prompt);
             await process.StandardInput.BaseStream.WriteAsync(input, cancellationToken);
             delivered();

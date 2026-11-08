@@ -226,9 +226,12 @@ public static class OfficialCLIProbe
     {
         var executable = CommandPlan.ResolveExecutable(executor, settings, environment);
         if (executable is null) return OfficialCLIStatus.MissingExecutable;
-        if (executor is Executor.DeepSeek or Executor.Antigravity) return OfficialCLIStatus.NotConfirmed;
+        if (executor is Executor.DeepSeek) return OfficialCLIStatus.NotConfirmed;
 
-        var arguments = executor == Executor.Codex ? new[] { "login", "status" } : new[] { "auth", "status" };
+        // `agy` has no status command: it lists models only once signed in.
+        var arguments = executor == Executor.Antigravity ? new[] { "models" }
+            : executor == Executor.Codex ? new[] { "login", "status" }
+            : new[] { "auth", "status" };
         var startInfo = new System.Diagnostics.ProcessStartInfo
         {
             FileName = executable,
@@ -256,6 +259,7 @@ public static class OfficialCLIProbe
                 return OfficialCLIStatus.TimedOut;
             }
             var output = outputTask.GetAwaiter().GetResult();
+            if (executor == Executor.Antigravity) return Antigravity.Status(output);
             return Interpret(process.ExitCode, output);
         }
         catch

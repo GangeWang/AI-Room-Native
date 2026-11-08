@@ -170,6 +170,30 @@ public static class CommandPlan
         return results;
     }
 
+    /// <summary>
+    /// The Antigravity CLI installs via winget (Google.AntigravityCLI) or the
+    /// official installer. winget puts the exe in its package folder; the
+    /// installer uses %LOCALAPPDATA%\agy\bin.
+    /// </summary>
+    public static List<string> BundledAntigravityPaths(string? localAppData = null, string? home = null)
+    {
+        localAppData ??= Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        home ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var results = new List<string>();
+        var wingetPackages = Path.Combine(localAppData, "Microsoft", "WinGet", "Packages");
+        if (Directory.Exists(wingetPackages))
+        {
+            foreach (var package in SafeDirectories(wingetPackages))
+            {
+                if (!package.StartsWith("Google.AntigravityCLI", StringComparison.OrdinalIgnoreCase)) continue;
+                results.Add(Path.Combine(wingetPackages, package, "agy.exe"));
+            }
+        }
+        results.Add(Path.Combine(localAppData, "agy", "bin", "agy.exe"));
+        results.Add(Path.Combine(home, ".local", "bin", "agy.exe"));
+        return results;
+    }
+
     /// <summary>Directory names that parse as version numbers, newest first ("2.1.227" &gt; "2.1.121").</summary>
     public static List<string> VersionedDirectories(string parent)
     {
@@ -243,6 +267,7 @@ public static class CommandPlan
             {
                 Executor.Codex => BundledCodexPaths(),
                 Executor.Claude => BundledClaudePaths(home: home),
+                Executor.Antigravity => BundledAntigravityPaths(home: home),
                 _ => [],
             };
             var override_ = executor == Executor.Codex
