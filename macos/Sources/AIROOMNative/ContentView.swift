@@ -132,6 +132,9 @@ struct ContentView: View {
                             Button { route = .chat(agent) } label: {
                                 Image(systemName: "bubble.left").font(.system(size: 13))
                                     .frame(width: 27, height: 30)
+                                    // A plain button only takes clicks on drawn pixels: without this,
+                                    // a click inside the bubble's empty middle did nothing.
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .help(t("前往成員工位", "Open member desk"))
@@ -203,7 +206,10 @@ struct ContentView: View {
         HStack {
             Text(title).font(.system(size: 11, weight: .bold)).tracking(1.3).foregroundStyle(.secondary)
             Spacer()
-            Button(action: action) { Image(systemName: icon).font(.system(size: 11)) }
+            Button(action: action) {
+                Image(systemName: icon).font(.system(size: 11))
+                    .frame(width: 22, height: 22).contentShape(Rectangle())
+            }
                 .buttonStyle(.plain).foregroundStyle(.secondary)
         }.padding(.horizontal, 9).padding(.top, 12).padding(.bottom, 5)
     }
