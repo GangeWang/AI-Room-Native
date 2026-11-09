@@ -1,6 +1,6 @@
 import Foundation
 
-/// A published AIROOM Native release.
+/// A published AI Room Native release.
 public struct ReleaseInfo: Equatable, Sendable {
     /// "0.2.58" (the tag without its leading "v").
     public var version: String
@@ -19,7 +19,9 @@ public struct ReleaseInfo: Equatable, Sendable {
 /// may be a Windows one. The macOS app reads the list and takes the newest macOS
 /// release: tags "v1.2.3" or "macos-v1.2.3" with a DMG attached (docs/RELEASING.md).
 public enum UpdateCheck {
-    public static let repository = "GangeWang/AIROOMNative"
+    public static let repository = "GangeWang/AI-Room-Native"
+    /// The name before the 2026-11-09 rename; GitHub still redirects it.
+    static let formerRepository = "GangeWang/AIROOMNative"
     public static let releasesAPI = URL(string: "https://api.github.com/repos/\(repository)/releases?per_page=30")!
     public static let releasesPage = URL(string: "https://github.com/\(repository)/releases/latest")!
     /// Automatic checks happen at most this often.
@@ -98,6 +100,7 @@ public enum UpdateCheck {
     }
 
     static func isOurs(_ url: URL) -> Bool {
-        url.scheme == "https" && url.host == "github.com" && url.path.hasPrefix("/\(repository)/releases/")
+        url.scheme == "https" && url.host == "github.com"
+            && [repository, formerRepository].contains { url.path.hasPrefix("/\($0)/releases/") }
     }
 }

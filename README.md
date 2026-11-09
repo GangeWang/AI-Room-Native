@@ -1,4 +1,4 @@
-# AIROOM Native · 我們的 AI 工作室（macOS 原生版）
+# AI Room Native · 我們的 AI 工作室（原生版）
 
 > **原出處：[tonyAmadeus/offAice](https://github.com/tonyAmadeus/offAice)（AIROOM · 我们的 AI 工作室）**
 >
@@ -8,7 +8,7 @@
 
 ## 下載
 
-macOS：到 [Releases](https://github.com/GangeWang/AIROOMNative/releases) 下載最新的 `AIROOMNative-<版本>.dmg`，打開後把 AIROOM Native 拖到「應用程式」。
+macOS：到 [Releases](https://github.com/GangeWang/AI-Room-Native/releases) 下載最新的 `AI-Room-Native-<版本>.dmg`，打開後把 AI Room Native 拖到「應用程式」。
 
 - **需求**：Apple Silicon（M 系列）Mac、macOS 14 以上。
 - **成員程式**：至少登入一個官方 CLI（Claude Code、Codex、Antigravity 的 `agy`），在 DeepSeek Harness 裡存好 API 金鑰，或在 ZCode 桌面版登入 Z.AI。`agy` 要另外安裝（見 [Antigravity CLI 文件](https://antigravity.google/docs/getting-started?tab=cli)），和 Antigravity App 共用登入。Claude 會優先使用 Claude Desktop「Code」分頁附帶的 Claude Code；Codex 會優先使用 ChatGPT App 附帶的 Codex。都找不到時才找系統 PATH。
@@ -44,9 +44,9 @@ macOS：到 [Releases](https://github.com/GangeWang/AIROOMNative/releases) 下�
 
 ## 資源用量比較
 
-2026-11-04 在同一台 Apple Silicon Mac 上實測。原版（[tonyAmadeus/offAice](https://github.com/tonyAmadeus/offAice) commit `c6e2b59`，Electron 44.5.1）從原始碼以開發模式啟動；AIROOM Native 為 0.2.58。記憶體是 macOS `footprint` 量到的實際佔用（也就是「活動監視器」顯示的記憶體），加總 App 的所有程序。
+2026-11-04 在同一台 Apple Silicon Mac 上實測。原版（[tonyAmadeus/offAice](https://github.com/tonyAmadeus/offAice) commit `c6e2b59`，Electron 44.5.1）從原始碼以開發模式啟動；AI Room Native 為 0.2.58。記憶體是 macOS `footprint` 量到的實際佔用（也就是「活動監視器」顯示的記憶體），加總 App 的所有程序。
 
-| 狀況 | 原版（Electron） | AIROOM Native |
+| 狀況 | 原版（Electron） | AI Room Native |
 | --- | --- | --- |
 | 剛啟動、閒置 30 秒 | 250 MB | 134 MB |
 | 開過茶歇室、圓桌、用量、設定之後 | 約 350 MB | 115 MB |
@@ -56,7 +56,7 @@ macOS：到 [Releases](https://github.com/GangeWang/AIROOMNative/releases) 下�
 | 閒置時 CPU | 約 0.1% | 約 0% |
 
 - 原版的記憶體大多在 GPU 程序：開過幾個畫面後，從 132 MB 漲到 223 MB。
-- 量測時原版是全新安裝，沒有成員和對話；AIROOM Native 已載入三位成員、立繪和茶歇室紀錄。即使如此，原版的用量仍約為 2–3 倍。
+- 量測時原版是全新安裝，沒有成員和對話；AI Room Native 已載入三位成員、立繪和茶歇室紀錄。即使如此，原版的用量仍約為 2–3 倍。
 - 原版正式支援 Windows，這裡是在 Mac 上用開發模式跑，Windows 正式版的數字可能不同；但 Electron 分成多個程序的架構相同。
 - 兩邊都沒有算進 Claude Code、Codex、DeepSeek Harness 這些成員程式本身：它們工作時用多少記憶體，換哪種介面架構都一樣。
 
@@ -67,7 +67,7 @@ macOS：到 [Releases](https://github.com/GangeWang/AIROOMNative/releases) 下�
 ```zsh
 cd macos
 swift test                     # 單元測試
-./Scripts/package-app.sh       # 產生 dist/AIROOMNative.app（會先下載並驗證原版圖片素材）
+./Scripts/package-app.sh       # 產生 dist/AI Room Native.app（會先下載並驗證原版圖片素材）
 ./Scripts/install-app.sh --open  # 安裝到「應用程式」並開啟（舊版會移到垃圾桶）
 ./Scripts/make-dmg.sh          # 另外產生可拖曳安裝的 DMG
 ```

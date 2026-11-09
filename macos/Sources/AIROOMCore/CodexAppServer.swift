@@ -42,7 +42,7 @@ public struct CodexServerWire {
         if method.contains("requestApproval") {
             return try jsonLine(["id": id, "result": ["decision": "decline"]])
         }
-        return try jsonLine(["id": id, "error": ["code": -32601, "message": "Unsupported request in AIROOM Native"]])
+        return try jsonLine(["id": id, "error": ["code": -32601, "message": "Unsupported request in AI Room Native"]])
     }
 
     private static func jsonLine(_ obj: [String: Any]) throws -> Data {
@@ -216,7 +216,7 @@ public final class CodexAppServerRunner {
         var wire = CodexServerWire()
         try input.fileHandleForWriting.write(contentsOf: CodexServerWire.request(
             id: 1, method: "initialize", params: [
-                "clientInfo": ["name": "airoom_native", "title": "AIROOM Native", "version": "0.2.0"]
+                "clientInfo": ["name": "airoom_native", "title": "AI Room Native", "version": "0.2.0"]
             ]))
         var buffer = Data()
         var sentThread = false, sentTurn = false
@@ -365,7 +365,7 @@ public final class CodexAppServerRunner {
         }
         defer { output.fileHandleForReading.readabilityHandler = nil }
         try input.fileHandleForWriting.write(contentsOf: CodexServerWire.request(id: 1, method: "initialize", params: [
-            "clientInfo": ["name": "airoom_native", "title": "AIROOM Native", "version": "0.2.0"]]))
+            "clientInfo": ["name": "airoom_native", "title": "AI Room Native", "version": "0.2.0"]]))
         _ = try lines.waitForResponse(id: 1, timeout: timeout)
         try input.fileHandleForWriting.write(contentsOf: CodexServerWire.notification(method: "initialized"))
         try input.fileHandleForWriting.write(contentsOf: CodexServerWire.request(id: 2, method: "model/list", params: [:]))

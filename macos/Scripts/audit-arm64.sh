@@ -5,7 +5,7 @@ set -euo pipefail
 if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
   echo 'Run natively on an Apple Silicon Mac.' >&2; exit 2
 fi
-APP="${1:-dist/AIROOMNative.app}"
+APP="${1:-dist/AI Room Native.app}"
 APPBIN="$APP/Contents/MacOS/AIROOMNative"
 if [[ ! -x "$APPBIN" ]]; then echo "Missing $APPBIN" >&2; exit 2; fi
 if [[ "$(/usr/bin/lipo -archs "$APPBIN")" != 'arm64' ]]; then echo 'App contains non-arm64 architecture.' >&2; exit 1; fi

@@ -1,4 +1,4 @@
-# AIROOM Native security notes / 安全說明
+# AI Room Native security notes / 安全說明
 
 ## Trust boundary
 
