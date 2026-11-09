@@ -15,7 +15,6 @@
 
 ## 跨平台要對齊的
 
-- **Windows 版的 repo 名稱**：repo 已在 2026-11-09 改名為 `GangeWang/AI-Room-Native`（舊網址會轉址）。`windows/AIROOMCore/UpdateCheck.cs` 還寫著舊名稱，而它只接受舊名稱底下的連結，所以發 Windows 版之前要改成同時接受新舊名稱（macOS 版已改）。App 名稱也改成「AI Room Native」了。
 - **Windows 版 ZCode 拒絕權限的回應格式**：Windows 版回 `{}`，但 ZCode 會嚴格驗證回應，`decision` 是必填，所以 `{}` 會驗證失敗。macOS 版（#8）改回 `{"decision":"deny","reason":…}`。這是從程式碼讀出來的，Windows 上還沒實測。
 - **Windows 版 ZCode 沒有設定權限模式**：工作階段預設是 `build`，所有修改都要先徵求同意，所以成員一律不能寫檔。macOS 版明確設定 `plan` 或 `edit`。
 

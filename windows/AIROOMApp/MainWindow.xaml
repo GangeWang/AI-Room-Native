@@ -14,7 +14,7 @@
         <Grid x:Name="TitleBar" Height="44" Background="Transparent">
             <StackPanel Orientation="Horizontal" Spacing="10" Margin="14,0,0,0" VerticalAlignment="Center">
                 <Ellipse Width="16" Height="16" Fill="{StaticResource StudioOrangeBrush}" Opacity="0.9" />
-                <TextBlock Text="AIROOM Native" FontWeight="SemiBold" Foreground="{ThemeResource StudioInkBrush}" />
+                <TextBlock Text="AI Room Native" FontWeight="SemiBold" Foreground="{ThemeResource StudioInkBrush}" />
             </StackPanel>
         </Grid>
 

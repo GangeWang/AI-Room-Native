@@ -65,6 +65,23 @@ public class UpdateCheckTests
     }
 
     [Fact]
+    public void LinksUnderTheNewAndTheRenamedRepositoryAreBothOurs()
+    {
+        // The repository was renamed on 2026-11-09; GitHub redirects the old
+        // name, so releases published before it keep old-name links forever.
+        Assert.Equal("GangeWang/AI-Room-Native", UpdateCheck.Repository);
+        var newName = UpdateCheck.Parse(ObjectJson(
+            page: "https://github.com/GangeWang/AI-Room-Native/releases/tag/windows-v0.3.0",
+            asset: "https://github.com/GangeWang/AI-Room-Native/releases/download/windows-v0.3.0/AIROOM-Setup-0.3.0.exe"))
+            ?? throw new Xunit.Sdk.XunitException("parse failed");
+        Assert.Equal("https://github.com/GangeWang/AI-Room-Native/releases/tag/windows-v0.3.0", newName.Page);
+        Assert.NotNull(newName.Download);
+        var oldName = UpdateCheck.Parse(ObjectJson()) ?? throw new Xunit.Sdk.XunitException("parse failed");
+        Assert.Equal("https://github.com/GangeWang/AIROOMNative/releases/tag/windows-v0.3.0", oldName.Page);
+        Assert.NotNull(oldName.Download);
+    }
+
+    [Fact]
     public void PrereleasesDraftsAndOddTagsAreIgnored()
     {
         Assert.Null(UpdateCheck.Parse(ObjectJson(prerelease: true)));

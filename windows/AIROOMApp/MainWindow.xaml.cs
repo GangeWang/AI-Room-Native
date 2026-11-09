@@ -15,7 +15,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Title = "AIROOM Native";
+        Title = "AI Room Native";
         AppWindow.Resize(new SizeInt32(1120, 760));
         AppWindow.SetIcon(System.IO.Path.Combine(
             AppContext.BaseDirectory, "Assets", "airoom.ico"));
