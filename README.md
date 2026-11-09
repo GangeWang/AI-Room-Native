@@ -80,7 +80,7 @@ swift test                     # 單元測試
   - `macos/Sources/AIROOMCore`：不依賴介面的核心邏輯（流程、提示詞、加密存檔、CLI 執行），有完整單元測試。
   - `macos/Sources/AIROOMNative`：SwiftUI 介面與 App 狀態。
 - `windows/`：Windows 原生版（規劃中）。
-- `docs/`：兩個平台共用的文件：和原版的功能對照、送給模型的提示詞、直播舞台設定、發版規則。
+- `docs/`：兩個平台共用的文件：和原版的功能對照、送給模型的提示詞、直播舞台設定、發版規則、[待處理事項](docs/PENDING.md)。
 
 腳本、簽章與各檔案的用途見 [macos/README.md](macos/README.md)。
 

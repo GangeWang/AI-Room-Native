@@ -1,0 +1,47 @@
+# 待處理事項
+
+已知但還沒處理的事。做完就從這裡刪掉，在對應的 PR 或 commit 裡註明。
+
+最後整理：2026-11-09。
+
+## 資料安全
+
+- **降版會悄悄改寫成員用的程式**（macOS）
+  - 現象：舊版本讀到不認得的程式名稱（例如還沒有 ZCode 的版本讀到 `ZCode`），會退回 Claude Code（`MemberCard` 解碼：`?? agent.builtInExecutor ?? .claude`），下次存檔就寫回去。
+  - 影響：從新版退回舊版後，該成員實際改由 Claude 回答，畫面上沒有任何提示。
+  - 已發生：2026-11-09 在開發機上輪流安裝不同分支的版本時，GLM 成員被改成 Claude Code。#8 合併後要手動改回 ZCode。
+  - 方向：保留不認得的程式名稱，暫停該成員並提醒，不要換成別的程式。
+  - 狀態：**決定先不處理，之後再做。**
+
+## 等待合併的 PR
+
+- #7 macOS：Antigravity 的 `--mode` 修正。0.2.64 的 Gemini 在可寫入的任務裡改不了檔案。
+- #8 macOS：ZCode（GLM）執行端。
+- #9 macOS：人物卡加上關閉按鈕（也可按 Esc）。
+- #1、#2、#3、#5、#6：Windows 原生版，這幾個是一層疊一層的 PR。
+- 以上合併後再發 macOS 新版（規則見 [RELEASING.md](RELEASING.md)）。
+
+## 跨平台要對齊的
+
+- **Windows 版 ZCode 拒絕權限的回應格式**：Windows 版回 `{}`，但 ZCode 會嚴格驗證回應，`decision` 是必填，所以 `{}` 會驗證失敗。macOS 版（#8）改回 `{"decision":"deny","reason":…}`。這是從程式碼讀出來的，Windows 上還沒實測。
+- **Windows 版 ZCode 沒有設定權限模式**：工作階段預設是 `build`，所有修改都要先徵求同意，所以成員一律不能寫檔。macOS 版明確設定 `plan` 或 `edit`。
+
+## 功能缺口
+
+- **Gemini（Antigravity）**
+  - 不能傳圖片和 PDF。
+  - 工位空白畫面寫「可以附上圖片、PDF」，對 Gemini 和 ZCode 都不正確。
+  - 茶歇室、圓桌、專案會議室都還沒實測。
+  - 人物卡的人設是空的。
+- **ZCode（GLM）**
+  - 只收文字。
+  - 回覆靠輪詢取得，不是逐字串流。
+  - 方案寫死為 `account:zai-start-plan`。
+  - 用的是內部協議，ZCode 更新後可能失效。
+- **Kimi 執行端**還沒接；Kimi、GLM 也還沒有形象圖。
+- **直播的延伸功能**：留言匯入、OBS 雙端推流，等 Live2D 模型。
+
+## 專案與發行
+
+- repo 還沒有 LICENSE。
+- DMG 沒有經過 Apple 公證（這是決定好的，見 FEATURE_PARITY）。
