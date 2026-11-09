@@ -37,14 +37,15 @@ final class ZCodeAppServer {
         FileHandle.standardError.write(Data("zcode \(direction) id=\(message["id"].map { "\($0)" } ?? "-") method=\(message["method"] as? String ?? "-") result=\(message["result"] != nil) error=\(message["error"] != nil) \(Self.traceDetail(message))\n".utf8))
     }
 
-    init(executable: URL, script: URL, cwd: URL, auth: ZCode.Auth, environment: [String: String]) {
+    init(runtime: ZCode.Runtime, script: URL, cwd: URL, auth: ZCode.Auth, environment: [String: String]) {
         self.auth = auth
         process = Process()
-        process.executableURL = executable
+        process.executableURL = runtime.executable
         process.arguments = [script.path, "app-server"]
         process.currentDirectoryURL = cwd
         var env = environment
-        env["ELECTRON_RUN_AS_NODE"] = "1"   // the desktop's own runtime runs the CLI as Node
+        // The desktop's own executable runs the CLI as Node only when told to.
+        if runtime.isElectron { env["ELECTRON_RUN_AS_NODE"] = "1" } else { env.removeValue(forKey: "ELECTRON_RUN_AS_NODE") }
         env["ZCODE_BUILTIN_PROVIDER_CONFIG_FILE"] = auth.builtinFile.path
         env["ZCODE_PERSONAL_PROVIDER_CONFIG_FILE"] = (environment["HOME"] ?? NSHomeDirectory()) + "/.zcode/v2/provider_config.json"
         env["ZCODE_APP_VERSION"] = auth.appVersion
@@ -203,7 +204,7 @@ extension ZCode {
                         access: ExecutionAccess, resumeID: String?, environment: [String: String],
                         register: (Process) -> Void, delivered: () -> Void,
                         onUpdate: (String) -> Void) throws -> CLIRunResult {
-        let server = ZCodeAppServer(executable: executable, script: script(for: executable), cwd: cwd,
+        let server = ZCodeAppServer(runtime: runtime(app: executable), script: script(for: executable), cwd: cwd,
                                     auth: auth, environment: environment)
         try server.start()
         register(server.underlyingProcess)

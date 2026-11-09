@@ -96,6 +96,25 @@ final class ZCodeTests: XCTestCase {
         XCTAssertFalse(Executor.zcode.acceptsFiles)
     }
 
+    func testAPlainNodeIsPreferredSoToolServersStayOutOfTheDock() throws {
+        let home = try home()
+        let app = URL(fileURLWithPath: "/Applications/ZCode.app/Contents/MacOS/ZCode")
+        let bin = home.appendingPathComponent(".volta/bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let node = bin.appendingPathComponent("node")
+        try "#!/bin/sh\n".write(to: node, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: node.path)
+        // Homebrew's real node may exist on this Mac; only the fake one answers here.
+        func versions(_ answer: String?) -> (URL) -> String? { { $0.path == node.path ? answer : nil } }
+
+        let modern = ZCode.runtime(app: app, home: home.path, nodeVersion: versions("v26.13.0\n"))
+        XCTAssertEqual(modern, ZCode.Runtime(executable: node, isElectron: false))
+        XCTAssertEqual(ZCode.runtime(app: app, home: home.path, nodeVersion: versions("v18.20.1")).isElectron, true, "too old")
+        XCTAssertEqual(ZCode.runtime(app: app, home: home.path, nodeVersion: versions(nil)).executable, app, "broken node")
+        XCTAssertEqual(ZCode.nodeMajor("v22.1.0"), 22)
+        XCTAssertNil(ZCode.nodeMajor("garbage"))
+    }
+
     // MARK: Live: the real ZCode app and the owner's sign-in. Skipped unless AIROOM_LIVE_CLI=1.
 
     private func live() throws -> (URL, ZCode.Auth) {
