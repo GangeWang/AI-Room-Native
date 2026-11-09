@@ -9,17 +9,15 @@
 - **降版會悄悄改寫成員用的程式**（macOS）
   - 現象：舊版本讀到不認得的程式名稱（例如還沒有 ZCode 的版本讀到 `ZCode`），會退回 Claude Code（`MemberCard` 解碼：`?? agent.builtInExecutor ?? .claude`），下次存檔就寫回去。
   - 影響：從新版退回舊版後，該成員實際改由 Claude 回答，畫面上沒有任何提示。
-  - 已發生：2026-11-09 在開發機上輪流安裝不同分支的版本時，GLM 成員被改成 Claude Code。#8 合併後要手動改回 ZCode。
+  - 已發生：2026-11-09 在開發機上輪流安裝不同分支的版本時，GLM 成員被改成 Claude Code（之後已由使用者刪除）。
   - 方向：保留不認得的程式名稱，暫停該成員並提醒，不要換成別的程式。
   - 狀態：**決定先不處理，之後再做。**
 
 ## 等待合併的 PR
 
-- #7 macOS：Antigravity 的 `--mode` 修正。0.2.64 的 Gemini 在可寫入的任務裡改不了檔案。
-- #8 macOS：ZCode（GLM）執行端。
+- #8 macOS：ZCode（GLM）執行端。合併時會和 #10 在 `MemberTemplates.swift` 的 GLM 那一行衝突（兩邊各改了不同欄位），兩邊的修改都要保留。
 - #9 macOS：人物卡加上關閉按鈕（也可按 Esc）。
-- #1、#2、#3、#5、#6：Windows 原生版，這幾個是一層疊一層的 PR。
-- 以上合併後再發 macOS 新版（規則見 [RELEASING.md](RELEASING.md)）。
+- 以上合併後再發 macOS 新版（規則見 [RELEASING.md](RELEASING.md)）。#7（Antigravity 的 `--mode` 修正）已合併但還沒發版，0.2.64 的 Gemini 在可寫入的任務裡仍改不了檔案。
 
 ## 跨平台要對齊的
 
@@ -38,7 +36,8 @@
   - 回覆靠輪詢取得，不是逐字串流。
   - 方案寫死為 `account:zai-start-plan`。
   - 用的是內部協議，ZCode 更新後可能失效。
-- **Kimi 執行端**還沒接；Kimi、GLM 也還沒有形象圖。
+- **Kimi 執行端**還沒接。
+- **Windows 版的 Kimi、GLM 立繪**：macOS 已加入（原版根目錄的 `KIMI.webp`、`GLM.jpg`），`windows/Scripts/fetch-assets.ps1` 還沒有。
 - **直播的延伸功能**：留言匯入、OBS 雙端推流，等 Live2D 模型。
 
 ## 專案與發行

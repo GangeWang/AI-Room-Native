@@ -33,9 +33,9 @@ public struct MemberTemplate: Identifiable, Equatable, Sendable {
                        art: "gemini.webp", face: PortraitFaceAnchor(x: 0.490, y: 0.128, zoom: 3.6),
                        plannedProgram: nil, suggestedExecutor: .antigravity),
         MemberTemplate(id: "kimi", name: "Kimi", motto: "長篇資料交給我，讀完再說。", color: "#2f8f86",
-                       art: nil, face: initialFace, plannedProgram: "Kimi CLI", suggestedExecutor: .claude),
+                       art: "kimi.webp", face: PortraitFaceAnchor(x: 0.525, y: 0.150, zoom: 3.4), plannedProgram: "Kimi CLI", suggestedExecutor: .claude),
         MemberTemplate(id: "glm", name: "GLM", motto: "先列好步驟，再一步步做完。", color: "#3d8b4f",
-                       art: nil, face: initialFace, plannedProgram: "ZCode", suggestedExecutor: .claude),
+                       art: "glm.jpg", face: PortraitFaceAnchor(x: 0.540, y: 0.185, zoom: 3.4), plannedProgram: "ZCode", suggestedExecutor: .claude),
     ]
 
     /// Framing for an uploaded portrait with no known face position.

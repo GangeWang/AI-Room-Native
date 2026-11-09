@@ -57,9 +57,9 @@ final class MemberRosterTests: XCTestCase {
             XCTAssertNotNil(template.color.range(of: #"^#[0-9a-f]{6}$"#, options: .regularExpression), template.id)
             XCTAssertLessThanOrEqual(template.motto.count, MemberCard.mottoLimit)
         }
-        // Kimi and GLM have no artwork yet: the card shows an initial.
-        XCTAssertNil(MemberTemplate.named("kimi")?.art)
-        XCTAssertNil(MemberTemplate.named("glm")?.art)
+        // Kimi and GLM use the original AIROOM portraits (same ZipZipPipe set).
+        XCTAssertEqual(MemberTemplate.named("kimi")?.art, "kimi.webp")
+        XCTAssertEqual(MemberTemplate.named("glm")?.art, "glm.jpg")
         let blank = MemberCard.added(from: nil, executor: .codex)
         XCTAssertNil(blank.template)
         XCTAssertEqual(blank.executor, .codex)

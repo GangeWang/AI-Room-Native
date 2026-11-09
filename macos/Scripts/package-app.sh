@@ -48,7 +48,7 @@ APP="$STAGING_DIR/AIROOMNative.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 # Copy the verified original artwork into the macOS .app (never fetch on app launch).
 mkdir -p "$APP/Contents/Resources/Assets"
-for image in "$PWD"/Sources/AIROOMNative/Resources/*.webp; do
+for image in "$PWD"/Sources/AIROOMNative/Resources/*.webp "$PWD"/Sources/AIROOMNative/Resources/*.jpg; do
   cp "$image" "$APP/Contents/Resources/Assets/"
 done
 # Generate the original app icon when the optional upstream PNG is present.

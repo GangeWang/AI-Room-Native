@@ -2,7 +2,7 @@
 
 > **原出處：[tonyAmadeus/offAice](https://github.com/tonyAmadeus/offAice)（AIROOM · 我们的 AI 工作室）**
 >
-> 本專案是 AIROOM 的原生重新實作：目前有 macOS 版，Windows 原生版規劃中（放在 `windows/`）。功能設計、四個房間的工作方式、介面風格、人物與工作流程都來自原版，感謝原作者 [@tonyAmadeus](https://github.com/tonyAmadeus)。程式碼以 Swift 重新撰寫，沒有使用原版的 TypeScript／Electron 程式碼；圖片素材來自 ZipZipPipe（CC BY-NC-SA 4.0），詳見下方〈素材與授權〉。
+> 本專案是 AIROOM 的原生重新實作，有 macOS 版和 Windows 版（`windows/`，WinUI 3 + .NET）。功能設計、四個房間的工作方式、介面風格、人物與工作流程都來自原版，感謝原作者 [@tonyAmadeus](https://github.com/tonyAmadeus)。程式碼以 Swift 重新撰寫，沒有使用原版的 TypeScript／Electron 程式碼；圖片素材來自 ZipZipPipe（CC BY-NC-SA 4.0），詳見下方〈素材與授權〉。
 
 把 Claude 和 Codex 請進同一個視窗，給每位成員名字、頭像和個性，讓它們像同事一樣：單獨幫你做事、一起聊天開會、各寫一稿互相比較、分工完成專案，最後由你驗收。每位成員背後都是真實的官方程式（Claude Code、Codex CLI），用你自己的帳號登入；AIROOM 負責把它們組織起來，並把說了什麼、做了什麼、改了哪些檔案都攤在你面前。
 
@@ -79,7 +79,7 @@ swift test                     # 單元測試
 - `macos/`：macOS 原生版（Swift 套件）。
   - `macos/Sources/AIROOMCore`：不依賴介面的核心邏輯（流程、提示詞、加密存檔、CLI 執行），有完整單元測試。
   - `macos/Sources/AIROOMNative`：SwiftUI 介面與 App 狀態。
-- `windows/`：Windows 原生版（規劃中）。
+- `windows/`：Windows 原生版（WinUI 3 + .NET），說明見 [windows/README.md](windows/README.md)。
 - `docs/`：兩個平台共用的文件：和原版的功能對照、送給模型的提示詞、直播舞台設定、發版規則、[待處理事項](docs/PENDING.md)。
 
 腳本、簽章與各檔案的用途見 [macos/README.md](macos/README.md)。
