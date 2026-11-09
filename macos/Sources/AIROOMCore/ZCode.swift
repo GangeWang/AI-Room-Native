@@ -42,6 +42,54 @@ public enum ZCode {
             .appendingPathComponent("Resources/glm/zcode.cjs")
     }
 
+    /// What runs zcode.cjs. ZCode's own executable can (as Node, via ELECTRON_RUN_AS_NODE),
+    /// but then app-server and each of the tool servers it starts (about six per turn)
+    /// show up in the Dock as separate apps. A plain Node.js doesn't, so one is used
+    /// when installed (v22 or newer); the desktop app's executable is the fallback.
+    public struct Runtime: Equatable, Sendable {
+        public let executable: URL
+        public let isElectron: Bool
+    }
+
+    public static func nodeCandidates(home: String = NSHomeDirectory()) -> [String] {
+        ["/opt/homebrew/bin/node", "/usr/local/bin/node", "\(home)/.volta/bin/node", "\(home)/.local/bin/node"]
+    }
+
+    public static func runtime(app executable: URL, home: String = NSHomeDirectory(),
+                               nodeVersion: (URL) -> String? = installedNodeVersion) -> Runtime {
+        for path in nodeCandidates(home: home) where FileManager.default.isExecutableFile(atPath: path) {
+            let node = URL(fileURLWithPath: path)
+            if let version = nodeVersion(node), nodeMajor(version).map({ $0 >= 22 }) == true {
+                return Runtime(executable: node, isElectron: false)
+            }
+        }
+        return Runtime(executable: executable, isElectron: true)
+    }
+
+    /// "v26.13.0" → 26.
+    static func nodeMajor(_ version: String) -> Int? {
+        let digits = version.trimmingCharacters(in: .whitespacesAndNewlines).drop(while: { $0 == "v" })
+        return digits.split(separator: ".").first.flatMap { Int($0) }
+    }
+
+    public static func installedNodeVersion(_ node: URL) -> String? {
+        let process = Process()
+        process.executableURL = node
+        process.arguments = ["--version"]
+        process.environment = ["PATH": "/usr/bin:/bin"]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        let watchdog = DispatchWorkItem { if process.isRunning { process.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 5, execute: watchdog)
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        watchdog.cancel()
+        return process.terminationStatus == 0 ? String(decoding: data.prefix(64), as: UTF8.self) : nil
+    }
+
     /// The desktop build's version, which the plan gateway expects to see.
     public static func appVersion(for executable: URL) -> String {
         let plist = executable.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Info.plist")
