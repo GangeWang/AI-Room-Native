@@ -338,6 +338,8 @@ private struct MemoryImportSheet: View {
                  ? t("DeepSeek Harness 沒有可以匯入的記憶檔。", "DeepSeek Harness has no memory files to import.")
                  : agent.executor == .antigravity
                  ? t("Antigravity 沒有可以匯入的記憶檔。", "Antigravity has no memory files to import.")
+                 : agent.executor == .zcode
+                 ? t("ZCode 沒有可以匯入的記憶檔。", "ZCode has no memory files to import.")
                  : t("只讀取 ~/.claude/projects/*/memory/ 裡的記憶檔，不讀登入資料或對話紀錄。",
                      "Only memory files in ~/.claude/projects/*/memory/ are read — never credentials or transcripts."))
                 .font(.caption).foregroundStyle(.secondary)

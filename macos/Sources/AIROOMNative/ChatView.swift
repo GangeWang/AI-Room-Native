@@ -21,6 +21,7 @@ struct ChatView: View {
         case .claude: return t("在 Claude App 開新工作階段", "New session in Claude App")
         case .deepseek: return t("打開 DeepSeek Harness", "Open DeepSeek Harness")
         case .antigravity: return t("打開 Antigravity", "Open Antigravity")
+        case .zcode: return t("打開 ZCode", "Open ZCode")
         }
     }
     private var memberName: String { model.archive.members.first(where: { $0.agent == agent })?.name ?? agent.shortName }

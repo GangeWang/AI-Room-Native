@@ -84,6 +84,7 @@ extension Executor {
         case .codex: return "Codex"
         case .deepseek: return "DeepSeek"
         case .antigravity: return "Antigravity"
+        case .zcode: return "ZCode"
         }
     }
 }

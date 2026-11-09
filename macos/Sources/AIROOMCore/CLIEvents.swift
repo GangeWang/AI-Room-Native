@@ -49,7 +49,7 @@ public struct CLIEventAccumulator {
         guard let type = value["type"] as? String else { return nil }
 
         switch agent {
-        case .antigravity:
+        case .antigravity, .zcode:
             break // handled above: its events are keyed "event", not "type"
         case .deepseek:
             // dsh headless --json: session, status, thinking, text, tool_call, tool_result, final.

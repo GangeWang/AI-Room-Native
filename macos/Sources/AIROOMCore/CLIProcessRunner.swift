@@ -175,6 +175,18 @@ public final class CLIProcessRunner {
             if let scratch { try? FileManager.default.removeItem(at: scratch) }
             if let claimed { lock.lock(); stableCopies.remove(claimed); lock.unlock() }
         }
+        if agent == .zcode {
+            guard let auth = ZCode.loadAuth(appVersion: ZCode.appVersion(for: binary)) else {
+                throw NativeCLIError.processFailed("ZCode 尚未登入：請先在 ZCode 桌面版登入 Z.AI。")
+            }
+            defer { lock.lock(); active.removeValue(forKey: id); lock.unlock() }
+            return try ZCode.runTurn(executable: binary, auth: auth, prompt: prompt, cwd: actualCWD,
+                                     model: ModelCatalog.sanitize(options.model), effort: ModelCatalog.sanitize(options.effort),
+                                     access: access, resumeID: options.session?.resumeID,
+                                     environment: PrivacyGuard.cliEnvironment(from: ProcessInfo.processInfo.environment, executable: binary),
+                                     register: { process in self.lock.lock(); self.active[id] = process; self.lock.unlock() },
+                                     delivered: delivered, onUpdate: onUpdate)
+        }
         // DSH reads its model and credential settings from a per-run overlay file.
         var patch: URL?
         if agent == .deepseek {

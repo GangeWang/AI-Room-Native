@@ -13,6 +13,7 @@ public struct NativeSettings: Codable, Equatable, Sendable {
     /// The `dsh` launcher; empty finds the one inside DeepSeek Harness.app.
     public var deepseekPath: String
     public var antigravityPath: String
+    public var zcodePath: String
     public var workspacePath: String
     public var language: InterfaceLanguage
     /// How members address the user (設定 → 個人資料). Empty = a neutral default.
@@ -20,19 +21,20 @@ public struct NativeSettings: Codable, Equatable, Sendable {
     /// Look for a newer release on GitHub (at most once a day).
     public var checkForUpdates: Bool
 
-    public init(claudePath: String = "", codexPath: String = "", deepseekPath: String = "", antigravityPath: String = "", workspacePath: String = "",
+    public init(claudePath: String = "", codexPath: String = "", deepseekPath: String = "", antigravityPath: String = "", zcodePath: String = "", workspacePath: String = "",
                 language: InterfaceLanguage = .zhTW, userName: String = "") {
         self.claudePath = claudePath
         self.codexPath = codexPath
         self.deepseekPath = deepseekPath
         self.antigravityPath = antigravityPath
+        self.zcodePath = zcodePath
         self.workspacePath = workspacePath
         self.language = language
         self.userName = String(userName.prefix(40))
         checkForUpdates = true
     }
 
-    private enum CodingKeys: String, CodingKey { case claudePath, codexPath, deepseekPath, antigravityPath, workspacePath, language, userName, checkForUpdates }
+    private enum CodingKeys: String, CodingKey { case claudePath, codexPath, deepseekPath, antigravityPath, zcodePath, workspacePath, language, userName, checkForUpdates }
 
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
@@ -40,6 +42,7 @@ public struct NativeSettings: Codable, Equatable, Sendable {
         codexPath = try box.decodeIfPresent(String.self, forKey: .codexPath) ?? ""
         deepseekPath = (try? box.decodeIfPresent(String.self, forKey: .deepseekPath)) ?? ""
         antigravityPath = (try? box.decodeIfPresent(String.self, forKey: .antigravityPath)) ?? ""
+        zcodePath = (try? box.decodeIfPresent(String.self, forKey: .zcodePath)) ?? ""
         workspacePath = try box.decodeIfPresent(String.self, forKey: .workspacePath) ?? ""
         language = try box.decodeIfPresent(InterfaceLanguage.self, forKey: .language) ?? .zhTW
         userName = try box.decodeIfPresent(String.self, forKey: .userName) ?? ""
@@ -58,6 +61,7 @@ public struct NativeSettings: Codable, Equatable, Sendable {
         case .codex: return codexPath
         case .deepseek: return deepseekPath
         case .antigravity: return antigravityPath
+        case .zcode: return zcodePath
         }
     }
 
@@ -67,6 +71,7 @@ public struct NativeSettings: Codable, Equatable, Sendable {
         case .codex: codexPath = path
         case .deepseek: deepseekPath = path
         case .antigravity: antigravityPath = path
+        case .zcode: zcodePath = path
         }
     }
 }
@@ -183,6 +188,8 @@ public enum CommandPlan {
             // Resolve only this known official CLI bundle naming convention.
             if agent == .codex && expanded.hasSuffix("/CodexCLI.app") {
                 candidates = [expanded + "/Contents/MacOS/codex"]
+            } else if agent == .zcode && expanded.hasSuffix(".app") {
+                candidates = [expanded + "/Contents/MacOS/ZCode"]
             } else if agent == .claude && (expanded.hasSuffix("/claude.app") || expanded.hasSuffix("/ClaudeCode.app")) {
                 candidates = [expanded + "/Contents/MacOS/claude"]
             } else {
@@ -197,6 +204,7 @@ public enum CommandPlan {
             case .claude: bundled = bundledClaudePaths(home: home)
             case .deepseek: bundled = bundledDeepSeekPaths(home: home)
             case .antigravity: bundled = [] // installed on its own, in ~/.local/bin
+            case .zcode: bundled = ZCode.appCandidates(home: home)
             }
             candidates = bundled + (path + fallbackPATH + homeDirs).map {
                 ($0 as NSString).appendingPathComponent(agent.executableName)
@@ -218,6 +226,8 @@ public enum CommandPlan {
     public static func arguments(for agent: Executor, access: ExecutionAccess = .readOnly,
                                  options: CLIRunOptions = CLIRunOptions(), patch: String? = nil) -> [String] {
         switch agent {
+        case .zcode:
+            return ["app-server"] // ZCode runs through ZCodeAppServer, with zcode.cjs first
         case .antigravity:
             return Antigravity.arguments(access: access, options: options)
         case .deepseek:

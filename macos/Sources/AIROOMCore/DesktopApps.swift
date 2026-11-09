@@ -62,6 +62,8 @@ public enum OfficialCLIProbe {
         // DSH has no status command: its key is saved by the DeepSeek Harness app.
         // Only the credential file's presence is checked, never its contents.
         if agent == .deepseek { return DeepSeekHarness.hasSavedCredentials(home: home) ? .authenticated : .notLoggedIn }
+        // ZCode has no status command: the desktop's saved sign-in either opens or it doesn't.
+        if agent == .zcode { return ZCode.isSignedIn(home: URL(fileURLWithPath: home)) ? .authenticated : .notLoggedIn }
         let child = Process()
         child.executableURL = executable
         child.arguments = agent == .antigravity ? ["models"] : agent == .codex ? ["login", "status"] : ["auth", "status"]

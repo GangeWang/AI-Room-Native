@@ -272,6 +272,7 @@ final class WorkbenchModel: ObservableObject {
         let executor = executor(of: agent)
         let live = modelCatalogs[executor] ?? []
         if executor == .deepseek { return DeepSeekHarness.models }
+        if executor == .zcode { return ZCode.modelChoices() }
         return live.isEmpty && executor == .claude ? ModelCatalog.claude : live
     }
 
@@ -280,7 +281,7 @@ final class WorkbenchModel: ObservableObject {
     func refreshModelCatalogs(_ agents: [Executor] = Executor.allCases) {
         let settings = archive.settings
         // DeepSeek's two models are fixed by DeepSeek Harness's official route.
-        for agent in agents where agent != .deepseek && !modelCatalogLoading.contains(agent) {
+        for agent in agents where agent != .deepseek && agent != .zcode && !modelCatalogLoading.contains(agent) {
             modelCatalogLoading.insert(agent)
             Task {
                 do {
@@ -827,7 +828,7 @@ final class WorkbenchModel: ObservableObject {
     /// Opens the official CLI's own login in Terminal; AIROOM never sees credentials.
     func openOfficialLogin(for agent: Executor) {
         // DeepSeek Harness keeps its API key in its own settings, not a terminal login.
-        if agent == .deepseek { openVendorDesktop(executor: .deepseek); return }
+        if agent == .deepseek || agent == .zcode { openVendorDesktop(executor: agent); return }
         do {
             let binary = try CommandPlan.resolveExecutable(agent: agent, settings: archive.settings)
             let folder = FileManager.default.temporaryDirectory.appendingPathComponent("airoom-login", isDirectory: true)
