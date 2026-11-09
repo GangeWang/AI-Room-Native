@@ -12,8 +12,13 @@ final class AntigravityTests: XCTestCase {
     func testReadOnlyRunsCannotEdit() {
         for access in [ExecutionAccess.readOnly, .readFiles] {
             let args = Antigravity.arguments(access: access, options: CLIRunOptions())
-            XCTAssertEqual(args[args.firstIndex(of: "--mode")! + 1], "plan")
+            // Default mode: edits and commands need an approval, which headless runs refuse.
+            XCTAssertFalse(args.contains("--mode"), "plan mode reads through refused commands")
             XCTAssertTrue(args.contains("--sandbox"))
+            XCTAssertFalse(args.contains("--disable-slash-commands"))
+            let settings = args[args.firstIndex(of: "--settings")! + 1]
+            XCTAssertTrue(settings.contains(#""toolPermission":"request-review""#))
+            XCTAssertFalse(settings.contains("allow\""), "no tool is pre-approved")
         }
     }
 
@@ -22,6 +27,7 @@ final class AntigravityTests: XCTestCase {
         XCTAssertEqual(args[args.firstIndex(of: "--mode")! + 1], "accept-edits")
         XCTAssertTrue(args.contains("--sandbox"))
         XCTAssertFalse(args.contains("--dangerously-skip-permissions"))
+        XCTAssertFalse(args.contains("--disable-slash-commands"), "it makes agy ignore --mode")
         let settings = args[args.firstIndex(of: "--settings")! + 1]
         XCTAssertTrue(settings.contains("request-review"))
         XCTAssertTrue(settings.contains(#""allowNonWorkspaceAccess":false"#))

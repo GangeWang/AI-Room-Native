@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="AIROOMCore.Tests/AIROOMCore.Tests.csproj" />
+  <Project Path="AIROOMCore/AIROOMCore.csproj" />
+</Solution>
