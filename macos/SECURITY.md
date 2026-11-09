@@ -15,9 +15,12 @@ using a dedicated standard (non-admin) macOS account for sensitive testing.
   random 256-bit key stored in the login Keychain, scoped to this machine.
 - Moving to another Mac: optional password export, see limitation 6.
 - No token/password input fields; vendor CLI logins remain vendor-owned.
-- Antigravity (`agy`) runs with its terminal sandbox on, `--mode plan` unless a task may
-  write, per-run settings that keep approvals on and stay inside the workspace, and
-  never `--dangerously-skip-permissions`. `agy` updates itself in the background.
+- Antigravity (`agy`) runs with its terminal sandbox on and per-run settings that keep
+  approvals on and stay inside the workspace. Read-only tasks use agy's default mode,
+  where writes, terminal commands and reads outside the workspace need an approval that
+  headless runs refuse; only writing tasks get `--mode accept-edits`. Never
+  `--dangerously-skip-permissions` or `--disable-slash-commands` (the latter makes agy
+  ignore `--mode`). `agy` updates itself in the background.
 - Minimal environment passed to subprocesses; unknown variables (including
   `*TOKEN*`, `*API_KEY*`, `NODE_OPTIONS`, `DYLD_*`, proxies, SSH agent) excluded.
 - Common credential file names and selected secret-text signatures excluded from
