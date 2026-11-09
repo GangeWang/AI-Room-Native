@@ -15,9 +15,6 @@
 
 ## 跨平台要對齊的
 
-- **Windows 版 ZCode 拒絕權限的回應格式**：Windows 版回 `{}`，但 ZCode 會嚴格驗證回應，`decision` 是必填，所以 `{}` 會驗證失敗。macOS 版（#8）改回 `{"decision":"deny","reason":…}`。這是從程式碼讀出來的，Windows 上還沒實測。
-- **Windows 版 ZCode 沒有設定權限模式**：工作階段預設是 `build`，所有修改都要先徵求同意，所以成員一律不能寫檔。macOS 版明確設定 `plan` 或 `edit`。
-
 ## 功能缺口
 
 - **Gemini（Antigravity）**

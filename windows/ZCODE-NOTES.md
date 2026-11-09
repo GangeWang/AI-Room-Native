@@ -46,6 +46,9 @@ provider/updateAccountConfig {
 
 順序：`session/create`（workspace Path+Key）→ `provider/updateAccountConfig` →
 `session/setModel {model:{providerId, modelId, options:{reasoningLevel}}}` →
+`session/setMode {mode:"plan"|"edit"}`（**必設**；不設＝工作階段停在 `build`，
+所有修改都要求同意，headless 永遠給不了，成員一律不能寫檔——macOS #8 的發現。
+唯讀房間用 `plan`，寫入房間用 `edit`）→
 `session/subscribe`（**必須在 send 之前同步送出**）→ `session/send {sessionId, content}`。
 
 ## 伺服器反問（15 秒逾時 -32022，必答，result 鍵不可漏）
@@ -53,6 +56,8 @@ provider/updateAccountConfig {
 - `session/requestRuntimePreferences` → `{"result":{"nativeSearchEnhancementsEnabled":false}}`；
   **sessionId 從它的 params.sessionId 拿**（session/create 的 result 沒有）。
 - `interaction/requestProviderRuntimeHeaders` → 見上（帶 zcodejwt）。
+- `interaction/requestPermission` → `{"result":{"decision":"deny","reason":…}}`。
+  **不能回空物件**：ZCode 嚴格驗證，`decision` 必填、多餘的鍵也會被拒（macOS #8）。
 - 其他（`interaction/requestOfficialMcpAuthHeaders` 等）→ `{"result":{}}` 即可。
 - 回應格式：`{"id":<原 id 原樣>, "result":{…}}`——漏掉 `result` 鍵＝-32600 invalid_union。
 
@@ -81,13 +86,15 @@ provider/updateAccountConfig {
 ## ZCode Executor（C#）地圖
 
 - `AIROOMCore/ZCode.cs`：`ZCode`（常數＋LoadAuth：解密 credentials、deviceMid、builtin 檔、
-  basedOn 計算、模型清單）＋`ZCodeAppServerClient.RunAsync`（一回合一行程：create/resume →
-  updateAccountConfig → setModel → subscribe → send → poll → final fetch）。
-- `CliProcessRunner`：ZCode 分支（LoadAuth→FindNodeOnPath→RunAsync→`Resumed` 旗標）。
-- `Workstation.OfficialCLIProbe`：zcode.cjs 存在＝可偵測；LoadAuth 非 null＝已登入。
+  basedOn 計算、模型清單；Runtime 選擇：PATH/ProgramFiles/Volta 的 node.exe 探 `--version`，
+  v22+ 優先用，否則退回桌面主程式＋`ELECTRON_RUN_AS_NODE=1`——macOS #14 的做法，省去
+  一堆 Electron 子程序）＋`ZCodeAppServerClient.RunAsync`（一回合一行程：create/resume →
+  updateAccountConfig → setModel → setMode → subscribe → send → poll → final fetch）。
+- `CliProcessRunner`：ZCode 分支（LoadAuth→ResolveRuntime→RunAsync→`Resumed` 旗標）。
+- `Workstation.OfficialCLIProbe`：zcode.cjs 存在且找得到 runtime＝可偵測；LoadAuth 非 null＝已登入。
 - 檔案附件：ZCode 文字-only（`AcceptsFiles` 排除）。
-- 測試：`ZCodeTests`（解密配方/basedOn/LoadAuth 合成 home）＋`ZCodeAppServerLiveTests`
-  （有桌面+node 才跑，3 分鐘逾時）。
+- 測試：`ZCodeTests`（解密配方/basedOn/LoadAuth 合成 home/runtime 選擇/setMode/deny 格式）＋
+  `ZCodeAppServerLiveTests`（有桌面+runtime 才跑，3 分鐘逾時）。
 
 ## Antigravity（agy）— **已由使用者完整驗收 ✅（2026-11-08）**
 - 工位對話實測成功：偵測（winget 路徑）、登入判定、plan 模式唯讀對話、串流回覆、session 記錄全通。
