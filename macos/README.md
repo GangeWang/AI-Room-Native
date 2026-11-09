@@ -1,6 +1,6 @@
-# AIROOM Native — 開發說明
+# AI Room Native — 開發說明
 
-這裡是 AIROOM Native 的 Swift 套件。產品介紹、下載與原出處見[根目錄的 README](../README.md)；和原版 [tonyAmadeus/offAice](https://github.com/tonyAmadeus/offAice) 的逐項對照見 [docs/FEATURE_PARITY.md](../docs/FEATURE_PARITY.md)。
+這裡是 AI Room Native 的 Swift 套件。產品介紹、下載與原出處見[根目錄的 README](../README.md)；和原版 [tonyAmadeus/offAice](https://github.com/tonyAmadeus/offAice) 的逐項對照見 [docs/FEATURE_PARITY.md](../docs/FEATURE_PARITY.md)。
 
 - 純 SwiftUI／AppKit + Foundation：沒有 Electron、WebView 或 Node.js，也沒有第三方 Swift 套件。
 - 只支援 Apple Silicon（arm64）、macOS 14 以上。
@@ -13,9 +13,9 @@
 ```zsh
 cd macos
 swift test                        # 單元測試（不呼叫真正的 AI，不花額度）
-./Scripts/package-app.sh          # 建置 dist/AIROOMNative.app
+./Scripts/package-app.sh          # 建置 dist/AI Room Native.app
 ./Scripts/install-app.sh --open   # 安裝到 /Applications 並開啟
-./Scripts/make-dmg.sh             # 產生 dist/AIROOMNative-<版本>.dmg
+./Scripts/make-dmg.sh             # 產生 dist/AI-Room-Native-<版本>.dmg
 ./Scripts/audit-arm64.sh          # 確認 App 只含 arm64
 ```
 

@@ -93,7 +93,7 @@ struct LiveStageView: View {
         case .off:
             Label(t("未連線", "Not connected"), systemImage: "circle").font(.caption).foregroundStyle(.secondary)
         case .connecting:
-            Label(t("連線中…若 VTube Studio 跳出 AIROOM Native 授權視窗，請按 Allow", "Connecting… click Allow on the AIROOM Native prompt in VTube Studio"),
+            Label(t("連線中…若 VTube Studio 跳出 AI Room Native 授權視窗，請按 Allow", "Connecting… click Allow on the AI Room Native prompt in VTube Studio"),
                   systemImage: "hourglass").font(.caption)
         case .connected(let name):
             Label(t("已連線 · 模型：", "Connected · model: ") + (name.isEmpty ? t("（未載入）", "(none loaded)") : name)

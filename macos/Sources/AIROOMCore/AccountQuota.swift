@@ -194,7 +194,7 @@ public final class AccountQuotaReader {
         }
         var wire = QuotaWire(agent: agent)
         if agent == .codex {
-            try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "airoom_native", "title": "AIROOM Native", "version": "0.3.0"]]])
+            try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "airoom_native", "title": "AI Room Native", "version": "0.3.0"]]])
         } else {
             try send(["type": "control_request", "request_id": wire.requestID, "request": ["subtype": "initialize"]])
         }

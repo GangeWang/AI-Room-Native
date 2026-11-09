@@ -2,10 +2,12 @@
 
 同一個 repo 放 macOS 和 Windows 兩個 App，Releases 也共用，所以 tag 要分平台。
 
-| 平台 | tag | 附件 | Latest |
-|---|---|---|---|
-| macOS | `v<版本>`（例：`v0.2.64`） | `AIROOMNative-<版本>.dmg` | 可以 |
-| Windows | `windows-v<版本>` | Windows 安裝檔 | **不可以**：`gh release create … --latest=false` |
+| 平台 | tag | 標題 | 附件 | Latest |
+|---|---|---|---|---|
+| macOS | `macos-v<版本>`（例：`macos-v0.2.108`） | `AI Room Native <版本> for macOS` | `AI-Room-Native-<版本>.dmg` | 可以 |
+| Windows | `windows-v<版本>` | `AI Room Native <版本> for Windows` | Windows 安裝檔 | **不可以**：`gh release create … --latest=false` |
+
+macOS 0.2.107 以前用的是 `v<版本>`，0.2.101 起的 App 兩種 tag 都認得。0.2.64 以前的 App 只認得 `v<版本>`，但那些版本已改成草稿、不再公開。
 
 ## 為什麼 Windows 版不能標成 Latest
 
@@ -26,5 +28,5 @@ macOS 的版本是 `0.2.<commit 數>`，commit 數算的是整個 repo。所以 
 cd macos
 swift test
 ./Scripts/package-app.sh && ./Scripts/make-dmg.sh
-gh release create v<版本> dist/AIROOMNative-<版本>.dmg --target main --title "AIROOM Native <版本>" --notes-file <說明檔>
+gh release create macos-v<版本> dist/AI-Room-Native-<版本>.dmg --target main --title "AI Room Native <版本> for macOS" --notes-file <說明檔>
 ```

@@ -24,7 +24,7 @@ cd "$(dirname "$0")/.."
 echo "Checking pinned upstream artwork (downloading missing assets if needed)..."
 if ! ./Scripts/fetch-original-assets.sh; then
   echo "ERROR: Required original artwork could not be downloaded and verified." >&2
-  echo "The existing dist/AIROOMNative.app has not been modified." >&2
+  echo "The existing dist/AI Room Native.app has not been modified." >&2
   exit 1
 fi
 
@@ -44,7 +44,7 @@ mkdir -p "$PWD/dist"
 touch "$PWD/dist/.metadata_never_index"
 STAGING_DIR="$(mktemp -d "$PWD/dist/.app-staging.XXXXXXXX")"
 trap 'rm -rf "$STAGING_DIR"' EXIT
-APP="$STAGING_DIR/AIROOMNative.app"
+APP="$STAGING_DIR/AI Room Native.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 # Copy the verified original artwork into the macOS .app (never fetch on app launch).
 mkdir -p "$APP/Contents/Resources/Assets"
@@ -84,8 +84,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>dev.airoom.native</string>
-<key>CFBundleName</key><string>AIROOM Native</string>
-<key>CFBundleDisplayName</key><string>AIROOM Native</string>
+<key>CFBundleName</key><string>AI Room Native</string>
+<key>CFBundleDisplayName</key><string>AI Room Native</string>
 <key>CFBundleIconFile</key><string>AIROOM.icns</string>
 <key>CFBundleDevelopmentRegion</key><string>zh-Hant</string>
 <key>CFBundleLocalizations</key><array><string>zh-Hant</string><string>en</string></array>
@@ -128,7 +128,7 @@ if [[ ! -x "$APP/Contents/MacOS/AIROOMNative" ]]; then
   echo "ERROR: Packaged app has no executable; keeping previous build." >&2
   exit 1
 fi
-FINAL_APP="$PWD/dist/AIROOMNative.app"
+FINAL_APP="$PWD/dist/AI Room Native.app"
 rm -rf "$FINAL_APP"
 mv "$APP" "$FINAL_APP"
 printf '\nBuilt: %s\n' "$FINAL_APP"

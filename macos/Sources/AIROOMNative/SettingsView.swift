@@ -203,7 +203,7 @@ struct SettingsView: View {
             UpdateSettingsPanel()
             StudioPanel {
                 VStack(alignment: .leading, spacing: 15) {
-                    Label("AIROOM Native", systemImage: "apple.logo").font(.title2.bold())
+                    Label("AI Room Native", systemImage: "apple.logo").font(.title2.bold())
                     Divider()
                     HStack {
                         Text(t("外觀模式", "Appearance"))

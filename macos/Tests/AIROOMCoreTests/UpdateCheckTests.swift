@@ -35,6 +35,18 @@ final class UpdateCheckTests: XCTestCase {
         XCTAssertEqual(newest.download?.lastPathComponent, "AIROOMNative-0.2.65.dmg")
     }
 
+    func testLinksUnderTheNewAndTheFormerRepositoryNameAreBothOurs() throws {
+        let new = "https://github.com/GangeWang/AI-Room-Native/releases/download/macos-v0.2.108/AI-Room-Native-0.2.108.dmg"
+        let info = try XCTUnwrap(UpdateCheck.parse(release(tag: "macos-v0.2.108",
+                                                           page: "https://github.com/GangeWang/AI-Room-Native/releases/tag/macos-v0.2.108",
+                                                           asset: new)))
+        XCTAssertEqual(info.version, "0.2.108")
+        XCTAssertEqual(info.download?.absoluteString, new)
+        XCTAssertTrue(UpdateCheck.isOurs(URL(string: "https://github.com/GangeWang/AIROOMNative/releases/tag/v0.2.64")!))
+        XCTAssertFalse(UpdateCheck.isOurs(URL(string: "https://github.com/GangeWang/AI-Room-Native-fake/releases/x")!))
+        XCTAssertFalse(UpdateCheck.isOurs(URL(string: "https://github.com/someone/AI-Room-Native/releases/x")!))
+    }
+
     func testMacTagsMayCarryAPlatformPrefix() throws {
         let list = [object(tag: "macos-v0.3.1", asset: dmg("macos-v0.3.1", "0.3.1")), object(tag: "v0.2.64", asset: dmg("v0.2.64", "0.2.64"))]
         XCTAssertEqual(UpdateCheck.newest(try JSONSerialization.data(withJSONObject: list))?.version, "0.3.1")
