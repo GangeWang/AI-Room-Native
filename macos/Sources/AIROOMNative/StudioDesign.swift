@@ -155,6 +155,10 @@ struct StudioFaceArtwork: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
+        // The portrait is drawn several times larger than the circle and only clipped:
+        // without this, its invisible overflow still took clicks, and a desk header's
+        // avatar covered the sidebar's chat buttons.
+        .contentShape(Circle())
         .accessibilityHidden(true)
     }
 }
