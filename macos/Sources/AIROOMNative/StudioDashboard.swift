@@ -129,6 +129,7 @@ struct StudioDashboard: View {
 struct StudioMemberSheet: View {
     @EnvironmentObject private var model: WorkbenchModel
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.dismiss) private var dismiss
     let agent: MemberID
     let onDesk: () -> Void
     let onManage: () -> Void
@@ -163,6 +164,20 @@ struct StudioMemberSheet: View {
             .padding(20)
         }
         .background(StudioTheme.surface(scheme))
+        // A way back out for a card opened by accident; Esc closes it too.
+        .overlay(alignment: .topLeading) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .frame(width: 26, height: 26)
+                    .background(.regularMaterial, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
+            .help(t("關閉", "Close"))
+            .accessibilityLabel(t("關閉", "Close"))
+            .padding(12)
+        }
     }
 }
 
