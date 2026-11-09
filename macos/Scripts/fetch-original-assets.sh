@@ -36,6 +36,8 @@ src/renderer/assets/members/claudia.webp|claudia.webp|ae0a5afde2a86fa48600689e0c
 src/renderer/assets/members/gptia.webp|gptia.webp|81ffacdf714ea3a3c55a60410594b56a4da603e9
 src/renderer/assets/members/ds.webp|ds.webp|baa3f7f51f0330d6ae2cb7d4803c70f07e4f67dc
 src/renderer/assets/members/gemini.webp|gemini.webp|756846a790d447377305da53dee8ed883f3ff2f3
+KIMI.webp|kimi.webp|78cd92bd91738268050cdcd275647aead5c029dd
+GLM.jpg|glm.jpg|3fb70f5066fe3e785948f3fb9463dcf807f4e2b6
 src/renderer/assets/rooms/morning.webp|morning.webp|7e0674b1d49a440700348eb93fb8bbe2b8b8aae5
 src/renderer/assets/rooms/afternoon.webp|afternoon.webp|eeac77f36360f8c0a009a702a84e9c2f316c7029
 src/renderer/assets/rooms/evening.webp|evening.webp|e5502e1a368fe606a7a4676ca460937588360e56
