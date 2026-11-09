@@ -1,0 +1,9 @@
+bin/
+obj/
+publish/
+dist/
+*.user
+.vs/
+Assets/*.webp
+Assets/airoom.png
+!Assets/.gitkeep
