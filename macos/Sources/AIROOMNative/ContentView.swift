@@ -137,6 +137,8 @@ struct ContentView: View {
                             .help(t("前往成員工位", "Open member desk"))
                             .accessibilityLabel(t("開啟", "Open") + " \(agent.shortName)")
                         }
+                        // Room between the selection line at the left edge and the avatar.
+                        .padding(.leading, 9)
                         .studioSelected(route == .chat(agent), accent: agent.studioColor, scheme: scheme)
                     }
                     Divider().padding(.vertical, 9).padding(.horizontal, 9)
