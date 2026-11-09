@@ -13,11 +13,9 @@
   - 方向：保留不認得的程式名稱，暫停該成員並提醒，不要換成別的程式。
   - 狀態：**決定先不處理，之後再做。**
 
-## 等待合併的 PR
+## 發版
 
-- #8 macOS：ZCode（GLM）執行端。合併時會和 #10 在 `MemberTemplates.swift` 的 GLM 那一行衝突（兩邊各改了不同欄位），兩邊的修改都要保留。
-- #9 macOS：人物卡加上關閉按鈕（也可按 Esc）。
-- 以上合併後再發 macOS 新版（規則見 [RELEASING.md](RELEASING.md)）。#7（Antigravity 的 `--mode` 修正）已合併但還沒發版，0.2.64 的 Gemini 在可寫入的任務裡仍改不了檔案。
+- #7（Antigravity 的 `--mode` 修正）、#8（ZCode）、#9（人物卡關閉按鈕）、#10 都已合併，要發 macOS 新版（規則見 [RELEASING.md](RELEASING.md)）。0.2.64 的 Gemini 在可寫入的任務裡仍改不了檔案。
 
 ## 跨平台要對齊的
 

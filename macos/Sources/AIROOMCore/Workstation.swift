@@ -191,6 +191,7 @@ public enum LoginScript {
         case .codex: command = "\(quoted) login"
         case .antigravity: command = quoted // agy asks for sign-in on its first interactive run
         case .deepseek: command = "open -a 'DeepSeek Harness'; echo '請在 DeepSeek Harness 的設定裡填好 API 金鑰。'"
+        case .zcode: command = "open -a 'ZCode'; echo '請在 ZCode 桌面版登入 Z.AI。'"
         }
         return """
         #!/bin/zsh

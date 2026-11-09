@@ -6,6 +6,7 @@ public enum Executor: String, Codable, CaseIterable, Identifiable, Hashable, Sen
     case codex = "Codex"
     case deepseek = "DeepSeek Harness"
     case antigravity = "Antigravity"
+    case zcode = "ZCode"
 
     public var id: String { rawValue }
     public var executableName: String {
@@ -14,6 +15,7 @@ public enum Executor: String, Codable, CaseIterable, Identifiable, Hashable, Sen
         case .codex: return "codex"
         case .deepseek: return "dsh"
         case .antigravity: return "agy"
+        case .zcode: return "zcode"
         }
     }
     /// Whether images and files can be sent; the others get text only.
@@ -24,6 +26,7 @@ public enum Executor: String, Codable, CaseIterable, Identifiable, Hashable, Sen
         case .codex: return "chevron.left.forwardslash.chevron.right"
         case .deepseek: return "fish"
         case .antigravity: return "sparkles"
+        case .zcode: return "bolt.horizontal"
         }
     }
 }

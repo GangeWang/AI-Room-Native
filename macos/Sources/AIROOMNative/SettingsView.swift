@@ -107,6 +107,8 @@ struct SettingsView: View {
                                      ? t("自動使用 DeepSeek Harness.app 內附的 dsh（headless）", "Uses the dsh bundled with DeepSeek Harness.app (headless)")
                                      : agent == .antigravity
                                      ? t("Google 官方 Antigravity CLI（agy，headless）", "Google's official Antigravity CLI (agy, headless)")
+                                     : agent == .zcode
+                                     ? t("使用 ZCode 桌面版內附的 app-server（GLM）", "Uses the app-server inside the ZCode desktop app (GLM)")
                                      : t("自動使用 Claude Desktop 內附 Claude Code", "Auto-detect Claude Code bundled with Claude Desktop"))
                                     .font(.caption).foregroundStyle(.secondary)
                             }
@@ -134,6 +136,8 @@ struct SettingsView: View {
                         }
                         Text(agent == .deepseek
                              ? t("DeepSeek 留空會使用 DeepSeek Harness.app 內附的 dsh。API 金鑰請在 DeepSeek Harness 的設定裡填寫；AIROOM 不讀取也不保存金鑰，只檢查 DeepSeek Harness 是否已存過金鑰。", "Leave empty to use the dsh inside DeepSeek Harness.app. Set the API key in DeepSeek Harness; AIROOM never reads or stores it and only checks that one is saved.")
+                             : agent == .zcode
+                             ? t("留空會使用 /Applications/ZCode.app。請先在 ZCode 桌面版登入；執行時 AIROOM 會在記憶體裡解開桌面版存的登入權杖，只交給 ZCode 自己的程式，不儲存也不顯示。成員一律不能執行終端機指令。", "Leave empty to use /Applications/ZCode.app. Sign in in the ZCode app first; for each run AIROOM opens the app's saved sign-in in memory and hands it only to ZCode's own process, never storing or showing it. Members can never run terminal commands.")
                              : agent == .antigravity
                              ? t("留空會找 ~/.local/bin/agy。agy 要另外安裝，和 Antigravity App 共用登入；AIROOM 不讀取登入資料。登入檢查是看它能不能列出模型。", "Leave empty to use ~/.local/bin/agy. agy is installed separately and shares its sign-in with the Antigravity app; AIROOM never reads it. The login check asks agy to list models.")
                              : agent == .codex
@@ -154,6 +158,9 @@ struct SettingsView: View {
             case .notLoggedIn: return t("DeepSeek Harness 還沒有存 API 金鑰：請打開 DeepSeek Harness，在設定的模型頁填好。", "DeepSeek Harness has no saved API key: open it and set one on its Models page.")
             default: break
             }
+        }
+        if agent == .zcode, result == .notLoggedIn {
+            return t("ZCode 尚未登入：請打開 ZCode 桌面版登入 Z.AI。", "ZCode is not signed in: open the ZCode app and sign in to Z.AI.")
         }
         if agent == .antigravity, result == .notLoggedIn {
             return t("agy 尚未登入：請在 Antigravity App 登入，或在終端機執行一次 agy。", "agy is not signed in: sign in in the Antigravity app, or run agy once in Terminal.")
