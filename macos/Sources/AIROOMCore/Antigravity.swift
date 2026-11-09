@@ -9,12 +9,17 @@ public enum Antigravity {
     /// runs have nobody to ask.
     static let runSettings = #"{"toolPermission":"request-review","allowNonWorkspaceAccess":false}"#
 
-    /// Plan mode can't change files, and the terminal sandbox holds in every mode.
-    /// The prompt arrives on stdin, so it never shows in the process list.
+    /// Read-only runs use agy's default mode: reading inside the workspace is allowed,
+    /// while writing, terminal commands and reads outside the workspace all need an
+    /// approval and are refused (verified with agy 1.5.1). Plan mode is not used: there
+    /// the model reads through terminal commands, which are refused, and the turn ends
+    /// with no reply. Writing runs use accept-edits. The terminal sandbox holds in every
+    /// mode, and the prompt arrives on stdin, so it never shows in the process list.
+    /// `--disable-slash-commands` must stay off: with it, agy ignores `--mode`.
     public static func arguments(access: ExecutionAccess, options: CLIRunOptions) -> [String] {
         var agy = ["--input-format", "stream-json", "--output-format", "stream-json",
-                   "--sandbox", "--disable-slash-commands", "--settings", runSettings,
-                   "--mode", access == .stagedWrite ? "accept-edits" : "plan"]
+                   "--sandbox", "--settings", runSettings]
+        if access == .stagedWrite { agy += ["--mode", "accept-edits"] }
         let model = ModelCatalog.sanitize(options.model)
         if !model.isEmpty { agy += ["--model", model] }
         if let resume = options.session?.resumeID { agy += ["--conversation", resume] }
