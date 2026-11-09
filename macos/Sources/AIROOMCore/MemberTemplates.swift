@@ -35,7 +35,7 @@ public struct MemberTemplate: Identifiable, Equatable, Sendable {
         MemberTemplate(id: "kimi", name: "Kimi", motto: "長篇資料交給我，讀完再說。", color: "#2f8f86",
                        art: nil, face: initialFace, plannedProgram: "Kimi CLI", suggestedExecutor: .claude),
         MemberTemplate(id: "glm", name: "GLM", motto: "先列好步驟，再一步步做完。", color: "#3d8b4f",
-                       art: nil, face: initialFace, plannedProgram: "ZCode", suggestedExecutor: .claude),
+                       art: nil, face: initialFace, plannedProgram: nil, suggestedExecutor: .zcode),
     ]
 
     /// Framing for an uploaded portrait with no known face position.

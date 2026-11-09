@@ -152,7 +152,7 @@ public struct SessionPlan: Sendable, Equatable {
     public init(resumeID: String?, fallbackPrompt: String) {
         // IDs become CLI arguments: letters, digits and dashes only, never a leading dash.
         self.resumeID = resumeID.flatMap { id in
-            id.count <= 80 && !id.hasPrefix("-") && id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }) ? id : nil
+            id.count <= 80 && !id.hasPrefix("-") && id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) ? id : nil
         }
         self.fallbackPrompt = fallbackPrompt
     }

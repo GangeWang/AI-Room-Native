@@ -27,7 +27,8 @@
 | 成員長期記憶 | 長期記憶、生活狀態 | **完成**：記憶條目（手寫／從 Codex、Claude 記憶檔匯入／成員從書桌話題提議、主人確認），可逐條關閉，上限 200 條、每條 2000 字、啟用合計 8000 字；隨人物設定送進書桌、茶歇室、圓桌、專案；延續中的 CLI 對話會收到設定更新；作息四時段、小習慣、成員關係、發言傾向（加權聊天輪次）、側欄狀態列 | 書桌「提議記憶」已實際跑過（保留、不要都試過） |
 | DeepSeek Harness 執行端 | DSH（ACP） | **已實作**（用 `dsh` 的 headless 模式，不經 ACP） | 自動找 DeepSeek Harness.app 內附的 `dsh`；API 金鑰由 DeepSeek Harness 自己保存與讀取，AIROOM 只檢查是否已存過金鑰。可選 DeepSeek-V4.1-Flash（預設）、DeepSeek-V4-Pro；延續對話用 `--session-id`（DSH 的對話綁定資料夾，所以唯讀房間給每位成員固定的副本路徑；接不上時自動改用完整前情重開）；唯讀房間用 DSH 的 read-only 沙箱，改檔被擋不會卡住；只收文字，不能附圖片或 PDF；DeepSeek API 按用量計費，沒有額度視窗可查。已實際跑過工位（延續對話、改檔）、茶歇室、圓桌（和 Claude 同時準備、互評、審議）、專案（DS 當負責人寫方案、執行、驗收寫回） |
 | Gemini | 多執行端 | **已實作** | 走 Google 官方 Antigravity CLI（`agy`，需另外安裝到 `~/.local/bin`，與 Antigravity App 共用登入）。唯讀用預設模式（工作區內可讀；寫檔、執行指令、讀工作區外都要審核，headless 一律拒絕）、寫入用 accept-edits，都開終端機沙箱，從不跳過權限；提示走 stdin；模型清單即時取得；續聊 ID 失效時改帶完整前情。只收文字，圖片與 PDF 不送；沒有額度查詢 |
-| 其他 AI（Kimi、GLM 等） | 多執行端 | **暫緩** | 成員已能選執行端、形象模板已備好；Kimi CLI 還沒接。ZCode 已實測：命令列只認 Individual Coding Plan，Start Plan 帳號會得到 1113，尚未接上 |
+| GLM（ZCode） | 多執行端 | **已實作** | 走 ZCode 桌面版內附的 `zcode.cjs app-server`（做法照 Windows 版 PR #3），用桌面版存的登入，支援 Start Plan。唯讀任務用 `plan`、寫入任務用 `edit`，所有「是否允許」一律拒絕，所以成員不能執行終端機指令。AIROOM 執行時會在記憶體裡解開桌面版的登入權杖，只交給 ZCode 自己的程式。已實測新對話、跨行程續聊、唯讀擋寫、寫入模式能寫、指令被拒。只收文字；回覆是輪詢取得，不是逐字串流；額度要到 ZCode 桌面版看。用的是 ZCode 的內部協議，ZCode 更新後可能失效 |
+| 其他 AI（Kimi 等） | 多執行端 | **暫緩** | 成員已能選執行端、形象模板已備好；Kimi CLI 還沒接 |
 | DMG、Apple 公證、自動更新 | Windows 發行包 | **部分** | `Scripts/make-dmg.sh` 產生可拖曳安裝的 DMG（App 與 DMG 都用 Apple Development 憑證簽章）；未公證（使用者決定不加入付費開發者計畫），在別台 Mac 第一次開啟需到「隱私權與安全性」允許；不會自動更新（原版也沒有），但有新版本提醒：每天最多查一次 GitHub 最新 Release，以頂部橫幅提示並可略過該版本；設定可關閉，選單有「檢查更新…」 |
 | TTS、Live2D（VTube Studio） | 原版本身不提供 | **新增** `LiveEvent`、macOS TTS、VTS 表情熱鍵與嘴型同步 | 單一 VTS 模型；VTS 實機待驗收；見 `LIVE_STAGE.md` |
 | OBS、直播聊天連接器 | 原版本身不提供 | **未完成** | 下一階段：YouTube／Bilibili 留言匯入、OBS + 直播姬雙端推流 |

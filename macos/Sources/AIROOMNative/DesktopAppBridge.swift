@@ -19,11 +19,12 @@ extension WorkbenchModel {
             if let app { NSWorkspace.shared.open(app) } else { statusMessage = archive.settings.language == .english ? "DeepSeek Harness.app was not found." : "找不到 DeepSeek Harness.app。" }
             return
         }
-        // Antigravity has no new-session link either.
-        if agent == .antigravity {
-            let app = URL(fileURLWithPath: "/Applications/Antigravity.app")
+        // Antigravity and ZCode have no new-session link either.
+        if agent == .antigravity || agent == .zcode {
+            let name = agent == .zcode ? "ZCode" : "Antigravity"
+            let app = URL(fileURLWithPath: "/Applications/\(name).app")
             if FileManager.default.fileExists(atPath: app.path) { NSWorkspace.shared.open(app) }
-            else { statusMessage = archive.settings.language == .english ? "Antigravity.app was not found." : "找不到 Antigravity.app。" }
+            else { statusMessage = archive.settings.language == .english ? "\(name).app was not found." : "找不到 \(name).app。" }
             return
         }
         do {

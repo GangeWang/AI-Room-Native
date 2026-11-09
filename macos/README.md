@@ -51,6 +51,7 @@ macos/
 | `DesktopApps.swift` | 找 Claude Desktop 和 ChatGPT App 附帶的 CLI，找不到才找 PATH |
 | `DeepSeekHarness.swift` | DeepSeek Harness：用 `dsh --profile headless --json` 執行，啟動時的設定覆蓋、模型、沙箱模式 |
 | `Antigravity.swift` | Antigravity CLI：用 `agy` 的 stream-json 執行，權限模式、模型清單、登入判斷、續聊檢查 |
+| `ZCode.swift`、`ZCodeAppServer.swift` | ZCode（GLM）：讀桌面版的登入與方案設定、驅動 `zcode.cjs app-server`、權限模式、回合完成判斷 |
 | `MemberDesk.swift`、`DeskWorkspace.swift`、`WorkspaceStaging.swift` | 成員工位、話題、工作資料夾、副本與寫回 |
 | `Lounge.swift` | 茶歇室接話、點名、舉手、會議與直播 |
 | `Roundtable.swift` | 圓桌：各自準備、互評、問題清單、審議、結論 |

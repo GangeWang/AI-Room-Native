@@ -15,6 +15,15 @@ using a dedicated standard (non-admin) macOS account for sensitive testing.
   random 256-bit key stored in the login Keychain, scoped to this machine.
 - Moving to another Mac: optional password export, see limitation 6.
 - No token/password input fields; vendor CLI logins remain vendor-owned.
+- **Exception: ZCode.** ZCode's app-server asks its host for the sign-in before each
+  model request, so for each ZCode run AIROOM decrypts the ZCode desktop app's saved
+  token (`~/.zcode/v2/credentials.json`, AES-256-GCM under the machine-derived key
+  ZCode itself uses) in memory and answers that request over the process's stdin.
+  The token is never stored, logged, shown or sent anywhere else. Sessions run in
+  ZCode's `plan` mode (read-only tasks) or `edit` mode (writing tasks), and every
+  permission request is answered with a denial, so ZCode members can't run shell
+  commands. This uses ZCode's internal protocol, and the account config AIROOM pushes
+  declares the plan entitled; Z.AI still checks the token server-side.
 - Antigravity (`agy`) runs with its terminal sandbox on and per-run settings that keep
   approvals on and stay inside the workspace. Read-only tasks use agy's default mode,
   where writes, terminal commands and reads outside the workspace need an approval that
