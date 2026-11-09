@@ -28,7 +28,6 @@
   - 方案寫死為 `account:zai-start-plan`。
   - 用的是內部協議，ZCode 更新後可能失效。
 - **Kimi 執行端**還沒接。
-- **Windows 版的 Kimi、GLM 立繪**：macOS 已加入（原版根目錄的 `KIMI.webp`、`GLM.jpg`），`windows/Scripts/fetch-assets.ps1` 還沒有。
 - **直播的延伸功能**：留言匯入、OBS 雙端推流，等 Live2D 模型。
 
 ## 專案與發行

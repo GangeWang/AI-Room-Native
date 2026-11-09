@@ -109,6 +109,22 @@ public class MemberLifeTests
     }
 
     [Fact]
+    public void KimiAndGlmUseTheOriginalRootArtwork()
+    {
+        // The original AIROOM's root KIMI.webp and GLM.jpg, same ZipZipPipe set
+        // as the other members' art, with face anchors for the avatar crop.
+        var kimi = MemberTemplate.Named("kimi") ?? throw new Xunit.Sdk.XunitException("missing kimi");
+        Assert.Equal("kimi.webp", kimi.Art);
+        Assert.Equal(new PortraitFaceAnchor(0.525, 0.150, 3.4), kimi.Face);
+        Assert.Equal("Kimi CLI", kimi.PlannedProgram);
+        var glm = MemberTemplate.Named("glm") ?? throw new Xunit.Sdk.XunitException("missing glm");
+        Assert.Equal("glm.jpg", glm.Art);
+        Assert.Equal(new PortraitFaceAnchor(0.540, 0.185, 3.4), glm.Face);
+        Assert.Null(glm.PlannedProgram);
+        Assert.Equal(Executor.ZCode, glm.SuggestedExecutor);
+    }
+
+    [Fact]
     public void AddedMemberStartsFromItsTemplate()
     {
         var card = MemberCard.Added(MemberTemplate.Named("gptia"), Executor.Codex);

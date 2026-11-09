@@ -30,9 +30,9 @@ public sealed record MemberTemplate(
         new("gemini", "Gemini", "星星還在路上，很快見。", "#a35bdb",
             "gemini.webp", new PortraitFaceAnchor(0.490, 0.128, 3.6), null, Executor.Antigravity),
         new("kimi", "Kimi", "長篇資料交給我，讀完再說。", "#2f8f86",
-            null, InitialFace, "Kimi CLI", Executor.Claude),
+            "kimi.webp", new PortraitFaceAnchor(0.525, 0.150, 3.4), "Kimi CLI", Executor.Claude),
         new("glm", "GLM", "先列好步驟，再一步步做完。", "#3d8b4f",
-            null, InitialFace, "ZCode", Executor.Claude),
+            "glm.jpg", new PortraitFaceAnchor(0.540, 0.185, 3.4), null, Executor.ZCode),
     ];
 
     public static MemberTemplate? Named(string? id) =>

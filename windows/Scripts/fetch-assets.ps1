@@ -14,6 +14,8 @@ $assets = @(
     @{ remote = 'src/renderer/assets/members/gptia.webp';    name = 'gptia.webp';   sha = '81ffacdf714ea3a3c55a60410594b56a4da603e9' },
     @{ remote = 'src/renderer/assets/members/ds.webp';       name = 'ds.webp';      sha = 'baa3f7f51f0330d6ae2cb7d4803c70f07e4f67dc' },
     @{ remote = 'src/renderer/assets/members/gemini.webp';   name = 'gemini.webp';  sha = '756846a790d447377305da53dee8ed883f3ff2f3' },
+    @{ remote = 'KIMI.webp';                                 name = 'kimi.webp';    sha = '78cd92bd91738268050cdcd275647aead5c029dd' },
+    @{ remote = 'GLM.jpg';                                   name = 'glm.jpg';      sha = '3fb70f5066fe3e785948f3fb9463dcf807f4e2b6' },
     @{ remote = 'src/renderer/assets/rooms/morning.webp';    name = 'morning.webp'; sha = '7e0674b1d49a440700348eb93fb8bbe2b8b8aae5' },
     @{ remote = 'src/renderer/assets/rooms/afternoon.webp';  name = 'afternoon.webp'; sha = 'eeac77f36360f8c0a009a702a84e9c2f316c7029' },
     @{ remote = 'src/renderer/assets/rooms/evening.webp';    name = 'evening.webp'; sha = 'e5502e1a368fe606a7a4676ca460937588360e56' },

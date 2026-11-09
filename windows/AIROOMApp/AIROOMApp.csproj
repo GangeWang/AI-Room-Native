@@ -40,6 +40,10 @@
       <Link>Assets\%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="..\..\macos\Sources\AIROOMNative\Resources\*.jpg">
+      <Link>Assets\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="..\..\macos\Sources\AIROOMNative\Resources\airoom.png">
       <Link>Assets\airoom.png</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
