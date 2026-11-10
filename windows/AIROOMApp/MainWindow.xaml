@@ -47,6 +47,11 @@
             </Grid>
             <NavigationView.MenuItems>
                 <NavigationViewItem Tag="workstation" Content="成員工位" Icon="People" />
+                <NavigationViewItem Tag="lounge" Content="茶歇室">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE95F;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Tag="attention" x:Name="AttentionItem" Content="待你處理">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE7BF;" />

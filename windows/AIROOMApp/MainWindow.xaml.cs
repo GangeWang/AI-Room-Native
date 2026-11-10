@@ -76,6 +76,7 @@ public sealed partial class MainWindow : Window
 
     void Navigate(string tag) => ContentFrame.Navigate(tag switch
     {
+        "lounge" => typeof(LoungePage),
         "attention" => typeof(AttentionPage),
         "members" => typeof(MembersPage),
         "settings" => typeof(SettingsPage),
