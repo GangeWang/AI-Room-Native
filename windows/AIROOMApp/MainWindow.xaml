@@ -52,6 +52,11 @@
                         <FontIcon Glyph="&#xE95F;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Tag="roundtable" Content="圓桌">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE71D;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Tag="attention" x:Name="AttentionItem" Content="待你處理">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE7BF;" />

@@ -30,6 +30,8 @@ public sealed class SavedState
     public JsonElement? Projects { get; set; }
     [JsonPropertyName("roundtables")]
     public JsonElement? Roundtables { get; set; }
+    [JsonPropertyName("roundtableTopics")]
+    public List<RoundtableTopic>? RoundtableTopics { get; set; }
     [JsonPropertyName("schedules")]
     public JsonElement? Schedules { get; set; }
     [JsonPropertyName("autoChat")]
@@ -40,8 +42,6 @@ public sealed class SavedState
     public JsonElement? LiveShow { get; set; }
     [JsonPropertyName("liveStage")]
     public JsonElement? LiveStage { get; set; }
-    [JsonPropertyName("roundtableTopics")]
-    public JsonElement? RoundtableTopics { get; set; }
     [JsonPropertyName("projectFlows")]
     public JsonElement? ProjectFlows { get; set; }
     [JsonPropertyName("dailyOpening")]

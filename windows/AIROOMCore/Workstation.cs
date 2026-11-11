@@ -174,6 +174,42 @@ public static class AttentionBuilder
                 member.MemoryProposals.FirstOrDefault()?.Text ?? "",
                 new AttentionTarget(null, null, null, false, member.Agent)));
         }
+        string NameOf(MemberID agent) =>
+            state.Members.FirstOrDefault(member => member.Agent == agent)?.Name ?? agent.RawValue;
+        foreach (var room in state.Rooms ?? [])
+        {
+            var target = room.RoundtableID is { } roundtable ? new AttentionTarget(null, roundtable, null, false, null)
+                : room.ProjectID is { } project ? new AttentionTarget(null, null, project, false, null)
+                : new AttentionTarget(room.Id, null, null, false, null);
+            foreach (var question in room.Lounge.PendingQuestions)
+            {
+                items.Add(new AttentionItem($"q-{question.Id}", AttentionKind.Question,
+                    $"{NameOf(question.From)} 在「{room.Title}」問你",
+                    question.Text.Length > 140 ? question.Text[..140] : question.Text, target));
+            }
+            if (room.Lounge.Phase == LoungePhase.AwaitingHost)
+            {
+                items.Add(new AttentionItem($"pick-{room.Id}", AttentionKind.Decision,
+                    $"「{room.Title}」有人舉手", "請點名誰補充，或讓大家等你說話。", target));
+            }
+            // Only the latest member reply counts: an older failure was already seen.
+            if (room.Entries.LastOrDefault(entry => entry.Speaker == Speaker.Assistant) is { } last
+                && last.Delivery == RoomDelivery.Failed)
+            {
+                items.Add(new AttentionItem($"unknown-{last.Id}", AttentionKind.UnknownResult,
+                    $"「{room.Title}」有結果待核對", $"{last.DisplayName} 的回覆沒有確認完成，沒有自動重送。", target));
+            }
+        }
+        foreach (var topic in state.RoundtableTopics ?? [])
+        {
+            if (topic.Status == RoundtableStatus.Conclusion)
+            {
+                items.Add(new AttentionItem($"roundtable-{topic.Id}", AttentionKind.Acceptance,
+                    $"圓桌「{topic.Title}」的結論等你確認",
+                    topic.Conclusion,
+                    new AttentionTarget(null, topic.Id, null, false, null)));
+            }
+        }
         return items;
     }
 }
