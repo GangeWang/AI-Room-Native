@@ -11,6 +11,8 @@
   - 不確定的是 ZCode 收不收「放行」的回應格式。就算不收，結果是寫不進去，不會變成漏洞。
 - **ZCode 唯讀模式能讀任何檔案，也能連網**（macOS、Windows）：`plan` 模式會放行 Read、Glob、Grep、WebFetch、WebSearch，而且讀檔不限工作區。方向：`session/send` 帶 `toolDisallowlist` 停用 WebFetch 和 WebSearch。這是從 ZCode 的程式碼讀出來的，沒有實測。
 - **ZCode 權杖沒有檢查對象**：回答 `interaction/requestProviderRuntimeHeaders` 時沒有檢查 `providerId`。方向：只在對象是 `account:zai-start-plan` 時交出。
+- **Windows 版 ZCode 的寫入邊界**：Windows 版（#16）寫入任務仍用 `edit` 模式，同樣能改工作資料夾以外的任何檔案。要照 macOS 版改成 `build` 模式，加上「只放行工作資料夾內的 Write／Edit」。
+- **Windows 版的匯入**：如果之後做密碼匯入，也要清掉程式路徑（macOS 見 `clearMachineSettings`）。
 
 - **降版會悄悄改寫成員用的程式**（macOS）
   - 現象：舊版本讀到不認得的程式名稱（例如還沒有 ZCode 的版本讀到 `ZCode`），會退回 Claude Code（`MemberCard` 解碼：`?? agent.builtInExecutor ?? .claude`），下次存檔就寫回去。
@@ -20,12 +22,6 @@
   - 狀態：**決定先不處理，之後再做。**
 
 ## 跨平台要對齊的
-
-- **Windows 版的 repo 名稱**：repo 已在 2026-11-09 改名為 `GangeWang/AI-Room-Native`（舊網址會轉址）。`windows/AIROOMCore/UpdateCheck.cs` 還寫著舊名稱，而它只接受舊名稱底下的連結，所以發 Windows 版之前要改成同時接受新舊名稱（macOS 版已改）。App 名稱也改成「AI Room Native」了。
-- **Windows 版 ZCode 拒絕權限的回應格式**：Windows 版回 `{}`，但 ZCode 會嚴格驗證回應，`decision` 是必填，所以 `{}` 會驗證失敗。macOS 版（#8）改回 `{"decision":"deny","reason":…}`。這是從程式碼讀出來的，Windows 上還沒實測。
-- **Windows 版 ZCode 的寫入邊界**：macOS 版改成 `build` 模式加上「只放行工作資料夾內的 Write／Edit」，Windows 版要跟進同一套規則。
-- **Windows 版的匯入**：如果之後做密碼匯入，也要清掉程式路徑（macOS 見 `clearMachineSettings`）。
-- **Windows 版 ZCode 沒有設定權限模式**：工作階段預設是 `build`，所有修改都要先徵求同意，所以成員一律不能寫檔。macOS 版明確設定 `plan` 或 `edit`。
 
 ## 功能缺口
 
@@ -42,7 +38,6 @@
   - 方案寫死為 `account:zai-start-plan`。
   - 用的是內部協議，ZCode 更新後可能失效。
 - **Kimi 執行端**還沒接。
-- **Windows 版的 Kimi、GLM 立繪**：macOS 已加入（原版根目錄的 `KIMI.webp`、`GLM.jpg`），`windows/Scripts/fetch-assets.ps1` 還沒有。
 - **直播的延伸功能**：留言匯入、OBS 雙端推流，等 Live2D 模型。
 
 ## 專案與發行
