@@ -86,6 +86,10 @@ public enum PrivacyGuard {
         env["HOME"] = source["HOME"] ?? home
         env["PATH"] = ([executable.deletingLastPathComponent().path] + CommandPlan.fallbackPATH).joined(separator: ":")
         env["AIROOM_CLAUDE_DEBUG"] = "0" // Native app never enables upstream debug capture.
+        // Claude Code run outside the Claude app self-updates by installing a standalone
+        // copy into ~/.local. AIROOM only uses the app-bundled one, so keep it from doing that.
+        // Set for every executor: only Claude Code reads it, and the source cannot override it.
+        env["DISABLE_AUTOUPDATER"] = "1"
         return env
     }
 }

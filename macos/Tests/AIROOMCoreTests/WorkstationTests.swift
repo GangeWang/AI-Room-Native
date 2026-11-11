@@ -40,10 +40,15 @@ final class WorkstationTests: XCTestCase {
         XCTAssertTrue(AttentionBuilder.items(state: state, cli: [:]).isEmpty)
     }
 
-    func testLoginScriptQuotesThePathAndRunsOnlyTheLoginCommand() {
+    func testLoginScriptQuotesThePathAndRunsOnlyTheLoginCommand() throws {
         let script = LoginScript.contents(agent: .claude, executable: URL(fileURLWithPath: "/Apps/it's here/claude"))
         XCTAssertTrue(script.contains(#"'/Apps/it'\''s here/claude' auth login"#))
         XCTAssertTrue(LoginScript.contents(agent: .codex, executable: URL(fileURLWithPath: "/bin/codex")).contains("'/bin/codex' login"))
+        // The login window must not let the bundled Claude Code install a standalone copy.
+        let lines = script.components(separatedBy: "\n")
+        let export = try XCTUnwrap(lines.firstIndex(of: "export DISABLE_AUTOUPDATER=1"))
+        let login = try XCTUnwrap(lines.firstIndex { $0.hasSuffix(" auth login") })
+        XCTAssertLessThan(export, login)
     }
 
     func testUserNameIsOptionalAndUsedInPrompts() throws {

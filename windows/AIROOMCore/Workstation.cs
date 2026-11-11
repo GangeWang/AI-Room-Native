@@ -191,17 +191,21 @@ public static class LoginScript
         var quoted = Quote(executablePath);
         return executor switch
         {
-            Executor.Claude => ("cmd.exe", $"/c start \"AIROOM\" cmd /k {quoted} auth login"),
-            Executor.Codex => ("cmd.exe", $"/c start \"AIROOM\" cmd /k {quoted} login"),
-            Executor.Antigravity => ("cmd.exe", $"/c start \"AIROOM\" cmd /k {quoted}"),
+            Executor.Claude => ("cmd.exe", $"/c {NoAutoUpdate}start \"AIROOM\" cmd /k {quoted} auth login"),
+            Executor.Codex => ("cmd.exe", $"/c {NoAutoUpdate}start \"AIROOM\" cmd /k {quoted} login"),
+            Executor.Antigravity => ("cmd.exe", $"/c {NoAutoUpdate}start \"AIROOM\" cmd /k {quoted}"),
             // ZCode signs in through browser authorization (login [zai|bigmodel]).
-            Executor.ZCode => ("cmd.exe", $"/c start \"AIROOM\" cmd /k \"node\" {quoted} login"),
+            Executor.ZCode => ("cmd.exe", $"/c {NoAutoUpdate}start \"AIROOM\" cmd /k \"node\" {quoted} login"),
             Executor.DeepSeek => throw new NotSupportedException("DeepSeek Harness 尚未支援此平台。"),
             _ => throw new ArgumentOutOfRangeException(nameof(executor)),
         };
     }
 
     static string Quote(string path) => '"' + path + '"';
+
+    // The window inherits this from the outer cmd, so the Claude Code bundled with the
+    // Claude app does not install a standalone copy. No space before && keeps the value "1".
+    const string NoAutoUpdate = "set DISABLE_AUTOUPDATER=1&& ";
 }
 
 /// <summary>Read-only status probe result for one executor's official CLI.</summary>
