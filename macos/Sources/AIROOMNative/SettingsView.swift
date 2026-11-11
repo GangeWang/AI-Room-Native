@@ -466,8 +466,15 @@ private struct PortableExportPanel: View {
                 row(t("人物卡", "Member cards"), summary.memberNames.joined(separator: "、") + t("（\(summary.memories) 條記憶）", " (\(summary.memories) memories)"))
                 row(t("圓桌與專案", "Roundtables & projects"), t("\(summary.roundtables) 個圓桌議題，\(summary.projects) 個專案", "\(summary.roundtables) roundtables, \(summary.projects) projects"))
                 row(t("附件與頭像", "Attachments"), t("\(export.attachments.count) 個", "\(export.attachments.count)"))
+                if !export.state.referencedFolders.isEmpty {
+                    row(t("用到的資料夾", "Folders used"), export.state.referencedFolders.prefix(6).joined(separator: "\n")
+                        + (export.state.referencedFolders.count > 6 ? t("\n…共 \(export.state.referencedFolders.count) 個", "\n…\(export.state.referencedFolders.count) in all") : ""))
+                }
             }
             .font(.caption)
+            Text((export.state.machineSettings.isEmpty ? "" : t("檔案裡有 \(export.state.machineSettings.count) 個自訂程式路徑或預設工作資料夾，匯入時不會套用。", "The file has \(export.state.machineSettings.count) custom program paths or a default work folder; they are not applied. "))
+                 + t("程式路徑一律以這台 Mac 為準。只匯入你自己匯出的檔案：話題和專案會沿用上面列出的資料夾。", "Program paths always come from this Mac. Only import files you exported yourself: topics and projects keep the folders listed above."))
+                .font(.caption2).foregroundStyle(.secondary)
             HStack {
                 Button(t("匯入這份資料…", "Import this data…")) { confirmingImport = true }
                     .disabled(!model.canRestore)

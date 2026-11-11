@@ -57,10 +57,58 @@ final class ZCodeTests: XCTestCase {
         XCTAssertFalse(ZCode.isSignedIn(home: try self.home(), user: "tester"))
     }
 
-    func testReadOnlyRunsPlanAndOnlyWritingRunsEdit() {
+    func testReadOnlyRunsPlanAndWritingRunsAskFirst() {
         XCTAssertEqual(ZCode.mode(for: .readOnly), "plan")
         XCTAssertEqual(ZCode.mode(for: .readFiles), "plan")
-        XCTAssertEqual(ZCode.mode(for: .stagedWrite), "edit")
+        // Never "edit": that mode applies edits to any path without asking.
+        XCTAssertEqual(ZCode.mode(for: .stagedWrite), "build")
+    }
+
+    func testOnlyFileEditsInsideTheWorkspaceOfAWritingTaskAreAllowed() throws {
+        let ws = try home().appendingPathComponent("desk")
+        try FileManager.default.createDirectory(at: ws.appendingPathComponent("notes"), withIntermediateDirectories: true)
+        func allows(_ tool: String, _ path: String, _ access: ExecutionAccess = .stagedWrite) -> Bool {
+            ZCode.allows(tool: tool, input: ["file_path": path, "content": "x"], workspace: ws, access: access)
+        }
+        XCTAssertTrue(allows("Write", ws.path + "/a.txt"))
+        XCTAssertTrue(allows("Edit", ws.path + "/notes/new/b.md"), "folders that don't exist yet are fine")
+        XCTAssertTrue(allows("Write", "notes/c.txt"), "relative paths resolve inside the workspace")
+        // Outside, by any spelling.
+        XCTAssertFalse(allows("Write", NSHomeDirectory() + "/.zshrc"))
+        XCTAssertFalse(allows("Write", ws.path + "/../escape.txt"))
+        XCTAssertFalse(allows("Write", "../escape.txt"))
+        XCTAssertFalse(allows("Write", ws.path + "-sibling/a.txt"), "a folder that only shares the prefix")
+        XCTAssertFalse(allows("Write", ws.path), "the workspace itself is not a file in it")
+        XCTAssertFalse(allows("Write", ""))
+        // Read-only tasks, and every other tool.
+        XCTAssertFalse(allows("Write", ws.path + "/a.txt", .readOnly))
+        XCTAssertFalse(allows("Write", ws.path + "/a.txt", .readFiles))
+        XCTAssertFalse(allows("Bash", ws.path + "/a.txt"))
+        XCTAssertFalse(ZCode.allows(tool: "Bash", input: ["command": "touch x"], workspace: ws, access: .stagedWrite))
+        XCTAssertFalse(ZCode.allows(tool: "Write", input: [:], workspace: ws, access: .stagedWrite))
+    }
+
+    func testSymlinksAndHiddenPathsCannotBeWrittenThrough() throws {
+        let base = try home()
+        let ws = base.appendingPathComponent("desk"), outside = base.appendingPathComponent("outside")
+        try FileManager.default.createDirectory(at: ws, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: ws.appendingPathComponent("link"), withDestinationURL: outside)
+        try FileManager.default.createSymbolicLink(atPath: ws.appendingPathComponent("dangling").path,
+                                                   withDestinationPath: outside.appendingPathComponent("not-yet.txt").path)
+        XCTAssertFalse(ZCode.isWritable(ws.path + "/link/a.txt", in: ws), "a linked folder leads outside")
+        XCTAssertFalse(ZCode.isWritable(ws.path + "/dangling", in: ws), "writing a dangling link creates its target")
+        // Config a later turn would trust.
+        XCTAssertFalse(ZCode.isWritable(ws.path + "/.zcode/settings.json", in: ws))
+        XCTAssertFalse(ZCode.isWritable(ws.path + "/.claude-plugin/plugin.json", in: ws))
+        XCTAssertFalse(ZCode.isWritable(ws.path + "/sub/.git/hooks/pre-commit", in: ws))
+        XCTAssertFalse(ZCode.isWritable(ws.path + "/.env", in: ws))
+        XCTAssertTrue(ZCode.isWritable(ws.path + "/sub/ok.txt", in: ws))
+        // A workspace reached through a link (like /var → /private/var) still works by either name.
+        let alias = base.appendingPathComponent("alias")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: ws)
+        XCTAssertTrue(ZCode.isWritable(alias.path + "/a.txt", in: alias))
+        XCTAssertTrue(ZCode.isWritable(ws.resolvingSymlinksInPath().path + "/a.txt", in: alias))
     }
 
     func testTheTurnReplyIsTheCompletedAssistantMessageAfterTheUserMessage() {
@@ -162,6 +210,16 @@ final class ZCodeTests: XCTestCase {
         print("LIVE write:", reply?.text ?? "(no reply)")
         XCTAssertEqual(try? String(contentsOf: dir.appendingPathComponent("ok.txt"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines), "hi")
         XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("cmd.txt").path), "shell commands are refused")
+    }
+
+    func testLiveWritingRunsCannotWriteOutsideTheWorkspace() throws {
+        let (exe, auth) = try live()
+        let dir = try home(), outside = try home()
+        let target = outside.appendingPathComponent("escaped.txt")
+        let reply = try? turn(exe, auth, "建立檔案 \(target.path)，內容寫 hi；再建立檔案 inside.txt，內容寫 ok。完成後回覆 DONE", in: dir, access: .stagedWrite)
+        print("LIVE outside:", reply?.text ?? "(no reply)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: target.path), "a path outside the workspace is refused")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("inside.txt").path))
     }
 }
 #endif

@@ -13,6 +13,8 @@ final class ZCodeAppServer {
     private let input: FileHandle
     private let output: FileHandle
     private let auth: ZCode.Auth
+    private let workspace: URL
+    private let access: ExecutionAccess
     private let lock = NSLock()
     private var nextID = 0
     private var waiters: [Int: DispatchSemaphore] = [:]
@@ -30,6 +32,8 @@ final class ZCodeAppServer {
             return "state=\(params["state"] ?? "-") lastError=\(params["lastError"] ?? "-")"
         }
         if message["method"] as? String == "state.updated" { return "reason=\(params["reason"] ?? "-")" }
+        if message["method"] as? String == "interaction/requestPermission" { return "tool=\(params["toolName"] ?? "-")" }
+        if let decision = (message["result"] as? [String: Any])?["decision"] { return "decision=\(decision)" }
         return ""
     }
     private func trace(_ direction: String, _ message: [String: Any]) {
@@ -37,8 +41,11 @@ final class ZCodeAppServer {
         FileHandle.standardError.write(Data("zcode \(direction) id=\(message["id"].map { "\($0)" } ?? "-") method=\(message["method"] as? String ?? "-") result=\(message["result"] != nil) error=\(message["error"] != nil) \(Self.traceDetail(message))\n".utf8))
     }
 
-    init(runtime: ZCode.Runtime, script: URL, cwd: URL, auth: ZCode.Auth, environment: [String: String]) {
+    init(runtime: ZCode.Runtime, script: URL, cwd: URL, auth: ZCode.Auth, access: ExecutionAccess,
+         environment: [String: String]) {
         self.auth = auth
+        workspace = cwd
+        self.access = access
         process = Process()
         process.executableURL = runtime.executable
         process.arguments = [script.path, "app-server"]
@@ -174,8 +181,9 @@ final class ZCodeAppServer {
         }
     }
 
-    /// The server's asks. Permission requests are refused, so nothing beyond the
-    /// session's mode (plan / edit) ever runs; questions to the user get no answer.
+    /// The server's asks. Permission requests are decided by ZCode.allows (file edits
+    /// inside the workspace of a writing task; nothing else); questions to the user
+    /// get no answer.
     private func answer(id: Any, method: String, params: [String: Any]) {
         let result: [String: Any]
         switch method {
@@ -189,7 +197,10 @@ final class ZCodeAppServer {
                       "requestAuth": ["apiKey": auth.token, "headers": ["Authorization": "Bearer \(auth.token)"]]]
         case "interaction/requestPermission":
             // Validated strictly: {decision, reason?, …}; an empty or extra-keyed answer is rejected.
-            result = ["decision": "deny", "reason": "AIROOM 不允許這個動作：成員只能在自己的權限範圍內工作。"]
+            let allowed = ZCode.allows(tool: params["toolName"] as? String ?? "", input: params["input"] as? [String: Any] ?? [:],
+                                       workspace: workspace, access: access)
+            result = allowed ? ["decision": "allow"]
+                : ["decision": "deny", "reason": "AIROOM 不允許這個動作：成員只能修改自己工作資料夾裡的一般檔案，不能執行指令。"]
         default:
             result = [:]
         }
@@ -205,7 +216,7 @@ extension ZCode {
                         register: (Process) -> Void, delivered: () -> Void,
                         onUpdate: (String) -> Void) throws -> CLIRunResult {
         let server = ZCodeAppServer(runtime: runtime(app: executable), script: script(for: executable), cwd: cwd,
-                                    auth: auth, environment: environment)
+                                    auth: auth, access: access, environment: environment)
         try server.start()
         register(server.underlyingProcess)
         defer { server.stop() }

@@ -57,6 +57,30 @@ final class PortableExportTests: XCTestCase {
         XCTAssertEqual(new.backups().filter(\.beforeRestore).count, 1)
     }
 
+    func testAnImportNeverBringsProgramPathsOrTheDefaultWorkFolder() throws {
+        // A file from someone else: every program path points at their executable.
+        var hostile = sample()
+        for program in Executor.allCases { hostile.settings.setPath("/tmp/evil/\(program.executableName)", for: program) }
+        hostile.settings.workspacePath = "/Users/victim"
+        hostile.settings.userName = "小明"
+        hostile.conversations[0].workFolder = "/Users/victim/project"
+        XCTAssertEqual(hostile.machineSettings.count, Executor.allCases.count + 1)
+        let data = try PortableExportCodec.seal(PortableExport(state: hostile, attachments: [:]), password: password, rounds: rounds)
+
+        let mac = try store(mac: 0x33)
+        var mine = SavedState()
+        mine.settings.claudePath = "/opt/mine/claude"
+        try mac.save(mine)
+        let restored = try mac.importPortable(PortableExportCodec.open(data, password: password))
+        for program in Executor.allCases { XCTAssertEqual(restored.settings.configuredPath(for: program), "", program.rawValue) }
+        XCTAssertEqual(restored.settings.workspacePath, "")
+        XCTAssertTrue(restored.machineSettings.isEmpty)
+        XCTAssertEqual(try mac.load(), restored, "what is saved is the cleaned state")
+        // Everything else comes over, and topic folders are listed for the owner to see.
+        XCTAssertEqual(restored.settings.userName, "小明")
+        XCTAssertEqual(restored.referencedFolders, ["/Users/victim/project"])
+    }
+
     func testFileHoldsNoPlaintext() throws {
         let old = try store(mac: 0x11)
         try old.save(sample())
