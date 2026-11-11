@@ -241,13 +241,34 @@ public class CoreTests
     [Fact]
     public void OldStateSectionsSurviveAsPassthrough()
     {
-        const string json = """{"settings":{"language":"zh-Hant"},"rooms":[{"id":"X","title":"茶歇室"}],"projectFlows":[{"id":"Y"}]}""";
+        const string json = """{"settings":{"language":"zh-Hant"},"projectFlows":[{"id":"Y"}]}""";
         var state = CoreJson.Deserialize<SavedState>(json);
         Assert.Equal(InterfaceLanguage.ZhTW, state.Settings.Language);
+        Assert.Null(state.Rooms); // rooms are a typed section now; absent stays absent
         var roundTripped = CoreJson.Serialize(state);
-        Assert.Contains("\"rooms\"", roundTripped);
-        Assert.Contains("茶歇室", roundTripped);
         Assert.Contains("\"projectFlows\"", roundTripped);
+        Assert.DoesNotContain("\"rooms\"", roundTripped);
+    }
+
+    [Fact]
+    public void RoomsRoundTripThroughTheirTypedSection()
+    {
+        var room = new TeamRoom
+        {
+            Title = "茶歇室",
+            Entries = [new RoomEntry { Speaker = Speaker.User, DisplayName = "你", Body = "嗨" }],
+            Lounge = new LoungeState { Phase = LoungePhase.WaitingUser, Reason = "等你說話" },
+            Sessions = new Dictionary<string, RoomSession> { ["Claude Code"] = new("sess_1", Guid.NewGuid(), "fp") },
+        };
+        var state = new SavedState { Rooms = [room] };
+        var restored = CoreJson.Deserialize<SavedState>(CoreJson.Serialize(state))!;
+        var back = restored.Rooms![0];
+        Assert.Equal(room.Id, back.Id);
+        Assert.Equal("茶歇室", back.Title);
+        Assert.Equal(LoungePhase.WaitingUser, back.Lounge.Phase);
+        Assert.Equal("等你說話", back.Lounge.Reason);
+        Assert.Equal("sess_1", back.Sessions["Claude Code"].Id);
+        Assert.True(back.IsLounge);
     }
 
     [Fact]

@@ -1,0 +1,83 @@
+<Page
+    x:Class="AIROOMApp.Views.LoungePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="232" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Topics -->
+        <Border Style="{StaticResource StudioPanel}" Padding="10" Margin="0,0,14,0">
+            <Grid RowSpacing="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <TextBlock Text="茶歇室話題" Style="{StaticResource StudioEyebrow}" Margin="8,4,0,0" />
+                <StackPanel Grid.Row="1" Spacing="6">
+                    <Button x:Name="NewTopicButton" Content="新話題（帶入摘要）" HorizontalAlignment="Stretch" Click="OnNewTopic" />
+                    <Button Content="新話題（不再延續）" HorizontalAlignment="Stretch" Click="OnNewTopicFresh" />
+                </StackPanel>
+                <ListView
+                    Grid.Row="2"
+                    x:Name="RoomList"
+                    Margin="0,4,0,0"
+                    SelectionMode="Single"
+                    SelectionChanged="OnRoomSelected" />
+            </Grid>
+        </Border>
+
+        <!-- Room -->
+        <Border Grid.Column="1" Style="{StaticResource StudioPanel}" Padding="0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <StackPanel x:Name="Header" Padding="18,14,18,10" Spacing="8" />
+
+                <ScrollViewer Grid.Row="1" Padding="18,4,18,8" x:Name="ChatScroll">
+                    <StackPanel x:Name="ChatPanel" Spacing="12" MaxWidth="810" HorizontalAlignment="Stretch" />
+                </ScrollViewer>
+
+                <StackPanel Grid.Row="2" Padding="18,8,18,16" Spacing="6">
+                    <StackPanel x:Name="QuestionPanel" Spacing="4" />
+                    <StackPanel x:Name="HandsPanel" Spacing="4" />
+                    <TextBox
+                        x:Name="InputBox"
+                        MinHeight="74"
+                        MaxHeight="180"
+                        AcceptsReturn="True"
+                        TextWrapping="Wrap"
+                        PlaceholderText="跟大家說話；用 @名字 指定誰先接話（Enter 送出，Shift+Enter 換行）"
+                        TextChanged="OnInputChanged"
+                        KeyDown="OnInputKeyDown" />
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ComboBox x:Name="TargetPicker" MinWidth="150" SelectionChanged="OnTargetPicked" />
+                        <TextBlock
+                            Grid.Column="1"
+                            x:Name="StatusLine"
+                            VerticalAlignment="Center"
+                            Opacity="0.7"
+                            FontSize="12"
+                            TextWrapping="Wrap" />
+                        <Button Grid.Column="2" x:Name="StopButton" Content="停止" Click="OnStop" />
+                        <Button Grid.Column="3" x:Name="SendButton" Content="送出" Style="{StaticResource AccentButtonStyle}" Click="OnSend" />
+                    </Grid>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Page>

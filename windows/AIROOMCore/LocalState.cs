@@ -25,7 +25,7 @@ public sealed class SavedState
 
     // Sections owned by later phases; carried through untouched.
     [JsonPropertyName("rooms")]
-    public JsonElement? Rooms { get; set; }
+    public List<TeamRoom>? Rooms { get; set; }
     [JsonPropertyName("projects")]
     public JsonElement? Projects { get; set; }
     [JsonPropertyName("roundtables")]
