@@ -141,22 +141,159 @@ public static class ZCode
     public static Runtime? ResolveRuntime(string cjsPath) =>
         PickRuntime(NodeCandidates(), DesktopExeFor(cjsPath), InstalledNodeVersion, File.Exists);
 
-    /// <summary>The session mode decides what a member may do. macOS PR #8
-    /// found that without an explicit mode the session defaults to `build`,
-    /// where every change asks for approval a headless run can never give —
-    /// so members could not write at all. Read-only rooms use `plan`;
-    /// writing rooms use `edit`.</summary>
+    /// <summary>The session mode decides what a member may do. Read-only tasks run
+    /// in the read-only `plan` mode. Writing tasks run in `build`, where every
+    /// change asks its host first: ZCode's own `edit` mode would apply edits to
+    /// any path the owner can write, far outside the member's folder.</summary>
     public static string ModeFor(ExecutionAccess access) =>
-        access == ExecutionAccess.StagedWrite ? "edit" : "plan";
+        access == ExecutionAccess.StagedWrite ? "build" : "plan";
 
-    /// <summary>The answer to any permission ask. ZCode validates answers
-    /// strictly — `decision` is required, and an empty or extra-keyed object
-    /// is rejected (macOS #8) — so the denial names both keys.</summary>
+    /// <summary>The answer to a ZCode permission request. Only the two file tools
+    /// are ever allowed, only in a writing task, and only for a path inside the
+    /// workspace. Shell commands, MCP tools and everything else are refused.</summary>
+    public static Dictionary<string, object> PermissionAnswer(string? toolName, JsonElement? input,
+        string workspace, ExecutionAccess access)
+    {
+        if (Allows(toolName, input, workspace, access))
+        {
+            return new Dictionary<string, object> { ["decision"] = "allow" };
+        }
+        return PermissionDenial();
+    }
+
+    /// <summary>The permission answer with the tool input as raw JSON (the shape the tests use).</summary>
+    public static Dictionary<string, object> PermissionAnswer(string? toolName, string? inputJson,
+        string workspace, ExecutionAccess access)
+    {
+        if (Allows(toolName, inputJson, workspace, access))
+        {
+            return new Dictionary<string, object> { ["decision"] = "allow" };
+        }
+        return PermissionDenial();
+    }
+
+    /// <summary>ZCode validates answers strictly — `decision` is required, and an
+    /// empty or extra-keyed object is rejected (macOS #8).</summary>
     public static Dictionary<string, object> PermissionDenial() => new()
     {
         ["decision"] = "deny",
-        ["reason"] = "AIROOM 不允許這個動作：成員只能在自己的權限範圍內工作。",
+        ["reason"] = "AIROOM 不允許這個動作：成員只能修改自己工作資料夾裡的一般檔案，不能執行指令。",
     };
+
+    /// <summary>The permission policy for one ask, with the tool input as raw JSON
+    /// (the shape the tests use). Malformed input is refused.</summary>
+    public static bool Allows(string? toolName, string? inputJson, string workspace, ExecutionAccess access)
+    {
+        if (string.IsNullOrEmpty(inputJson)) return false;
+        try
+        {
+            using var parsed = JsonDocument.Parse(inputJson);
+            return Allows(toolName, parsed.RootElement.Clone(), workspace, access);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>The permission policy for one ask, in a testable shape.</summary>
+    public static bool Allows(string? toolName, JsonElement? input, string workspace, ExecutionAccess access)
+    {
+        if (access != ExecutionAccess.StagedWrite || toolName is not ("Write" or "Edit"))
+        {
+            return false;
+        }
+        string? path = null;
+        if (input is { } value && value.ValueKind == JsonValueKind.Object
+            && value.TryGetProperty("file_path", out var pathElement)
+            && pathElement.ValueKind == JsonValueKind.String)
+        {
+            path = pathElement.GetString();
+        }
+        return path is not null && IsWritable(path, workspace);
+    }
+
+    /// <summary>Inside the workspace, with no symlink on the way (a link could point
+    /// anywhere, even one whose target doesn't exist yet) and no hidden file or
+    /// folder: a `.zcode`, `.claude-plugin` or `.git` written by the model could
+    /// grant it more on its next turn.</summary>
+    public static bool IsWritable(string path, string workspace)
+    {
+        if (path.Length == 0 || path.Contains('\0') || workspace.Length == 0) return false;
+        var fullPath = Path.IsPathRooted(path) ? path : Path.Combine(workspace, path);
+        string[] roots = [Path.GetFullPath(workspace), ResolveLinks(workspace)];
+        string[] target;
+        try
+        {
+            target = SplitComponents(Path.GetFullPath(fullPath));
+        }
+        catch
+        {
+            return false;
+        }
+        string? rootPath = null;
+        foreach (var candidate in roots)
+        {
+            var components = SplitComponents(candidate);
+            if (target.Length > components.Length && StartsWithComponents(target, components))
+            {
+                rootPath = candidate;
+                break;
+            }
+        }
+        if (rootPath is null) return false;
+        // Walk the components below the root: no hidden component, and every
+        // step on the way must be a real directory, never a reparse point
+        // (a dangling link still has the flag, and writing it creates its target).
+        var current = rootPath;
+        var depth = SplitComponents(rootPath).Length;
+        for (var i = depth; i < target.Length; i++)
+        {
+            var component = target[i];
+            if (component.StartsWith('.')) return false;
+            current = Path.Combine(current, component);
+            try
+            {
+                var attributes = File.GetAttributes(current);
+                if (attributes.HasFlag(FileAttributes.ReparsePoint)) return false;
+            }
+            catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException or IOException)
+            {
+                // Not there yet — the tool may create it. A dangling link does
+                // not land here: GetAttributes reads the link itself and the
+                // reparse-point flag is caught above.
+            }
+        }
+        return true;
+    }
+
+    static bool StartsWithComponents(string[] target, string[] root)
+    {
+        for (var i = 0; i < root.Length; i++)
+        {
+            if (!string.Equals(target[i], root[i], StringComparison.OrdinalIgnoreCase)) return false;
+        }
+        return true;
+    }
+
+    static string[] SplitComponents(string path) =>
+        path.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
+
+    /// <summary>Path.GetFullPath does not resolve links; walk the chain by hand.</summary>
+    static string ResolveLinks(string path)
+    {
+        var current = path;
+        for (var hops = 0; hops < 16; hops++)
+        {
+            FileSystemInfo info = Directory.Exists(current)
+                ? new DirectoryInfo(current)
+                : new FileInfo(current);
+            var target = info.LinkTarget;
+            if (string.IsNullOrEmpty(target)) break;
+            current = Path.IsPathRooted(target) ? target : Path.Combine(Path.GetDirectoryName(current) ?? "", target);
+        }
+        return current;
+    }
 
     /// <summary>
     /// Reads the shared state: `~/.zcode/v2/credentials.json` (values are
@@ -370,11 +507,20 @@ public static class ZCodeAppServerClient
                             Respond(msg, new Dictionary<string, object> { ["nativeSearchEnhancementsEnabled"] = false });
                             break;
                         case "interaction/requestPermission":
-                            // ZCode validates answers strictly: `decision` is
-                            // required and an empty or extra-keyed object is
-                            // rejected (macOS #8). Deny everything — members
-                            // work inside their own access, never beyond it.
-                            Respond(msg, ZCode.PermissionDenial());
+                            // File edits inside the workspace of a writing task;
+                            // nothing else. ZCode validates answers strictly:
+                            // `decision` is required and an empty or extra-keyed
+                            // object is rejected (macOS #8).
+                            msg.TryGetProperty("params", out var permissionParams);
+                            Respond(msg, ZCode.PermissionAnswer(
+                                permissionParams.ValueKind == JsonValueKind.Object
+                                    && permissionParams.TryGetProperty("toolName", out var toolElement)
+                                    && toolElement.ValueKind == JsonValueKind.String
+                                    ? toolElement.GetString() : null,
+                                permissionParams.ValueKind == JsonValueKind.Object
+                                    && permissionParams.TryGetProperty("input", out var inputElement)
+                                    ? inputElement.Clone() : null,
+                                cwd, access));
                             break;
                         case "interaction/requestProviderRuntimeHeaders":
                             Respond(msg, new Dictionary<string, object>

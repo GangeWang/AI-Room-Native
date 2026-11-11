@@ -9,9 +9,9 @@
 - **ZCode 寫入邊界的修正還沒實測**（macOS）
   - 寫入任務從 `edit` 模式改成 `build` 模式，由 AIROOM 只放行工作資料夾內的寫檔。規則有單元測試，但 Z.AI 方案額度在 2026-11-09 到期，所以還沒對真實的 ZCode 跑過（`AIROOM_LIVE_CLI=1 swift test --filter ZCodeTests`）。
   - 不確定的是 ZCode 收不收「放行」的回應格式。就算不收，結果是寫不進去，不會變成漏洞。
+  - 2026-11-11 更新：Windows 版已對真實的 ZCode 實測過同一套政策（`build` 模式＋放行），「放行」的回應格式 ZCode 收下，寫入工作資料夾成功、終端機指令被拒（Windows PR #20 的 live 測試）。macOS 端本身仍未實測。
 - **ZCode 唯讀模式能讀任何檔案，也能連網**（macOS、Windows）：`plan` 模式會放行 Read、Glob、Grep、WebFetch、WebSearch，而且讀檔不限工作區。方向：`session/send` 帶 `toolDisallowlist` 停用 WebFetch 和 WebSearch。這是從 ZCode 的程式碼讀出來的，沒有實測。
 - **ZCode 權杖沒有檢查對象**：回答 `interaction/requestProviderRuntimeHeaders` 時沒有檢查 `providerId`。方向：只在對象是 `account:zai-start-plan` 時交出。
-- **Windows 版 ZCode 的寫入邊界**：Windows 版（#16）寫入任務仍用 `edit` 模式，同樣能改工作資料夾以外的任何檔案。要照 macOS 版改成 `build` 模式，加上「只放行工作資料夾內的 Write／Edit」。
 - **Windows 版的匯入**：如果之後做密碼匯入，也要清掉程式路徑（macOS 見 `clearMachineSettings`）。
 
 - **降版會悄悄改寫成員用的程式**（macOS）
