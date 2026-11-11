@@ -385,6 +385,16 @@ final class SecurityTests: XCTestCase {
         XCTAssertNil(env["HTTPS_PROXY"])
         XCTAssertFalse(env["PATH"]!.contains("/tmp/untrusted"))
         XCTAssertEqual(env["AIROOM_CLAUDE_DEBUG"], "0")
+        XCTAssertEqual(env["DISABLE_AUTOUPDATER"], "1")
+    }
+
+    func testCLIEnvironmentAlwaysDisablesClaudeCodeAutoUpdater() {
+        // The app-bundled Claude Code must not install a standalone copy into ~/.local,
+        // even when the host environment tries to turn the updater back on.
+        let bundled = URL(fileURLWithPath: NSHomeDirectory() + "/Library/Application Support/Claude/claude-code/2.1.317/build/claude.app/Contents/MacOS/claude")
+        let env = PrivacyGuard.cliEnvironment(from: ["HOME": "/Users/test", "DISABLE_AUTOUPDATER": "0"], executable: bundled)
+        XCTAssertEqual(env["DISABLE_AUTOUPDATER"], "1")
+        XCTAssertEqual(PrivacyGuard.cliEnvironment(from: [:], executable: bundled, home: "/Users/test")["DISABLE_AUTOUPDATER"], "1")
     }
 
     func testStagingExcludesSecretsButTracksAllowedFiles() throws {

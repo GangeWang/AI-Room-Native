@@ -139,6 +139,10 @@ public static partial class PrivacyGuard
             Path.Combine(systemRoot, "System32", "Wbem"),
             Path.Combine(systemRoot, "System32", "WindowsPowerShell", "v1.0"));
         environment["AIROOM_CLAUDE_DEBUG"] = "0"; // Native app never enables upstream debug capture.
+        // Claude Code run outside the Claude app self-updates by installing a standalone
+        // copy. AIROOM only uses the app-bundled one, so keep it from doing that.
+        // Set for every executor: only Claude Code reads it, and the source cannot override it.
+        environment["DISABLE_AUTOUPDATER"] = "1";
         return environment;
     }
 }

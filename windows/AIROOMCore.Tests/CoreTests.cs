@@ -512,6 +512,7 @@ public class CoreTests
             ["ANTHROPIC_API_KEY"] = "sk-evil",
             ["NODE_OPTIONS"] = "--inspect",
             ["SYSTEMROOT"] = "C:\\Windows",
+            ["DISABLE_AUTOUPDATER"] = "0",
         };
         var environment = PrivacyGuard.CliEnvironment(source, "C:\\bin\\claude.exe");
         Assert.False(environment.ContainsKey("ANTHROPIC_API_KEY"));
@@ -519,6 +520,16 @@ public class CoreTests
         Assert.Equal("C:\\Users\\x", environment["USERPROFILE"]);
         Assert.StartsWith("C:\\bin", environment["PATH"]);
         Assert.Equal("0", environment["AIROOM_CLAUDE_DEBUG"]);
+        Assert.Equal("1", environment["DISABLE_AUTOUPDATER"]);
+    }
+
+    [Fact]
+    public void LoginWindowDisablesClaudeCodeAutoUpdaterBeforeStarting()
+    {
+        var (fileName, arguments) = LoginScript.Command(Executor.Claude, "C:\\Apps\\claude.exe");
+        Assert.Equal("cmd.exe", fileName);
+        Assert.StartsWith("/c set DISABLE_AUTOUPDATER=1&& start ", arguments);
+        Assert.EndsWith("\"C:\\Apps\\claude.exe\" auth login", arguments);
     }
 
     // MARK: Attachments and topic naming.

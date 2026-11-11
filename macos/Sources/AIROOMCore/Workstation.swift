@@ -195,6 +195,8 @@ public enum LoginScript {
         }
         return """
         #!/bin/zsh
+        # Keep the app-bundled Claude Code from installing a standalone copy into ~/.local.
+        export DISABLE_AUTOUPDATER=1
         echo "AIROOM：用官方程式登入 \(agent.rawValue)"
         echo
         \(command)
