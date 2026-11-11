@@ -15,10 +15,6 @@
 
 ## 跨平台要對齊的
 
-- **Windows 版的 repo 名稱**：repo 已在 2026-11-09 改名為 `GangeWang/AI-Room-Native`（舊網址會轉址）。`windows/AIROOMCore/UpdateCheck.cs` 還寫著舊名稱，而它只接受舊名稱底下的連結，所以發 Windows 版之前要改成同時接受新舊名稱（macOS 版已改）。App 名稱也改成「AI Room Native」了。
-- **Windows 版 ZCode 拒絕權限的回應格式**：Windows 版回 `{}`，但 ZCode 會嚴格驗證回應，`decision` 是必填，所以 `{}` 會驗證失敗。macOS 版（#8）改回 `{"decision":"deny","reason":…}`。這是從程式碼讀出來的，Windows 上還沒實測。
-- **Windows 版 ZCode 沒有設定權限模式**：工作階段預設是 `build`，所有修改都要先徵求同意，所以成員一律不能寫檔。macOS 版明確設定 `plan` 或 `edit`。
-
 ## 功能缺口
 
 - **Gemini（Antigravity）**
@@ -32,7 +28,6 @@
   - 方案寫死為 `account:zai-start-plan`。
   - 用的是內部協議，ZCode 更新後可能失效。
 - **Kimi 執行端**還沒接。
-- **Windows 版的 Kimi、GLM 立繪**：macOS 已加入（原版根目錄的 `KIMI.webp`、`GLM.jpg`），`windows/Scripts/fetch-assets.ps1` 還沒有。
 - **直播的延伸功能**：留言匯入、OBS 雙端推流，等 Live2D 模型。
 
 ## 專案與發行

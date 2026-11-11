@@ -182,15 +182,16 @@ public sealed class CliProcessRunner
     {
         if (executor == Executor.ZCode)
         {
-            // The app-server speaks its own stdio protocol: node + zcode.cjs,
+            // The app-server speaks its own stdio protocol: zcode.cjs on a
+            // plain Node (v22+) or, failing that, the desktop's own executable,
             // account config pushed per run, model auth answered as an interaction.
             var auth = ZCode.LoadAuth()
                 ?? throw NativeCLIError.ProcessFailed("ZCode 需要先安裝並登入桌面版（找不到 ~/.zcode/v2/credentials.json）");
-            var node = OfficialCLIProbe.FindNodeOnPath()
-                ?? throw NativeCLIError.ProcessFailed("ZCode 的 CLI 是 Node 腳本，需要安裝 Node.js");
+            var runtime = ZCode.ResolveRuntime(binary)
+                ?? throw NativeCLIError.ProcessFailed("ZCode 的 CLI 需要 Node.js 22 以上，或安裝 ZCode 桌面版");
             var modelId = options.Model.Length > 0 ? options.Model : ZCode.DefaultModelId;
             var reasoning = options.Effort.Length > 0 ? options.Effort : "max";
-            var zcodeResult = await ZCodeAppServerClient.RunAsync(node, binary, auth, prompt, cwd, modelId,
+            var zcodeResult = await ZCodeAppServerClient.RunAsync(runtime, binary, auth, prompt, cwd, access, modelId,
                 reasoning, options.Session?.ResumeID, delivered, onUpdate, cancellationToken);
             return zcodeResult with { Resumed = options.Session?.ResumeID is { Length: > 0 } };
         }

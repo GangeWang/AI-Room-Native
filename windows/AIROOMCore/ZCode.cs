@@ -47,6 +47,117 @@ public static class ZCode
     /// desktop maintains. Null when the desktop has never signed in here.</summary>
     public sealed record Auth(string ZcodeJwt, string DeviceMid, string BuiltinFile, string BasedOnRevision, List<string> ModelIds);
 
+    /// <summary>What runs zcode.cjs (macOS PR #14). ZCode's own executable can
+    /// (as Node, via ELECTRON_RUN_AS_NODE), but then app-server and each tool
+    /// server it starts — about six per turn — spawn from an Electron binary.
+    /// A plain Node.js is lighter, so one is preferred when installed (v22 or
+    /// newer); the desktop executable stays as the fallback.</summary>
+    public sealed record Runtime(string Executable, bool IsElectron);
+
+    /// <summary>"v26.7.0" → 26. Null when the output is not a version.</summary>
+    public static int? NodeMajor(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version)) return null;
+        var digits = version.Trim().TrimStart('v');
+        return int.TryParse(digits.Split('.')[0], out var major) && major > 0 ? major : null;
+    }
+
+    /// <summary>Runs `node --version`; null when it fails or hangs (5 s watchdog).</summary>
+    public static string? InstalledNodeVersion(string nodeExe)
+    {
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = nodeExe,
+                Arguments = "--version",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            using var process = Process.Start(startInfo);
+            if (process is null) return null;
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            if (!process.WaitForExit(5_000))
+            {
+                try { process.Kill(entireProcessTree: true); } catch { /* already gone */ }
+                return null;
+            }
+            return process.ExitCode == 0 ? outputTask.GetAwaiter().GetResult() : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The runtime decision, in a testable shape: the first plain Node
+    /// answering v22+ wins; otherwise the desktop executable (as Node).</summary>
+    public static Runtime? PickRuntime(
+        IEnumerable<string> nodeCandidates, string? desktopExe,
+        Func<string, string?> nodeVersion, Func<string, bool> fileExists)
+    {
+        foreach (var node in nodeCandidates)
+        {
+            if (!fileExists(node)) continue;
+            if (NodeMajor(nodeVersion(node)) is { } major && major >= 22)
+            {
+                return new Runtime(node, IsElectron: false);
+            }
+        }
+        return desktopExe is not null && fileExists(desktopExe)
+            ? new Runtime(desktopExe, IsElectron: true)
+            : null;
+    }
+
+    /// <summary>Node lookup order: PATH first (the installer adds itself), then
+    /// the two install locations a stale PATH sometimes misses.</summary>
+    public static List<string> NodeCandidates()
+    {
+        var candidates = new List<string>();
+        var path = Environment.GetEnvironmentVariable("PATH") ?? "";
+        foreach (var dir in path.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            candidates.Add(Path.Combine(dir, "node.exe"));
+        }
+        candidates.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "nodejs", "node.exe"));
+        candidates.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Volta", "bin", "node.exe"));
+        return candidates;
+    }
+
+    /// <summary>The desktop executable that ships the CLI script:
+    /// `…\ZCode\resources\glm\zcode.cjs` → `…\ZCode\ZCode.exe`. Null when the
+    /// script does not sit in that layout (a custom path).</summary>
+    public static string? DesktopExeFor(string cjsPath)
+    {
+        // glm → resources → the desktop folder.
+        var root = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(cjsPath)));
+        var exe = root is null ? null : Path.Combine(root, "ZCode.exe");
+        return exe is not null && File.Exists(exe) ? exe : null;
+    }
+
+    /// <summary>Which process runs zcode.cjs for this install.</summary>
+    public static Runtime? ResolveRuntime(string cjsPath) =>
+        PickRuntime(NodeCandidates(), DesktopExeFor(cjsPath), InstalledNodeVersion, File.Exists);
+
+    /// <summary>The session mode decides what a member may do. macOS PR #8
+    /// found that without an explicit mode the session defaults to `build`,
+    /// where every change asks for approval a headless run can never give —
+    /// so members could not write at all. Read-only rooms use `plan`;
+    /// writing rooms use `edit`.</summary>
+    public static string ModeFor(ExecutionAccess access) =>
+        access == ExecutionAccess.StagedWrite ? "edit" : "plan";
+
+    /// <summary>The answer to any permission ask. ZCode validates answers
+    /// strictly — `decision` is required, and an empty or extra-keyed object
+    /// is rejected (macOS #8) — so the denial names both keys.</summary>
+    public static Dictionary<string, object> PermissionDenial() => new()
+    {
+        ["decision"] = "deny",
+        ["reason"] = "AIROOM 不允許這個動作：成員只能在自己的權限範圍內工作。",
+    };
+
     /// <summary>
     /// Reads the shared state: `~/.zcode/v2/credentials.json` (values are
     /// `enc:v1:` AES-256-GCM with a key derived from the account-free machine
@@ -188,13 +299,13 @@ public static class ZCode
 public static class ZCodeAppServerClient
 {
     public static async Task<CLIRunResult> RunAsync(
-        string nodeExe, string cjsPath, ZCode.Auth auth, string prompt, string cwd,
-        string modelId, string reasoningLevel, string? resumeId, Action delivered,
+        ZCode.Runtime runtime, string cjsPath, ZCode.Auth auth, string prompt, string cwd,
+        ExecutionAccess access, string modelId, string reasoningLevel, string? resumeId, Action delivered,
         Action<string>? onUpdate, CancellationToken cancellationToken)
     {
         var startInfo = new ProcessStartInfo
         {
-            FileName = nodeExe,
+            FileName = runtime.Executable,
             Arguments = $"\"{cjsPath}\" app-server",
             UseShellExecute = false,
             RedirectStandardInput = true,
@@ -205,6 +316,8 @@ public static class ZCodeAppServerClient
             StandardErrorEncoding = Encoding.UTF8,
             WorkingDirectory = cwd,
         };
+        // Only the desktop's own executable needs telling to act as Node.
+        if (runtime.IsElectron) startInfo.Environment["ELECTRON_RUN_AS_NODE"] = "1";
         startInfo.Environment["ZCODE_BUILTIN_PROVIDER_CONFIG_FILE"] = auth.BuiltinFile;
         startInfo.Environment["ZCODE_PERSONAL_PROVIDER_CONFIG_FILE"] =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".zcode", "v2", "provider_config.json");
@@ -255,6 +368,13 @@ public static class ZCodeAppServerClient
                                 sessionKnown = true;
                             }
                             Respond(msg, new Dictionary<string, object> { ["nativeSearchEnhancementsEnabled"] = false });
+                            break;
+                        case "interaction/requestPermission":
+                            // ZCode validates answers strictly: `decision` is
+                            // required and an empty or extra-keyed object is
+                            // rejected (macOS #8). Deny everything — members
+                            // work inside their own access, never beyond it.
+                            Respond(msg, ZCode.PermissionDenial());
                             break;
                         case "interaction/requestProviderRuntimeHeaders":
                             Respond(msg, new Dictionary<string, object>
@@ -399,6 +519,14 @@ public static class ZCodeAppServerClient
                     ["modelId"] = modelId,
                     ["options"] = new Dictionary<string, object> { ["reasoningLevel"] = reasoningLevel },
                 },
+            });
+
+            // Without an explicit mode the session sits in `build`, where every
+            // change wants an approval headless runs can never give (macOS #8).
+            await Send("session/setMode", new Dictionary<string, object>
+            {
+                ["sessionId"] = sessionId,
+                ["mode"] = ZCode.ModeFor(access),
             });
 
             // Subscribe must reach the server before the send, or the turn's

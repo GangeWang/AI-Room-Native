@@ -1,4 +1,4 @@
-# AIROOM Native（Windows 原生版）
+# AI Room Native（Windows 原生版）
 
 Windows 原生重寫：**WinUI 3（Windows App SDK 2.6）＋ .NET 10**，不用 Electron。
 

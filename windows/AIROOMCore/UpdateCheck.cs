@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace AIROOMCore;
 
-/// <summary>A published AIROOM Native release.</summary>
+/// <summary>A published AI Room Native release.</summary>
 public sealed record ReleaseInfo(
     string Version,
     string Page,
@@ -21,7 +21,9 @@ public sealed record ReleaseInfo(
 /// </summary>
 public static class UpdateCheck
 {
-    public const string Repository = "GangeWang/AIROOMNative";
+    public const string Repository = "GangeWang/AI-Room-Native";
+    /// <summary>The name before the 2026-11-09 rename; GitHub still redirects it.</summary>
+    public const string FormerRepository = "GangeWang/AIROOMNative";
     public const string ReleasesAPI = $"https://api.github.com/repos/{Repository}/releases?per_page=30";
     public const string ReleasesPage = $"https://github.com/{Repository}/releases";
 
@@ -172,5 +174,8 @@ public static class UpdateCheck
     static bool IsOurs(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri)
         && uri.Scheme == "https" && uri.Host == "github.com"
-        && uri.AbsolutePath.StartsWith($"/{Repository}/releases/", StringComparison.Ordinal);
+        && (uri.AbsolutePath.StartsWith($"/{Repository}/releases/", StringComparison.Ordinal)
+            // Links published under the pre-rename name keep working: GitHub
+            // redirects the repository, and old release pages keep the old path.
+            || uri.AbsolutePath.StartsWith($"/{FormerRepository}/releases/", StringComparison.Ordinal));
 }

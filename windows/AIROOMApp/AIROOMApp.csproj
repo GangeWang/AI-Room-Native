@@ -6,6 +6,10 @@
     <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <RootNamespace>AIROOMApp</RootNamespace>
+    <!-- The exe's own icon (Explorer, taskbar, shortcuts). The running window
+         points at the same file via AppWindow.SetIcon; Scripts/make-ico.ps1
+         rebuilds it from the shared artwork. -->
+    <ApplicationIcon>Assets\airoom.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>AnyCPU;x64;ARM64</Platforms>
     <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
@@ -37,6 +41,10 @@
          platforms bundle the same files (Scripts/fetch-assets.ps1 is the
          original downloader, kept for reference). -->
     <Content Include="..\..\macos\Sources\AIROOMNative\Resources\*.webp">
+      <Link>Assets\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\macos\Sources\AIROOMNative\Resources\*.jpg">
       <Link>Assets\%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

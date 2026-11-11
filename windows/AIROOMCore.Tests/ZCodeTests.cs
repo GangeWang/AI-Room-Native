@@ -126,4 +126,75 @@ public class ZCodeTests
         Assert.Contains(choices, c => c.Id == "GLM-5.3-Flash" && c.IsDefault);
         Assert.All(choices, c => Assert.Contains("max", c.Efforts));
     }
+
+    // MARK: Runtime choice — a plain Node (v22+) over the desktop executable (macOS #14)
+
+    [Theory]
+    [InlineData("v26.7.0", 26)]
+    [InlineData("v22.1.0", 22)]
+    [InlineData("  v18.20.1\n", 18)]
+    [InlineData("garbage", null)]
+    [InlineData("", null)]
+    [InlineData(null, null)]
+    public void NodeMajorReadsTheLeadingNumber(string? output, int? expected) =>
+        Assert.Equal(expected, ZCode.NodeMajor(output));
+
+    [Fact]
+    public void PickRuntimePrefersAPlainNodeAndFallsBackToTheDesktop()
+    {
+        var node = @"C:\node\node.exe";
+        var desktop = @"C:\ZCode\ZCode.exe";
+        static bool NodeAndDesktopExist(string path) =>
+            path is @"C:\node\node.exe" or @"C:\ZCode\ZCode.exe";
+        // A modern plain Node wins.
+        Assert.Equal(new ZCode.Runtime(node, IsElectron: false),
+            ZCode.PickRuntime([node], desktop, _ => "v26.7.0", NodeAndDesktopExist));
+        // Too old → the desktop executable, as Node.
+        Assert.Equal(new ZCode.Runtime(desktop, IsElectron: true),
+            ZCode.PickRuntime([node], desktop, _ => "v18.20.1", NodeAndDesktopExist));
+        // Broken node → the desktop executable too.
+        Assert.Equal(new ZCode.Runtime(desktop, IsElectron: true),
+            ZCode.PickRuntime([node], desktop, _ => null, NodeAndDesktopExist));
+        // A Node too old and no desktop executable → no runtime at all.
+        Assert.Null(ZCode.PickRuntime([node], null, _ => "v18.20.1", NodeAndDesktopExist));
+    }
+
+    [Fact]
+    public void DesktopExeResolvesFromTheBundledScriptLayout()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "airoom-zcode-desktop-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var cjs = Path.Combine(root, "resources", "glm", "zcode.cjs");
+            Directory.CreateDirectory(Path.GetDirectoryName(cjs)!);
+            File.WriteAllText(cjs, "//");
+            Assert.Null(ZCode.DesktopExeFor(cjs));
+            File.WriteAllText(Path.Combine(root, "ZCode.exe"), "MZ");
+            Assert.Equal(Path.Combine(root, "ZCode.exe"), ZCode.DesktopExeFor(cjs));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    // MARK: Session mode and the permission answer (macOS #8)
+
+    [Fact]
+    public void ReadOnlyRunsPlanAndOnlyWritingRunsEdit()
+    {
+        Assert.Equal("plan", ZCode.ModeFor(ExecutionAccess.ReadOnly));
+        Assert.Equal("plan", ZCode.ModeFor(ExecutionAccess.ReadFiles));
+        Assert.Equal("edit", ZCode.ModeFor(ExecutionAccess.StagedWrite));
+    }
+
+    [Fact]
+    public void ThePermissionAnswerDeniesWithAReason()
+    {
+        // ZCode validates answers strictly: `decision` is required and an
+        // empty object is rejected, so the denial must carry both keys.
+        var answer = ZCode.PermissionDenial();
+        Assert.Equal("deny", answer["decision"]);
+        Assert.False(string.IsNullOrWhiteSpace((string)answer["reason"]!));
+    }
 }
