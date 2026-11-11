@@ -163,10 +163,40 @@ public enum ZCode {
 
     // MARK: Access
 
-    /// Read-only tasks run in ZCode's read-only "plan" mode; writing tasks in "edit",
-    /// which applies edits. Anything that still asks for permission (shell commands
-    /// above all) is refused: AIROOM answers every permission request with a denial.
-    public static func mode(for access: ExecutionAccess) -> String { access == .stagedWrite ? "edit" : "plan" }
+    /// Read-only tasks run in ZCode's read-only "plan" mode. Writing tasks run in "build",
+    /// where every change asks its host first: ZCode's own "edit" mode would apply edits
+    /// to any path the owner can write, far outside the member's folder.
+    public static func mode(for access: ExecutionAccess) -> String { access == .stagedWrite ? "build" : "plan" }
+
+    /// AIROOM's answer to a ZCode permission request. Only the two file tools are ever
+    /// allowed, only in a writing task, and only for a path inside the workspace.
+    /// Shell commands, MCP tools and everything else are refused.
+    static func allows(tool: String, input: [String: Any], workspace: URL, access: ExecutionAccess) -> Bool {
+        guard access == .stagedWrite, tool == "Write" || tool == "Edit",
+              let path = input["file_path"] as? String else { return false }
+        return isWritable(path, in: workspace)
+    }
+
+    /// Inside the workspace, with no symlink on the way (a link could point anywhere,
+    /// even one whose target doesn't exist yet) and no hidden file or folder: a
+    /// `.zcode`, `.claude-plugin` or `.git` written by the model could grant it more
+    /// on its next turn.
+    static func isWritable(_ path: String, in workspace: URL) -> Bool {
+        guard !path.isEmpty, !path.contains("\0") else { return false }
+        let target = (path.hasPrefix("/") ? URL(fileURLWithPath: path) : workspace.appendingPathComponent(path))
+            .standardizedFileURL.pathComponents
+        let roots = [workspace.standardizedFileURL, workspace.resolvingSymlinksInPath().standardizedFileURL].map(\.pathComponents)
+        guard let root = roots.first(where: { target.count > $0.count && Array(target.prefix($0.count)) == $0 }) else { return false }
+        var current = URL(fileURLWithPath: NSString.path(withComponents: root))
+        for component in target.dropFirst(root.count) {
+            guard !component.hasPrefix(".") else { return false }
+            current.appendPathComponent(component)
+            // attributesOfItem doesn't follow links, so a dangling link is still seen.
+            if let type = (try? FileManager.default.attributesOfItem(atPath: current.path))?[.type] as? FileAttributeType,
+               type == .typeSymbolicLink { return false }
+        }
+        return true
+    }
 
     // MARK: Turn messages
 

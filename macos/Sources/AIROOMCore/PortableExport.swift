@@ -18,6 +18,30 @@ public struct PortableExport: Codable, Equatable, Sendable {
     }
 }
 
+extension SavedState {
+    /// Settings that name programs and folders on the Mac that made the export: custom
+    /// program paths and the default work folder. An import never keeps them: they
+    /// decide which executables AIROOM runs (and, for ZCode, which one is handed the
+    /// sign-in), so a file from someone else must not be able to set them.
+    public var machineSettings: [String] {
+        (Executor.allCases.map { settings.configuredPath(for: $0) } + [settings.workspacePath])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    }
+
+    public mutating func clearMachineSettings() {
+        for program in Executor.allCases { settings.setPath("", for: program) }
+        settings.workspacePath = ""
+    }
+
+    /// Folders that topics and projects point at, for the owner to look over before importing.
+    public var referencedFolders: [String] {
+        var seen = Set<String>()
+        return (conversations.map(\.workFolder) + projects.map(\.originalFolder) + projectFlows.map(\.folder))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+}
+
 public enum PortableExportError: Error, LocalizedError, Equatable {
     case passwordTooShort(Int)
     case notAnExport

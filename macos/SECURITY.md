@@ -19,10 +19,13 @@ using a dedicated standard (non-admin) macOS account for sensitive testing.
   model request, so for each ZCode run AIROOM decrypts the ZCode desktop app's saved
   token (`~/.zcode/v2/credentials.json`, AES-256-GCM under the machine-derived key
   ZCode itself uses) in memory and answers that request over the process's stdin.
-  The token is never stored, logged, shown or sent anywhere else. Sessions run in
-  ZCode's `plan` mode (read-only tasks) or `edit` mode (writing tasks), and every
-  permission request is answered with a denial, so ZCode members can't run shell
-  commands. This uses ZCode's internal protocol, and the account config AIROOM pushes
+  The token is never stored, logged, shown or sent anywhere else. Read-only
+  tasks run in ZCode's `plan` mode. Writing tasks run in `build` mode, where ZCode asks
+  before every change, and AIROOM allows only its Write and Edit tools on a path inside
+  the task's folder, with no symlink on the way and no hidden file or folder; shell
+  commands, MCP tools and everything else are refused. (ZCode's own `edit` mode is
+  never used: it applies edits to any path the owner can write.) In `plan` mode ZCode
+  can still read any file the owner can and fetch web pages. This uses ZCode's internal protocol, and the account config AIROOM pushes
   declares the plan entitled; Z.AI still checks the token server-side.
 - Antigravity (`agy`) runs with its terminal sandbox on and per-run settings that keep
   approvals on and stay inside the workspace. Read-only tasks use agy's default mode,
@@ -63,7 +66,11 @@ using a dedicated standard (non-admin) macOS account for sensitive testing.
    (PBKDF2-HMAC-SHA256, 600,000 rounds, random 16-byte salt; the header is
    authenticated). The password is never stored, so a forgotten password means
    the export can't be opened, and its strength is the export's strength.
-   CLI sign-ins and API keys are never included.
+   CLI sign-ins and API keys are never included. An import is trusted like its
+   author: it replaces all conversations, member cards and personas. Custom program
+   paths and the default work folder are never taken from the file, but topics and
+   projects keep the folders it names (the preview lists them), so import only
+   your own exports.
 7. Release DMGs are signed with an Apple Development certificate but **not
    notarized**; verify a downloaded build against a local build from source if
    that matters to you.

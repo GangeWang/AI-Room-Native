@@ -239,15 +239,18 @@ public final class LocalStateStore {
     }
 
     /// Backs up the current data first, stores the attachments under this Mac's key,
-    /// then replaces the state. Attachments already here are kept.
+    /// then replaces the state. Attachments already here are kept. Program paths and
+    /// the default work folder are not taken from the file (see clearMachineSettings).
     public func importPortable(_ export: PortableExport) throws -> SavedState {
         _ = try backup(beforeRestore: true)
         for (name, data) in export.attachments {
             guard let id = UUID(uuidString: name) else { continue }
             try storeAttachment(data, id: id)
         }
-        try save(export.state)
-        return export.state
+        var state = export.state
+        state.clearMachineSettings()
+        try save(state)
+        return state
     }
 
     private func decodeBackup(_ file: URL) throws -> SavedState {
