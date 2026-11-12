@@ -52,6 +52,11 @@
                         <FontIcon Glyph="&#xE95F;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Tag="quotas" Content="用量與額度">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE9D9;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Tag="roundtable" Content="圓桌">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE71D;" />

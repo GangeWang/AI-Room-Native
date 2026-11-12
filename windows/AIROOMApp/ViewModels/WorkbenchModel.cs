@@ -465,6 +465,18 @@ public sealed partial class WorkbenchModel : ObservableObject
         OnPropertyChanged(nameof(TopicsVersion));
     }
 
+    /// <summary>Archives a topic: it leaves the picker (history is kept) and
+    /// the member starts their next message in a fresh topic.</summary>
+    public void ArchiveTopic(Guid id)
+    {
+        var index = Archive.Conversations.FindIndex(conversation => conversation.Id == id);
+        if (index < 0) return;
+        if (BusyAgents.Contains(Archive.Conversations[index].Agent)) return;
+        Archive.Conversations[index].Archived = true;
+        Persist();
+        OnPropertyChanged(nameof(TopicsVersion));
+    }
+
     public void RenameTopic(Guid id, string title)
     {
         var index = Archive.Conversations.FindIndex(conversation => conversation.Id == id);
