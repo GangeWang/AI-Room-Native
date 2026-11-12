@@ -43,7 +43,7 @@ public sealed class SavedState
     [JsonPropertyName("liveStage")]
     public JsonElement? LiveStage { get; set; }
     [JsonPropertyName("projectFlows")]
-    public JsonElement? ProjectFlows { get; set; }
+    public List<ProjectFlow>? ProjectFlows { get; set; }
     [JsonPropertyName("dailyOpening")]
     public JsonElement? DailyOpening { get; set; }
     [JsonPropertyName("schedulesPaused")]

@@ -25,7 +25,8 @@ public sealed partial class RoundtablePage : Page
     {
         if (args.PropertyName is null
             or nameof(WorkbenchModel.RoundtableVersion)
-            or nameof(WorkbenchModel.RoomsVersion))
+            or nameof(WorkbenchModel.RoomsVersion)
+            or nameof(WorkbenchModel.FlowVersion))
         {
             _ = DispatcherQueue.TryEnqueue(Render);
         }
@@ -506,9 +507,42 @@ public sealed partial class RoundtablePage : Page
         }
         else
         {
-            panel.Children.Add(new TextBlock { Text = "✓ 結論已確認。帶回專案的功能等專案會議室還原後加入。", FontSize = 12, Opacity = 0.7 });
+            panel.Children.Add(RenderHandoff(topic));
         }
         Stage.Children.Add(Panel(panel));
+    }
+
+    /// <summary>帶回專案: the confirmed conclusion becomes material for a project's next plan.</summary>
+    UIElement RenderHandoff(RoundtableTopic topic)
+    {
+        var flows = Model.Flows();
+        if (topic.HandoffProjectID is { } handed)
+        {
+            var title = flows.FirstOrDefault(flow => flow.Id == handed)?.Title;
+            return new TextBlock
+            {
+                Text = title is null ? "✓ 結論已確認，已帶回專案。" : $"✓ 結論已確認，已帶回專案「{title}」。",
+                FontSize = 12,
+                Opacity = 0.7,
+            };
+        }
+        if (flows.Count == 0)
+        {
+            return new TextBlock { Text = "✓ 結論已確認。建立專案後可以把結論帶過去當作材料。", FontSize = 12, Opacity = 0.7 };
+        }
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        row.Children.Add(new TextBlock { Text = "帶回專案：", FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
+        var picker = new ComboBox { MinWidth = 220, PlaceholderText = "選擇專案" };
+        foreach (var flow in flows) picker.Items.Add(flow);
+        picker.SelectedIndex = flows.Count > 0 ? 0 : -1;
+        row.Children.Add(picker);
+        var hand = new Button { Content = "帶回專案" };
+        hand.Click += (_, _) =>
+        {
+            if (picker.SelectedItem is ProjectFlow flow) Model.HandoffTopicToFlow(topic.Id, flow.Id);
+        };
+        row.Children.Add(hand);
+        return row;
     }
 
     async void ShowCompare(RoundtableTopic topic)

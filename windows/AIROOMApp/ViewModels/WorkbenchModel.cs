@@ -56,6 +56,7 @@ public sealed partial class WorkbenchModel : ObservableObject
         };
         ApplyMemberSettings();
         RoundtableTopic.MigrateLegacyFindings(Archive.RoundtableTopics);
+        StartQuotaWaitTimer();
         BusyAgents.CollectionChanged += (_, _) => RunOnDispatcher(() =>
         {
             OnPropertyChanged(nameof(AnyBusyAgent));
@@ -950,6 +951,7 @@ public sealed partial class WorkbenchModel : ObservableObject
         foreach (var agent in BusyAgents.ToList()) Stop(agent);
         StopRoom();
         StopRoundtable();
+        StopFlow();
         runner.CancelAll();
         StatusMessage = "已中止所有執行中的工作。";
     }

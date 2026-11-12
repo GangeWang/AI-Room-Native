@@ -62,6 +62,11 @@
                         <FontIcon Glyph="&#xE71D;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Tag="projects" Content="專案會議室">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8F4;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Tag="attention" x:Name="AttentionItem" Content="待你處理">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE7BF;" />
