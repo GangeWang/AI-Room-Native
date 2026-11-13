@@ -42,7 +42,7 @@ public class ProjectFlowLiveTests
 
             // Steps 2–3: the lead reads the project files and drafts a plan in real JSON.
             var planPrompt = ProjectFlowEngine.PlanPrompt(flow, "", names, "測試主人");
-            var planText = await Call(runner, glm.Agent, planPrompt, project, ExecutionAccess.ReadFiles);
+            var planText = await Call(runner, "起草方案/GLM", glm.Agent, planPrompt, project, ExecutionAccess.ReadFiles);
             FlowPlan plan;
             try
             {
@@ -71,7 +71,7 @@ public class ProjectFlowLiveTests
                 var taskID = Guid.NewGuid();
                 var taskFolder = workspace.TaskFolder(taskID, round.Id);
                 var prompt = ProjectFlowEngine.TaskPrompt(task, flow, round, names, "測試主人");
-                var reply = await Call(runner, task.Member, prompt, taskFolder, ExecutionAccess.StagedWrite);
+                var reply = await Call(runner, $"執行任務 {task.Key}/{task.Member.RawValue}", task.Member, prompt, taskFolder, ExecutionAccess.StagedWrite);
                 task.Summary = reply;
                 task.Changes = workspace.TaskChanges(taskID);
                 workspace.MergeTask(taskID, round.Id);
@@ -87,7 +87,7 @@ public class ProjectFlowLiveTests
             round.Changes = roundChanges;
             var reportPrompt = ProjectFlowEngine.RoundCheckPrompt(round, flow, plan.TasksIn(round), glm.Agent, names,
                 verify: false);
-            var report = await Call(runner, glm.Agent, reportPrompt, workspace.Rounds.WorkingDirectory(round.Id),
+            var report = await Call(runner, "輪次報告/GLM", glm.Agent, reportPrompt, workspace.Rounds.WorkingDirectory(round.Id),
                 ExecutionAccess.ReadFiles);
             round.Report = report;
             Assert.False(string.IsNullOrWhiteSpace(report));
@@ -105,13 +105,33 @@ public class ProjectFlowLiveTests
         }
     }
 
-    static async Task<string> Call(CliProcessRunner runner, MemberID agent, string prompt, string folder, ExecutionAccess access)
+    static async Task<string> Call(CliProcessRunner runner, string label, MemberID agent, string prompt, string folder, ExecutionAccess access)
     {
         // The runner rejects prompts over the CLI ceiling; the model truncates as in the app.
         if (prompt.Length > CommandPlan.MaxPromptCharacters) prompt = prompt[..CommandPlan.MaxPromptCharacters];
-        return await runner.RunAsync(agent: agent, prompt: prompt,
-            settings: new NativeSettings { WorkspacePath = folder },
-            fallbackWorkspace: folder, access: access);
+        // The GLM API stream stalls sometimes (a model request hangs with no
+        // events at all — seen in the app-server log). A retry is a fresh
+        // process and session, like the owner pressing 接著做.
+        Exception? lastError = null;
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            string? last = null;
+            try
+            {
+                return await runner.RunAsync(agent: agent, prompt: prompt,
+                    settings: new NativeSettings { WorkspacePath = folder },
+                    fallbackWorkspace: folder, access: access,
+                    options: new CLIRunOptions { Effort = "high" },
+                    onUpdate: update => last = update).WaitAsync(TimeSpan.FromMinutes(3));
+            }
+            catch (TimeoutException error)
+            {
+                lastError = new Exception(
+                    $"{label}: attempt {attempt} timed out after 3 min; last output: "
+                    + (last is { Length: > 0 } text ? text[..Math.Min(600, text.Length)] : "(none)"), error);
+            }
+        }
+        throw lastError!;
     }
 
     static Dictionary<string, string> Snapshot(string folder) => Directory
