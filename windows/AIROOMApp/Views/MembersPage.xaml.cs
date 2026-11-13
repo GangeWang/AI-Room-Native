@@ -22,21 +22,25 @@ public sealed partial class MembersPage : Page
     {
         InitializeComponent();
         RenderCards();
-        App.Model.PropertyChanged += (_, args) =>
+        // Only the visible page re-renders: dead pages stop hearing model bumps.
+        Loaded += (_, _) => App.Model.PropertyChanged += OnModelPropertyChanged;
+        Unloaded += (_, _) => App.Model.PropertyChanged -= OnModelPropertyChanged;
+    }
+
+    void OnModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName is null or nameof(WorkbenchModel.MemberIDs))
         {
-            if (args.PropertyName is null or nameof(WorkbenchModel.MemberIDs))
+            _ = DispatcherQueue.TryEnqueue(() =>
             {
-                _ = DispatcherQueue.TryEnqueue(() =>
+                RenderCards();
+                if (editing is not null)
                 {
-                    RenderCards();
-                    if (editing is not null)
-                    {
-                        editing = App.Model.Card(editing.Agent);
-                        RenderEditor();
-                    }
-                });
-            }
-        };
+                    editing = App.Model.Card(editing.Agent);
+                    RenderEditor();
+                }
+            });
+        }
     }
 
     WorkbenchModel Model => App.Model;

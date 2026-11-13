@@ -21,9 +21,11 @@ public sealed partial class WorkstationPage : Page
     public WorkstationPage()
     {
         InitializeComponent();
-        App.Model.PropertyChanged += OnModelPropertyChanged;
         RenderMembers();
         RenderCallUsage();
+        // Only the visible page re-renders: dead pages stop hearing model bumps.
+        Loaded += (_, _) => App.Model.PropertyChanged += OnModelPropertyChanged;
+        Unloaded += (_, _) => App.Model.PropertyChanged -= OnModelPropertyChanged;
     }
 
     WorkbenchModel Model => App.Model;
