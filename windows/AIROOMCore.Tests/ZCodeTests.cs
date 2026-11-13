@@ -178,14 +178,102 @@ public class ZCodeTests
         }
     }
 
-    // MARK: Session mode and the permission answer (macOS #8)
+    // MARK: Session mode and the permission answer (macOS #8, #19)
 
     [Fact]
-    public void ReadOnlyRunsPlanAndOnlyWritingRunsEdit()
+    public void ReadOnlyRunsPlanAndWritingRunsAskFirst()
     {
         Assert.Equal("plan", ZCode.ModeFor(ExecutionAccess.ReadOnly));
         Assert.Equal("plan", ZCode.ModeFor(ExecutionAccess.ReadFiles));
-        Assert.Equal("edit", ZCode.ModeFor(ExecutionAccess.StagedWrite));
+        // Never "edit": that mode applies edits to any path without asking.
+        Assert.Equal("build", ZCode.ModeFor(ExecutionAccess.StagedWrite));
+    }
+
+    [Fact]
+    public void OnlyFileEditsInsideTheWorkspaceOfAWritingTaskAreAllowed()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "airoom-zcode-policy-" + Guid.NewGuid().ToString("N"));
+        var workspace = Path.Combine(root, "desk");
+        Directory.CreateDirectory(Path.Combine(workspace, "notes"));
+        try
+        {
+            bool Allows(string tool, string path, ExecutionAccess access = ExecutionAccess.StagedWrite) =>
+                ZCode.Allows(tool, CoreJson.Serialize(new Dictionary<string, object>
+                {
+                    ["file_path"] = path, ["content"] = "x",
+                }), workspace, access);
+
+            Assert.True(Allows("Write", Path.Combine(workspace, "a.txt")));
+            Assert.True(Allows("Edit", Path.Combine(workspace, "notes", "new", "b.md")), "folders that don't exist yet are fine");
+            Assert.True(Allows("Write", "notes\\c.txt"), "relative paths resolve inside the workspace");
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            Assert.False(Allows("Write", Path.Combine(home, ".zshrc")), "outside, by absolute path");
+            Assert.False(Allows("Write", Path.Combine(workspace, "..", "escape.txt")));
+            Assert.False(Allows("Write", "..\\escape.txt"));
+            Assert.False(Allows("Write", workspace + "-sibling\\a.txt"), "a folder that only shares the prefix");
+            Assert.False(Allows("Write", workspace), "the workspace itself is not a file in it");
+            Assert.False(Allows("Write", ""));
+            // Read-only tasks, and every other tool.
+            Assert.False(Allows("Write", Path.Combine(workspace, "a.txt"), ExecutionAccess.ReadOnly));
+            Assert.False(Allows("Write", Path.Combine(workspace, "a.txt"), ExecutionAccess.ReadFiles));
+            Assert.False(Allows("Bash", Path.Combine(workspace, "a.txt")));
+            Assert.False(ZCode.Allows("Bash", CoreJson.Serialize(new Dictionary<string, object> { ["command"] = "touch x" }),
+                workspace, ExecutionAccess.StagedWrite));
+            Assert.False(ZCode.Allows("Write", "{}", workspace, ExecutionAccess.StagedWrite));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void SymlinksAndHiddenPathsCannotBeWrittenThrough()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "airoom-zcode-links-" + Guid.NewGuid().ToString("N"));
+        var workspace = Path.Combine(root, "desk");
+        var outside = Path.Combine(root, "outside");
+        Directory.CreateDirectory(workspace);
+        Directory.CreateDirectory(outside);
+        try
+        {
+            bool Writable(string path) => ZCode.IsWritable(path, workspace);
+            bool linked = true, danglingCreated = true;
+            try
+            {
+                Directory.CreateSymbolicLink(Path.Combine(workspace, "link"), outside);
+            }
+            catch (Exception error) when (error is UnauthorizedAccessException or IOException)
+            {
+                linked = false; // creating links needs a privilege this machine may not grant
+            }
+            if (linked)
+            {
+                Assert.False(Writable(Path.Combine(workspace, "link", "a.txt")), "a linked folder leads outside");
+                Assert.True(Writable(Path.Combine(workspace, "plain.txt")));
+            }
+            try
+            {
+                File.CreateSymbolicLink(Path.Combine(workspace, "dangling"), Path.Combine(outside, "not-yet.txt"));
+            }
+            catch (Exception error) when (error is UnauthorizedAccessException or IOException)
+            {
+                danglingCreated = false;
+            }
+            if (danglingCreated)
+            {
+                Assert.False(Writable(Path.Combine(workspace, "dangling")), "writing a dangling link creates its target");
+            }
+            // Config a later turn would trust; hidden paths are refused with or without links.
+            Assert.False(Writable(Path.Combine(workspace, ".zcode", "settings.json")));
+            Assert.False(Writable(Path.Combine(workspace, ".claude-plugin", "plugin.json")));
+            Assert.False(Writable(Path.Combine(workspace, "sub", ".git", "hooks", "pre-commit")));
+            Assert.False(Writable(Path.Combine(workspace, ".env")));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
     }
 
     [Fact]
@@ -196,5 +284,32 @@ public class ZCodeTests
         var answer = ZCode.PermissionDenial();
         Assert.Equal("deny", answer["decision"]);
         Assert.False(string.IsNullOrWhiteSpace((string)answer["reason"]!));
+    }
+
+    [Fact]
+    public void ThePermissionAnswerAllowsWorkspaceWritesOnlyInWritingTasks()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "airoom-zcode-answer-" + Guid.NewGuid().ToString("N"));
+        var workspace = Path.Combine(root, "desk");
+        Directory.CreateDirectory(workspace);
+        try
+        {
+            var input = CoreJson.Serialize(new Dictionary<string, object>
+            {
+                ["file_path"] = Path.Combine(workspace, "a.txt"),
+            });
+            var allow = ZCode.PermissionAnswer("Write", input, workspace, ExecutionAccess.StagedWrite);
+            Assert.Equal("allow", allow["decision"]);
+            Assert.Single(allow);
+            var deny = ZCode.PermissionAnswer("Write", input, workspace, ExecutionAccess.ReadOnly);
+            Assert.Equal("deny", deny["decision"]);
+            Assert.False(string.IsNullOrWhiteSpace((string)deny["reason"]!));
+            var bash = ZCode.PermissionAnswer("Bash", "{}", workspace, ExecutionAccess.StagedWrite);
+            Assert.Equal("deny", bash["decision"]);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
     }
 }

@@ -46,9 +46,9 @@ provider/updateAccountConfig {
 
 順序：`session/create`（workspace Path+Key）→ `provider/updateAccountConfig` →
 `session/setModel {model:{providerId, modelId, options:{reasoningLevel}}}` →
-`session/setMode {mode:"plan"|"edit"}`（**必設**；不設＝工作階段停在 `build`，
+`session/setMode {mode:"plan"|"build"}`（**必設**；不設＝工作階段停在 `build`，
 所有修改都要求同意，headless 永遠給不了，成員一律不能寫檔——macOS #8 的發現。
-唯讀房間用 `plan`，寫入房間用 `edit`）→
+唯讀房間用 `plan`；寫入房間**也用 `build`**，由 AIROOM 的權限回答把寫檔限在工作資料夾內——`edit` 模式會對任何絕對路徑直接動手（macOS #19 的發現））→
 `session/subscribe`（**必須在 send 之前同步送出**）→ `session/send {sessionId, content}`。
 
 ## 伺服器反問（15 秒逾時 -32022，必答，result 鍵不可漏）
@@ -56,8 +56,9 @@ provider/updateAccountConfig {
 - `session/requestRuntimePreferences` → `{"result":{"nativeSearchEnhancementsEnabled":false}}`；
   **sessionId 從它的 params.sessionId 拿**（session/create 的 result 沒有）。
 - `interaction/requestProviderRuntimeHeaders` → 見上（帶 zcodejwt）。
-- `interaction/requestPermission` → `{"result":{"decision":"deny","reason":…}}`。
-  **不能回空物件**：ZCode 嚴格驗證，`decision` 必填、多餘的鍵也會被拒（macOS #8）。
+- `interaction/requestPermission`（params 帶 `toolName`＋`input`）→ 寫入任務時，工作資料夾內的 `Write`／`Edit` 回 `{"result":{"decision":"allow"}}`（只此一鍵），
+  其餘一律 `{"result":{"decision":"deny","reason":…}}`。
+  **不能回空物件**：ZCode 嚴格驗證，`decision` 必填、多餘的鍵也會被拒（macOS #8）。放行格式已實測 ZCode 收下。
 - 其他（`interaction/requestOfficialMcpAuthHeaders` 等）→ `{"result":{}}` 即可。
 - 回應格式：`{"id":<原 id 原樣>, "result":{…}}`——漏掉 `result` 鍵＝-32600 invalid_union。
 
