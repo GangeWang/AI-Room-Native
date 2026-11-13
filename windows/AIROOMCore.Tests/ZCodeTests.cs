@@ -197,4 +197,91 @@ public class ZCodeTests
         Assert.Equal("deny", answer["decision"]);
         Assert.False(string.IsNullOrWhiteSpace((string)answer["reason"]!));
     }
+
+    // MARK: Turn completion from the message list
+
+    static JsonElement Session(params object[] messages) =>
+        JsonDocument.Parse(JsonSerializer.Serialize(new { messages })).RootElement.Clone();
+
+    static object UserMessage(long created) => new
+    {
+        info = new { role = "user", time = new { created } },
+        parts = new[] { new { type = "text", text = "hi" } },
+    };
+
+    static object AssistantText(long created, long? completed, string body) => new
+    {
+        info = new
+        {
+            role = "assistant",
+            time = completed is { } done ? new { created, completed = done } : (object)new { created },
+        },
+        parts = new[] { new { type = "text", text = body } },
+    };
+
+    static object ExitPlanMessage(long created, long completed, string plan) => new
+    {
+        info = new { role = "assistant", time = new { created, completed } },
+        parts = new object[] { new { type = "tool-ExitPlanMode", state = "output-available", input = new { plan } } },
+    };
+
+    [Fact]
+    public void PlainTextReplyCompletesTheTurn()
+    {
+        var session = Session(UserMessage(1), AssistantText(2, 3, "收到"));
+        var (done, text) = ZCodeTurn.Result(session);
+        Assert.True(done);
+        Assert.Equal("收到", text);
+    }
+
+    [Fact]
+    public void NarrationBeforeToolCallsNeverCompletesTheTurnEarly()
+    {
+        // GLM narrates (completed), then a tool-call message lands after it:
+        // the LAST assistant message decides, so the turn is not done.
+        var narration = AssistantText(2, 3, "我先查看檔案");
+        var toolStep = new
+        {
+            info = new { role = "assistant", time = new { created = 4, completed = 5 } },
+            parts = new object[] { new { type = "tool-read", state = "output-available", input = new { path = "a.txt" } } },
+        };
+        var session = Session(UserMessage(1), narration, toolStep);
+        var (done, _) = ZCodeTurn.Result(session);
+        Assert.False(done);
+    }
+
+    [Fact]
+    public void PlanArrivingThroughExitPlanModeCompletesTheTurn()
+    {
+        // Seen live: the plan-mode model hands the whole plan to the
+        // ExitPlanMode tool call; the assistant text is empty.
+        var final = ExitPlanMessage(6, 7, "{\"objective\":\"把佔位首頁改成最小可用\",\"rounds\":[]}");
+        var session = Session(UserMessage(1), final);
+        var (done, text) = ZCodeTurn.Result(session);
+        Assert.True(done);
+        Assert.Contains("objective", text);
+        Assert.Contains("objective", ZCodeTurn.FinalText(session));
+    }
+
+    [Fact]
+    public void AnUncompletedFinalMessageKeepsTheTurnWaiting()
+    {
+        var session = Session(UserMessage(1), AssistantText(2, null, "還在想"));
+        var (done, _) = ZCodeTurn.Result(session);
+        Assert.False(done);
+    }
+
+    [Fact]
+    public void ThePlanOutranksTheNarrationAfterIt()
+    {
+        // Seen live: GLM hands the plan to ExitPlanMode and then posts a plain-text
+        // summary as the final message. The plan is the reply, not the summary.
+        var handed = ExitPlanMessage(2, 3, "{\"objective\":\"方案本體\"}");
+        var narration = AssistantText(4, 5, "工作區已核實，方案已交。");
+        var session = Session(UserMessage(1), handed, narration);
+        var (done, text) = ZCodeTurn.Result(session);
+        Assert.True(done);
+        Assert.Contains("方案本體", text);
+        Assert.Contains("方案本體", ZCodeTurn.FinalText(session));
+    }
 }

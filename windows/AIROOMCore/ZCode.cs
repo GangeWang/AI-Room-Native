@@ -288,6 +288,7 @@ public static class ZCode
         var padded = text.Replace('-', '+').Replace('_', '/');
         return Convert.FromBase64String(padded.PadRight(padded.Length + (4 - padded.Length % 4) % 4, '='));
     }
+
 }
 
 /// <summary>
@@ -566,7 +567,7 @@ public static class ZCodeAppServerClient
                 try
                 {
                     var snapshot = await Send("session/messages", new Dictionary<string, object> { ["sessionId"] = sessionId });
-                    var (done, text) = TurnResult(snapshot);
+                    var (done, text) = ZCodeTurn.Result(snapshot);
                     if (done) turnEnded.TrySetResult(true);
                     if (onUpdate is not null && text.Length > 0 && text != lastText)
                     {
@@ -588,7 +589,7 @@ public static class ZCodeAppServerClient
             }
 
             var messages = await Send("session/messages", new Dictionary<string, object> { ["sessionId"] = sessionId });
-            var finalText = AssistantText(messages);
+            var finalText = ZCodeTurn.FinalText(messages);
             if (string.IsNullOrWhiteSpace(finalText))
             {
                 throw NativeCLIError.NoResponse("ZCode");
@@ -608,80 +609,128 @@ public static class ZCodeAppServerClient
             }
         }
 
-        /// <summary>Decides whether the turn has produced its reply, purely from
-        /// server timestamps: an assistant message created after the turn's own
-        /// user message, carrying a completion time and actual text. The session
-        /// greeting bubble (created just before the user message, no text) and
-        /// replies from earlier turns never qualify.</summary>
-        static (bool Done, string Text) TurnResult(JsonElement messages)
-        {
-            if (!messages.TryGetProperty("messages", out var list) || list.ValueKind != JsonValueKind.Array) return (false, "");
-            long lastUserCreated = long.MinValue;
-            foreach (var message in list.EnumerateArray())
-            {
-                if (message.TryGetProperty("info", out var info) && info.TryGetProperty("role", out var role)
-                    && role.GetString() == "user"
-                    && info.TryGetProperty("time", out var stamp)
-                    && stamp.TryGetProperty("created", out var at) && at.ValueKind == JsonValueKind.Number)
-                {
-                    lastUserCreated = at.GetInt64();
-                }
-            }
-            var done = false;
-            string text = "";
-            foreach (var message in list.EnumerateArray())
-            {
-                if (!message.TryGetProperty("info", out var info)
-                    || !info.TryGetProperty("role", out var role)
-                    || role.GetString() != "assistant") continue;
-                var created = info.TryGetProperty("time", out var time)
-                    && time.TryGetProperty("created", out var made) && made.ValueKind == JsonValueKind.Number
-                        ? made.GetInt64() : long.MinValue;
-                var completed = info.TryGetProperty("time", out var span)
-                    && span.TryGetProperty("completed", out var finished) && finished.ValueKind == JsonValueKind.Number;
-                var body = TextParts(message);
-                if (created > lastUserCreated && completed && body.Length > 0)
-                {
-                    done = true;
-                    text = body;
-                }
-            }
-            return (done, text);
-        }
+    }
+}
 
-        static string TextParts(JsonElement message)
+/// <summary>Turn completion, read purely from the session's message list: this
+/// server build never announces turn.completed, so the messages are the signal.
+/// A turn's reply takes two shapes:
+/// - plain assistant text;
+/// - ZCode's plan mode: the model hands the plan to the ExitPlanMode tool call,
+///   so the final assistant message has NO text — the plan hides in the tool
+///   part's input.plan (seen live: GLM planned the whole flow that way).
+/// Only the LAST assistant message decides: an intermediate narration before
+/// tool calls is not the reply and must not complete the turn early.</summary>
+public static class ZCodeTurn
+{
+    public static (bool Done, string Text) Result(JsonElement messages)
+    {
+        if (!messages.TryGetProperty("messages", out var list) || list.ValueKind != JsonValueKind.Array) return (false, "");
+        long lastUserCreated = long.MinValue;
+        foreach (var message in list.EnumerateArray())
         {
-            var builder = new StringBuilder();
-            if (message.TryGetProperty("parts", out var parts) && parts.ValueKind == JsonValueKind.Array)
+            if (message.TryGetProperty("info", out var info) && info.TryGetProperty("role", out var role)
+                && role.GetString() == "user"
+                && info.TryGetProperty("time", out var stamp)
+                && stamp.TryGetProperty("created", out var at) && at.ValueKind == JsonValueKind.Number)
             {
-                foreach (var part in parts.EnumerateArray())
-                {
-                    if (part.TryGetProperty("type", out var type) && type.GetString() == "text"
-                        && part.TryGetProperty("text", out var value)) builder.Append(value.GetString());
-                }
+                lastUserCreated = at.GetInt64();
             }
-            return builder.ToString();
         }
+        JsonElement? lastAssistant = null;
+        string? handedPlan = null;
+        foreach (var message in list.EnumerateArray())
+        {
+            if (!message.TryGetProperty("info", out var info)
+                || !info.TryGetProperty("role", out var role)
+                || role.GetString() != "assistant") continue;
+            var stepCreated = info.TryGetProperty("time", out var step)
+                && step.TryGetProperty("created", out var stepMade) && stepMade.ValueKind == JsonValueKind.Number
+                    ? stepMade.GetInt64() : long.MinValue;
+            if (stepCreated <= lastUserCreated) continue;
+            lastAssistant = message.Clone();
+            // A plan handed to ExitPlanMode outranks the narration that follows it.
+            if (ToolPlan(message) is { Length: > 0 } handed) handedPlan = handed;
+        }
+        if (lastAssistant is not { } final) return (false, "");
+        var created = final.TryGetProperty("info", out var finalInfo)
+            && finalInfo.TryGetProperty("time", out var time)
+            && time.TryGetProperty("created", out var made) && made.ValueKind == JsonValueKind.Number
+                ? made.GetInt64() : long.MinValue;
+        if (created <= lastUserCreated) return (false, "");
+        var completed = finalInfo.TryGetProperty("time", out var span)
+            && span.TryGetProperty("completed", out var finished) && finished.ValueKind == JsonValueKind.Number;
+        var body = Text(final);
+        if (!completed) return (false, body);
+        if (handedPlan is { Length: > 0 } reply) return (true, reply);
+        if (body.Length > 0) return (true, body);
+        return (false, body);
+    }
 
-        static string AssistantText(JsonElement messages)
+    /// <summary>The text to deliver once the poll gives up waiting for a completion
+    /// announcement: the last assistant message's text, else a handed-over plan.</summary>
+    public static string FinalText(JsonElement messages)
+    {
+        if (!messages.TryGetProperty("messages", out var list) || list.ValueKind != JsonValueKind.Array) return "";
+        JsonElement? lastAssistant = null;
+        foreach (var message in list.EnumerateArray())
         {
-            if (!messages.TryGetProperty("messages", out var list) || list.ValueKind != JsonValueKind.Array) return "";
-            string? text = null;
-            foreach (var message in list.EnumerateArray())
-            {
-                if (!message.TryGetProperty("info", out var info)
-                    || !info.TryGetProperty("role", out var role)
-                    || role.GetString() != "assistant") continue;
-                if (!message.TryGetProperty("parts", out var parts) || parts.ValueKind != JsonValueKind.Array) continue;
-                var builder = new StringBuilder();
-                foreach (var part in parts.EnumerateArray())
-                {
-                    if (part.TryGetProperty("type", out var type) && type.GetString() == "text"
-                        && part.TryGetProperty("text", out var value)) builder.Append(value.GetString());
-                }
-                if (builder.Length > 0) text = builder.ToString();
-            }
-            return text ?? "";
+            if (!message.TryGetProperty("info", out var info)
+                || !info.TryGetProperty("role", out var role)
+                || role.GetString() != "assistant") continue;
+            lastAssistant = message.Clone();
         }
+        if (lastAssistant is not { } final) return "";
+        string? handedPlan = null;
+        foreach (var message in list.EnumerateArray())
+        {
+            if (!message.TryGetProperty("info", out var info)
+                || !info.TryGetProperty("role", out var role)
+                || role.GetString() != "assistant") continue;
+            if (ToolPlan(message) is { Length: > 0 } handed) handedPlan = handed;
+        }
+        if (handedPlan is { Length: > 0 } reply) return reply;
+        var body = Text(final);
+        if (body.Length > 0) return body;
+        return ToolPlan(final) ?? "";
+    }
+
+    static string Text(JsonElement message)
+    {
+        var builder = new StringBuilder();
+        if (message.TryGetProperty("parts", out var parts) && parts.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var part in parts.EnumerateArray())
+            {
+                if (part.TryGetProperty("type", out var type) && type.GetString() == "text"
+                    && part.TryGetProperty("text", out var value)) builder.Append(value.GetString());
+            }
+        }
+        return builder.ToString();
+    }
+
+    /// <summary>The plan a plan-mode model hands to ExitPlanMode. The AI SDK names
+    /// tool parts `tool-<name>`; other shapes carry `toolName`. The plan travels
+    /// as the tool call's input.plan.</summary>
+    static string? ToolPlan(JsonElement message)
+    {
+        if (!message.TryGetProperty("parts", out var parts) || parts.ValueKind != JsonValueKind.Array) return null;
+        foreach (var part in parts.EnumerateArray())
+        {
+            if (!part.TryGetProperty("type", out var type)) continue;
+            var kind = type.GetString() ?? "";
+            var isTool = kind.StartsWith("tool-", StringComparison.Ordinal) || kind == "tool-call";
+            if (!isTool && !(part.TryGetProperty("toolName", out var name) && name.GetString() == "ExitPlanMode")) continue;
+            if (part.TryGetProperty("input", out var input) && input.TryGetProperty("plan", out var plan)
+                && plan.ValueKind == JsonValueKind.String)
+            {
+                return plan.GetString();
+            }
+            if (part.TryGetProperty("plan", out var direct) && direct.ValueKind == JsonValueKind.String)
+            {
+                return direct.GetString();
+            }
+        }
+        return null;
     }
 }

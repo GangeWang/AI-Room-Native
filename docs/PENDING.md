@@ -13,6 +13,9 @@
 - **ZCode 權杖沒有檢查對象**：回答 `interaction/requestProviderRuntimeHeaders` 時沒有檢查 `providerId`。方向：只在對象是 `account:zai-start-plan` 時交出。
 - **Windows 版 ZCode 的寫入邊界**：Windows 版（#16）寫入任務仍用 `edit` 模式，同樣能改工作資料夾以外的任何檔案。要照 macOS 版改成 `build` 模式，加上「只放行工作資料夾內的 Write／Edit」。
 - **Windows 版的匯入**：如果之後做密碼匯入，也要清掉程式路徑（macOS 見 `clearMachineSettings`）。
+- **ZCode plan 模式的 ExitPlanMode**（macOS）：模型在 plan 模式把整份方案放進 `ExitPlanMode` 工具呼叫，assistant 文字是空的；macOS 的 `turnResult` 只認文字，會讀不到回覆或被中間旁白提前完成。Windows 已修（`ZCodeTurn`：方案從工具輸入抽出、方案優先於其後旁白、只看最後一則 assistant 訊息），macOS 待跟進。
+- **AGY 任務執行不用終端機指令**（macOS）：AGY headless 對 `command` 工具自動拒絕，而且被拒後整個回合沒有回覆（agy 1.5.1 實測）。Windows 在任務提示詞加了「只用檔案工具」，macOS 的專案流程提示詞待跟進。
+- **GLM API 串流偶發停滯**（兩平台）：實測部分輪次 `turn.started` 後完全沒有 model request 事件，掛住 5 分鐘以上；重試（新工作階段）即可恢復。Windows 的 live 測試對每次呼叫做了重試，App 端仍靠使用者按「接著做」。
 
 - **降版會悄悄改寫成員用的程式**（macOS）
   - 現象：舊版本讀到不認得的程式名稱（例如還沒有 ZCode 的版本讀到 `ZCode`），會退回 Claude Code（`MemberCard` 解碼：`?? agent.builtInExecutor ?? .claude`），下次存檔就寫回去。

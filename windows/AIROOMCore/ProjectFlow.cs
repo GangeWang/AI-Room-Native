@@ -653,6 +653,7 @@ public static class ProjectFlowEngine
         var fix = task.Status == FlowTaskStatus.Fixing ? FixSection(task, ownerName) : "";
         return $"""
             你是 {NameOf(names, task.Member)}，在 AIROOM 專案「{flow.Title}」執行一項任務。目前資料夾是這項任務專用的副本；只修改這個資料夾內的檔案，絕對不要動其他路徑。{ownerName}驗收前，原始專案不會改變。
+            只用檔案工具（讀取、搜尋、編輯、寫檔）完成工作；不要用終端機指令（shell），寫入執行端不會放行，指令會被拒絕而且整個回合不會有回覆。
             {profile}
             專案目標：{flow.Plan?.Objective ?? ""}
             本輪（{round.Title}）目標：{round.Goal}
