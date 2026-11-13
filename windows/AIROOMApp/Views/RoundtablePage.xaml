@@ -1,0 +1,45 @@
+<Page
+    x:Class="AIROOMApp.Views.RoundtablePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="250" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Topics -->
+        <Border Style="{StaticResource StudioPanel}" Padding="12" Margin="0,0,14,0">
+            <Grid RowSpacing="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="圓桌" Style="{StaticResource StudioEyebrow}" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" x:Name="NewTopicButton" Content="開新議題" Click="OnNewTopic" />
+                    <Button Grid.Column="2" x:Name="DeleteTopicButton" Content="刪除" Click="OnDeleteTopic" />
+                </Grid>
+                <ListView
+                    Grid.Row="1"
+                    x:Name="TopicList"
+                    Margin="0,4,0,0"
+                    SelectionMode="Single"
+                    SelectionChanged="OnTopicSelected" />
+            </Grid>
+        </Border>
+
+        <!-- Stage -->
+        <Border Grid.Column="1" Style="{StaticResource StudioPanel}" Padding="0">
+            <ScrollViewer x:Name="StageScroll" Padding="22,16,22,20">
+                <StackPanel x:Name="Stage" Spacing="14" MaxWidth="980" HorizontalAlignment="Stretch" />
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</Page>

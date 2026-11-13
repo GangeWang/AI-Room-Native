@@ -417,6 +417,10 @@ public static class LoungeEngine
     public const string QuoteRule = "文字內容裡需要引號時用「」，不要用英文雙引號。";
     public const string QuoteRuleEnglish = "Inside text values, quote with single quotes, never unescaped double quotes.";
 
+    /// <summary>The protocol object in a reply, for flows and other consumers
+    /// outside this file (plan JSON, review verdicts, adjudications).</summary>
+    public static JsonElement? JsonObject(string text) => JsonObjectIn(text);
+
     /// <summary>Finds the protocol object: the substring from the first `{` to the last `}`,
     /// with fences stripped and common quoting slips repaired before a re-parse.</summary>
     static JsonElement? JsonObjectIn(string text)

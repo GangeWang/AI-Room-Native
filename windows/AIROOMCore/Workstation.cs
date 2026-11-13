@@ -174,6 +174,84 @@ public static class AttentionBuilder
                 member.MemoryProposals.FirstOrDefault()?.Text ?? "",
                 new AttentionTarget(null, null, null, false, member.Agent)));
         }
+        string NameOf(MemberID agent) =>
+            state.Members.FirstOrDefault(member => member.Agent == agent)?.Name ?? agent.RawValue;
+        foreach (var room in state.Rooms ?? [])
+        {
+            var target = room.RoundtableID is { } roundtable ? new AttentionTarget(null, roundtable, null, false, null)
+                : room.ProjectID is { } project ? new AttentionTarget(null, null, project, false, null)
+                : new AttentionTarget(room.Id, null, null, false, null);
+            foreach (var question in room.Lounge.PendingQuestions)
+            {
+                items.Add(new AttentionItem($"q-{question.Id}", AttentionKind.Question,
+                    $"{NameOf(question.From)} 在「{room.Title}」問你",
+                    question.Text.Length > 140 ? question.Text[..140] : question.Text, target));
+            }
+            if (room.Lounge.Phase == LoungePhase.AwaitingHost)
+            {
+                items.Add(new AttentionItem($"pick-{room.Id}", AttentionKind.Decision,
+                    $"「{room.Title}」有人舉手", "請點名誰補充，或讓大家等你說話。", target));
+            }
+            // Only the latest member reply counts: an older failure was already seen.
+            if (room.Entries.LastOrDefault(entry => entry.Speaker == Speaker.Assistant) is { } last
+                && last.Delivery == RoomDelivery.Failed)
+            {
+                items.Add(new AttentionItem($"unknown-{last.Id}", AttentionKind.UnknownResult,
+                    $"「{room.Title}」有結果待核對", $"{last.DisplayName} 的回覆沒有確認完成，沒有自動重送。", target));
+            }
+        }
+        foreach (var topic in state.RoundtableTopics ?? [])
+        {
+            if (topic.Status == RoundtableStatus.Conclusion)
+            {
+                items.Add(new AttentionItem($"roundtable-{topic.Id}", AttentionKind.Acceptance,
+                    $"圓桌「{topic.Title}」的結論等你確認",
+                    topic.Conclusion,
+                    new AttentionTarget(null, topic.Id, null, false, null)));
+            }
+        }
+        foreach (var flow in state.ProjectFlows ?? [])
+        {
+            var target = new AttentionTarget(null, null, flow.Id, false, null);
+            if (flow.Step == FlowStep.Plan)
+            {
+                items.Add(new AttentionItem($"flow-plan-{flow.Id}", AttentionKind.Decision,
+                    $"專案「{flow.Title}」的方案等你確認",
+                    "看過方案後按「確認方案，開工」，或要求修改。", target));
+            }
+            else if (flow.ActiveRound is { } round && round.Status == FlowRoundStatus.AwaitingAcceptance)
+            {
+                items.Add(new AttentionItem($"flow-accept-{round.Id}", AttentionKind.Acceptance,
+                    $"專案「{flow.Title}」：{round.Title} 等你驗收",
+                    "查看成品和改動，選擇通過或駁回。", target));
+            }
+            else if (flow.Step == FlowStep.Executing && flow.ActiveRound is { } next && next.Status == FlowRoundStatus.Pending)
+            {
+                items.Add(new AttentionItem($"flow-next-{next.Id}", AttentionKind.Decision,
+                    $"專案「{flow.Title}」：下一輪等你開始",
+                    "按原計劃開始，或要求修改方案。", target));
+            }
+            else if (flow.Plan is { } plan && plan.Tasks.FirstOrDefault(task => task.Status == FlowTaskStatus.Disputed) is { } disputed)
+            {
+                items.Add(new AttentionItem($"flow-dispute-{disputed.Id}", AttentionKind.Decision,
+                    $"專案「{flow.Title}」：「{disputed.Title}」的複核異議等你裁定",
+                    "逐條選擇支持作者或維持複核。", target));
+            }
+            else if (flow.QuotaWaits.FirstOrDefault() is { } wait)
+            {
+                items.Add(new AttentionItem($"flow-quota-{wait.Id}-{wait.Ready}", AttentionKind.Decision,
+                    wait.Ready ? $"專案「{flow.Title}」：{wait.Agent.RawValue} 的額度應該恢復了"
+                               : $"專案「{flow.Title}」：{wait.Agent.RawValue} 的額度用完了",
+                    wait.Ready ? "按「接著做」繼續，不會自動重送。"
+                               : "可以等恢復、換人接手，其他成員的任務照常進行。", target));
+            }
+            else if (flow.Paused && flow.Plan is { } pausedPlan && pausedPlan.Tasks.Any(task => task.Status == FlowTaskStatus.Failed))
+            {
+                items.Add(new AttentionItem($"flow-failed-{flow.Id}", AttentionKind.UnknownResult,
+                    $"專案「{flow.Title}」有任務沒有完成",
+                    "檢查原因後可以繼續，沒有自動重送。", target));
+            }
+        }
         return items;
     }
 }

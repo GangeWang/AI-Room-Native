@@ -208,6 +208,24 @@ public sealed partial class WorkstationPage : Page
         RenameAsync(selectedTopic);
     }
 
+    async void OnArchiveTopic(object sender, RoutedEventArgs e)
+    {
+        if (selectedTopic is null) return;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "歸檔這個話題？",
+            Content = "歸檔後它會從話題選單消失（紀錄保留），這位成員的下一段對話從新話題開始。",
+            PrimaryButtonText = "歸檔",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            Model.ArchiveTopic(selectedTopic.Id);
+        }
+    }
+
     async void RenameAsync(Conversation topic)
     {
         var box = new TextBox { Text = topic.Title };

@@ -241,10 +241,11 @@ public class CoreTests
     [Fact]
     public void OldStateSectionsSurviveAsPassthrough()
     {
-        const string json = """{"settings":{"language":"zh-Hant"},"projectFlows":[{"id":"Y"}]}""";
+        const string json = """{"settings":{"language":"zh-Hant"},"projectFlows":[{"id":"18000000-0000-0000-0000-000000000000","title":"舊版"}]}""";
         var state = CoreJson.Deserialize<SavedState>(json);
         Assert.Equal(InterfaceLanguage.ZhTW, state.Settings.Language);
         Assert.Null(state.Rooms); // rooms are a typed section now; absent stays absent
+        Assert.Equal("舊版", state.ProjectFlows![0].Title); // projectFlows is typed too
         var roundTripped = CoreJson.Serialize(state);
         Assert.Contains("\"projectFlows\"", roundTripped);
         Assert.DoesNotContain("\"rooms\"", roundTripped);

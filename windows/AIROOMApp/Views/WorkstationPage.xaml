@@ -59,13 +59,14 @@
                         SelectionChanged="OnTopicPicked" />
                     <Button Grid.Column="1" Content="新話題" Click="OnNewTopic" />
                     <Button Grid.Column="2" Content="改標題" Click="OnRenameTopic" />
+                    <Button Grid.Column="3" x:Name="ArchiveButton" Content="歸檔" Click="OnArchiveTopic" />
                     <ComboBox
-                        Grid.Column="3"
+                        Grid.Column="4"
                         x:Name="ModelPicker"
                         MinWidth="130"
                         SelectionChanged="OnModelPicked" />
                     <ComboBox
-                        Grid.Column="4"
+                        Grid.Column="5"
                         x:Name="EffortPicker"
                         MinWidth="96"
                         SelectionChanged="OnEffortPicked" />

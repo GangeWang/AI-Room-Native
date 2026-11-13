@@ -44,6 +44,26 @@ public sealed partial class WorkbenchModel
         }
     }
 
+    /// <summary>A consistent read of one room for rendering (entry list snapshot).</summary>
+    public TeamRoom? RoomSnapshot(Guid roomID)
+    {
+        lock (Archive)
+        {
+            var room = FindRoom(roomID);
+            if (room is null) return null;
+            return new TeamRoom
+            {
+                Id = room.Id,
+                Title = room.Title,
+                Entries = room.Entries.ToList(),
+                Participants = room.Participants,
+                Lounge = room.Lounge,
+                RoundtableID = room.RoundtableID,
+                Briefing = room.Briefing,
+            };
+        }
+    }
+
     /// <summary>Entries of the active room, read as one consistent snapshot.</summary>
     public List<RoomEntry> RoomEntries()
     {
@@ -642,6 +662,13 @@ public sealed partial class WorkbenchModel
                         room.Lounge.Phase = LoungePhase.Idle;
                         room.Lounge.MeetingStartEntryID = null;
                         room.Lounge.Reason = "會議紀要已整理，會議結束。";
+                        // A roundtable's minutes become its conclusion, awaiting confirmation.
+                        if (room.RoundtableID is { } topicID && FindRoundtable(topicID) is { } topic)
+                        {
+                            topic.Conclusion = text;
+                            topic.Status = RoundtableStatus.Conclusion;
+                            topic.Calls += 1;
+                        }
                     }
                 }
                 Notify("會議紀要已整理", text.Length > 200 ? text[..200] : text);

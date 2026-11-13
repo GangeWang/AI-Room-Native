@@ -55,6 +55,8 @@ public sealed partial class WorkbenchModel : ObservableObject
             }
         };
         ApplyMemberSettings();
+        RoundtableTopic.MigrateLegacyFindings(Archive.RoundtableTopics);
+        StartQuotaWaitTimer();
         BusyAgents.CollectionChanged += (_, _) => RunOnDispatcher(() =>
         {
             OnPropertyChanged(nameof(AnyBusyAgent));
@@ -460,6 +462,18 @@ public sealed partial class WorkbenchModel : ObservableObject
             conversation => conversation.Agent == topic.Agent && !conversation.Archived);
         if (openIndex >= 0) Archive.Conversations[openIndex].Archived = true;
         topic.Archived = false;
+        Persist();
+        OnPropertyChanged(nameof(TopicsVersion));
+    }
+
+    /// <summary>Archives a topic: it leaves the picker (history is kept) and
+    /// the member starts their next message in a fresh topic.</summary>
+    public void ArchiveTopic(Guid id)
+    {
+        var index = Archive.Conversations.FindIndex(conversation => conversation.Id == id);
+        if (index < 0) return;
+        if (BusyAgents.Contains(Archive.Conversations[index].Agent)) return;
+        Archive.Conversations[index].Archived = true;
         Persist();
         OnPropertyChanged(nameof(TopicsVersion));
     }
@@ -930,12 +944,14 @@ public sealed partial class WorkbenchModel : ObservableObject
     /// <summary>The text queued to auto-send when this member's run ends;"" when none.</summary>
     public string QueuedSendText(MemberID agent) => queuedSends.GetValueOrDefault(agent) ?? "";
 
-    /// <summary>Stops every running room: desk members, the lounge now; the
-    /// roundtable and the live stage join in later phases.</summary>
+    /// <summary>Stops every running room: desk members, the lounge and the
+    /// roundtable; the live stage joins in a later phase.</summary>
     public void StopAll()
     {
         foreach (var agent in BusyAgents.ToList()) Stop(agent);
         StopRoom();
+        StopRoundtable();
+        StopFlow();
         runner.CancelAll();
         StatusMessage = "已中止所有執行中的工作。";
     }

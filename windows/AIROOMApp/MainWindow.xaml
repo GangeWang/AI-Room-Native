@@ -52,6 +52,21 @@
                         <FontIcon Glyph="&#xE95F;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Tag="quotas" Content="用量與額度">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE9D9;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Tag="roundtable" Content="圓桌">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE71D;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Tag="projects" Content="專案會議室">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8F4;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Tag="attention" x:Name="AttentionItem" Content="待你處理">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE7BF;" />
