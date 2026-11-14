@@ -60,7 +60,7 @@ public sealed partial class MainWindow : Window
 
     void OnStatusBannerClosed(Microsoft.UI.Xaml.Controls.InfoBar sender, object e) { }
 
-    void BringToFront()
+    public void BringToFront()
     {
         Activate();
         AppWindow.Show();
@@ -92,6 +92,7 @@ public sealed partial class MainWindow : Window
         "roundtable" => typeof(RoundtablePage),
         "projects" => typeof(ProjectsPage),
         "automation" => typeof(AutomationPage),
+        "live" => typeof(LiveStagePage),
         "attention" => typeof(AttentionPage),
         "members" => typeof(MembersPage),
         "settings" => typeof(SettingsPage),

@@ -29,8 +29,19 @@ public partial class App : Application
         Window = new MainWindow();
         Program.Log("window created");
         Window.Activate();
+        // The tray icon lives as long as the app does; its menu can stop every
+        // running member or close the app, exactly like the 全部中止 footer.
+        tray = new Services.TrayService();
+        tray.StopAllRequested += () => DispatcherQueue.GetForCurrentThread().TryEnqueue(() =>
+        {
+            Model.StopAll();
+            Services.Notifier.Post("AIROOM", "已中止所有執行中的工作。");
+        });
+        tray.ExitRequested += () => DispatcherQueue.GetForCurrentThread().TryEnqueue(() => Window?.Close());
         Program.Log("window activated");
     }
+
+    Services.TrayService? tray;
 
     public static void BringToFront()
     {

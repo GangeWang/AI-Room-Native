@@ -77,6 +77,11 @@
                         <FontIcon Glyph="&#xE823;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Tag="live" Content="直播間">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE714;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Tag="attention" x:Name="AttentionItem" Content="待你處理">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE7BF;" />

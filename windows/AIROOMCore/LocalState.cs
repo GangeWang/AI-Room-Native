@@ -39,7 +39,7 @@ public sealed class SavedState
     [JsonPropertyName("teamWorkflows")]
     public JsonElement? TeamWorkflows { get; set; }
     [JsonPropertyName("liveShow")]
-    public JsonElement? LiveShow { get; set; }
+    public LiveShowSettings? LiveShow { get; set; }
     [JsonPropertyName("dailyOpening")]
     public DailyOpeningSettings? DailyOpening { get; set; }
     [JsonPropertyName("schedulesPaused")]
@@ -254,6 +254,48 @@ public sealed class LocalStateStore
         }
         if (protector is null) throw new StateProtectionError("Encryption is required.");
         return protector.Open(data[Magic.Length..]);
+    }
+
+    public List<Guid> AttachmentIDs()
+    {
+        if (!Directory.Exists(AttachmentDirectory)) return [];
+        return Directory.EnumerateFiles(AttachmentDirectory, "*.aesgcm")
+            .Select(Path.GetFileNameWithoutExtension)
+            .Select(name => Guid.TryParse(name, out var id) ? id : (Guid?)null)
+            .Where(id => id is not null).Select(id => id!.Value).ToList();
+    }
+
+    /// <summary>Everything needed on another machine: the saved state plus every
+    /// attachment, sealed with the password. CLI sign-ins are never included.</summary>
+    public byte[] ExportPortable(string password, uint rounds = PortableExportCodec.DefaultRounds)
+    {
+        var attachments = AttachmentIDs().ToDictionary(id => id.ToString("D"), LoadAttachment);
+        return PortableExportCodec.Seal(new PortableExport(Load(), attachments), password, rounds);
+    }
+
+    /// <summary>Opens an export without changing anything; a wrong password fails here.</summary>
+    public PortableExport OpenPortable(string file, string password)
+    {
+        var bytes = File.ReadAllBytes(file);
+        if (bytes.Length > PortableExportCodec.MaximumBytes) throw PortableExportError.TooLarge;
+        return PortableExportCodec.Open(bytes, password);
+    }
+
+    /// <summary>Backs up the current data first, stores the attachments under this
+    /// machine's key, then replaces the state. Attachments already here are kept.
+    /// Program paths and the default work folder are not taken from the file.</summary>
+    public SavedState ImportPortable(PortableExport export)
+    {
+        Backup(beforeRestore: true);
+        foreach (var (name, data) in export.Attachments)
+        {
+            if (!Guid.TryParse(name, out var id)) continue;
+            StoreAttachment(data, id);
+        }
+        var state = export.State;
+        state.ClearMachineSettings();
+        Save(state);
+        return state;
     }
 
     // MARK: Backups — conversations and metadata, never official CLI credentials.

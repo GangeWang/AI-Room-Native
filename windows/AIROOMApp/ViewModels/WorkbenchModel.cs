@@ -319,7 +319,7 @@ public sealed partial class WorkbenchModel : ObservableObject
 
     // MARK: Encrypted backups
 
-    public bool CanRestore => StorageAvailable && BusyAgents.Count == 0;
+
 
     public string? CreateBackup()
     {
@@ -953,6 +953,7 @@ public sealed partial class WorkbenchModel : ObservableObject
         StopRoom();
         StopRoundtable();
         StopFlow();
+        StopLiveShow();
         runner.CancelAll();
         StatusMessage = "已中止所有執行中的工作。";
     }
