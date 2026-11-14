@@ -33,23 +33,23 @@ public sealed class SavedState
     [JsonPropertyName("roundtableTopics")]
     public List<RoundtableTopic>? RoundtableTopics { get; set; }
     [JsonPropertyName("schedules")]
-    public JsonElement? Schedules { get; set; }
+    public List<ScheduledActivity>? Schedules { get; set; }
     [JsonPropertyName("autoChat")]
-    public JsonElement? AutoChat { get; set; }
+    public AutoChatSettings? AutoChat { get; set; }
     [JsonPropertyName("teamWorkflows")]
     public JsonElement? TeamWorkflows { get; set; }
     [JsonPropertyName("liveShow")]
     public JsonElement? LiveShow { get; set; }
+    [JsonPropertyName("dailyOpening")]
+    public DailyOpeningSettings? DailyOpening { get; set; }
+    [JsonPropertyName("schedulesPaused")]
+    public bool? SchedulesPaused { get; set; }
+    [JsonPropertyName("scheduleRuns")]
+    public List<ScheduleRun>? ScheduleRuns { get; set; }
     [JsonPropertyName("liveStage")]
     public JsonElement? LiveStage { get; set; }
     [JsonPropertyName("projectFlows")]
     public List<ProjectFlow>? ProjectFlows { get; set; }
-    [JsonPropertyName("dailyOpening")]
-    public JsonElement? DailyOpening { get; set; }
-    [JsonPropertyName("schedulesPaused")]
-    public bool? SchedulesPaused { get; set; }
-    [JsonPropertyName("scheduleRuns")]
-    public JsonElement? ScheduleRuns { get; set; }
 }
 
 /// <summary>An abstract seam for tests. Production Windows always uses DPAPI + AES-GCM.</summary>

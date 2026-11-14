@@ -30,7 +30,7 @@ public sealed partial class MainWindow : Window
 
         App.Model.PropertyChanged += OnModelPropertyChanged;
         Closed += (_, _) => App.Model.StopAll();
-        Navigate("workstation");
+        Navigate("home");
     }
 
     void OnModelPropertyChanged(object? sender, PropertyChangedEventArgs args)
@@ -74,12 +74,24 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>Public entry point for in-app navigation (dashboard buttons,
+    /// preflight links): switches the nav selection, which drives the frame.</summary>
+    public void NavigateTo(string tag)
+    {
+        var item = Nav.MenuItems.OfType<NavigationViewItem>().FirstOrDefault(candidate => (string?)candidate.Tag == tag)
+            ?? Nav.FooterMenuItems.OfType<NavigationViewItem>().FirstOrDefault(candidate => (string?)candidate.Tag == tag);
+        if (item is not null) Nav.SelectedItem = item;
+        else Navigate(tag);
+    }
+
     void Navigate(string tag) => ContentFrame.Navigate(tag switch
     {
+        "home" => typeof(DashboardPage),
         "lounge" => typeof(LoungePage),
         "quotas" => typeof(QuotasPage),
         "roundtable" => typeof(RoundtablePage),
         "projects" => typeof(ProjectsPage),
+        "automation" => typeof(AutomationPage),
         "attention" => typeof(AttentionPage),
         "members" => typeof(MembersPage),
         "settings" => typeof(SettingsPage),

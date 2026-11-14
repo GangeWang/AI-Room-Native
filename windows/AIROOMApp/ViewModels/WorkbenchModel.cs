@@ -56,7 +56,8 @@ public sealed partial class WorkbenchModel : ObservableObject
         };
         ApplyMemberSettings();
         RoundtableTopic.MigrateLegacyFindings(Archive.RoundtableTopics);
-        StartQuotaWaitTimer();
+        StartAutomationTimer();
+        WindowOpened();
         BusyAgents.CollectionChanged += (_, _) => RunOnDispatcher(() =>
         {
             OnPropertyChanged(nameof(AnyBusyAgent));

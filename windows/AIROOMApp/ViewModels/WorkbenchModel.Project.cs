@@ -20,7 +20,6 @@ public sealed partial class WorkbenchModel
     readonly Dictionary<Guid, MemberID> leadRulings = [];
     Guid? selectedFlowID;
     int flowVersion;
-    System.Timers.Timer? quotaWaitTimer;
 
     /// <summary>Raised whenever flow state changes (tasks, rounds, waits).</summary>
     public int FlowVersion => flowVersion;
@@ -107,17 +106,6 @@ public sealed partial class WorkbenchModel
         foreach (var (title, body) in posts) Notify(title, body);
     }
 
-    void StartQuotaWaitTimer()
-    {
-        lock (flowGate)
-        {
-            if (quotaWaitTimer is not null) return;
-            quotaWaitTimer = new System.Timers.Timer(30_000) { AutoReset = true };
-            quotaWaitTimer.Elapsed += (_, _) => FlowQuotaTick();
-            quotaWaitTimer.Start();
-        }
-    }
-
     int FlowIndex(Guid id)
     {
         var flows = Archive.ProjectFlows;
@@ -168,7 +156,6 @@ public sealed partial class WorkbenchModel
             (Archive.Rooms ??= []).Add(room);
         }
         SelectedFlowID = flow.Id;
-        StartQuotaWaitTimer();
         Persist();
         BumpFlows();
     }

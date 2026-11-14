@@ -46,6 +46,11 @@
                 <Frame x:Name="ContentFrame" Grid.Row="1" Padding="22,14,22,14" Background="Transparent" />
             </Grid>
             <NavigationView.MenuItems>
+                <NavigationViewItem Tag="home" Content="首頁">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE80F;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Tag="workstation" Content="成員工位" Icon="People" />
                 <NavigationViewItem Tag="lounge" Content="茶歇室">
                     <NavigationViewItem.Icon>
@@ -65,6 +70,11 @@
                 <NavigationViewItem Tag="projects" Content="專案會議室">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8F4;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Tag="automation" Content="排程與閒聊">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE823;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem Tag="attention" x:Name="AttentionItem" Content="待你處理">
