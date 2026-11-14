@@ -5,7 +5,7 @@
 | 平台 | tag | 標題 | 附件 | Latest |
 |---|---|---|---|---|
 | macOS | `macos-v<版本>`（例：`macos-v0.2.108`） | `AI Room Native <版本> for macOS` | `AI-Room-Native-<版本>.dmg` | 可以 |
-| Windows | `windows-v<版本>` | `AI Room Native <版本> for Windows` | Windows 安裝檔 | **不可以**：`gh release create … --latest=false` |
+| Windows | `windows-v<版本>` | `AI Room Native <版本> for Windows` | Windows zip（免安裝，解壓即用） | **不可以**：`gh release create … --latest=false` |
 
 macOS 0.2.107 以前用的是 `v<版本>`，0.2.101 起的 App 兩種 tag 都認得。0.2.64 以前的 App 只認得 `v<版本>`，但那些版本已改成草稿、不再公開。
 
