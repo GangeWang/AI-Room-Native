@@ -16,7 +16,9 @@ public sealed partial class LoungePage : Page
     {
         InitializeComponent();
         Render();
-        App.Model.PropertyChanged += OnModelPropertyChanged;
+        // Only the visible page re-renders: dead pages stop hearing model bumps.
+        Loaded += (_, _) => App.Model.PropertyChanged += OnModelPropertyChanged;
+        Unloaded += (_, _) => App.Model.PropertyChanged -= OnModelPropertyChanged;
     }
 
     WorkbenchModel Model => App.Model;

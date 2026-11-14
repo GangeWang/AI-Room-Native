@@ -11,14 +11,18 @@ public sealed partial class SettingsPage : Page
     {
         InitializeComponent();
         Render();
-        App.Model.PropertyChanged += (_, args) =>
+        // Only the visible page re-renders: dead pages stop hearing model bumps.
+        Loaded += (_, _) => App.Model.PropertyChanged += OnModelPropertyChanged;
+        Unloaded += (_, _) => App.Model.PropertyChanged -= OnModelPropertyChanged;
+    }
+
+    void OnModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName is nameof(WorkbenchModel.SettingsVersion) or nameof(WorkbenchModel.OfficialCLIStatuses)
+            or nameof(WorkbenchModel.StatusMessage))
         {
-            if (args.PropertyName is nameof(WorkbenchModel.SettingsVersion) or nameof(WorkbenchModel.OfficialCLIStatuses)
-                or nameof(WorkbenchModel.StatusMessage))
-            {
-                _ = DispatcherQueue.TryEnqueue(Render);
-            }
-        };
+            _ = DispatcherQueue.TryEnqueue(Render);
+        }
     }
 
     WorkbenchModel Model => App.Model;
