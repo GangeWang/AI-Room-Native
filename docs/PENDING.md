@@ -16,6 +16,8 @@
 - **ZCode plan 模式的 ExitPlanMode**（macOS）：模型在 plan 模式把整份方案放進 `ExitPlanMode` 工具呼叫，assistant 文字是空的；macOS 的 `turnResult` 只認文字，會讀不到回覆或被中間旁白提前完成。Windows 已修（`ZCodeTurn`：方案從工具輸入抽出、方案優先於其後旁白、只看最後一則 assistant 訊息），macOS 待跟進。
 - **AGY 任務執行不用終端機指令**（macOS）：AGY headless 對 `command` 工具自動拒絕，而且被拒後整個回合沒有回覆（agy 1.5.1 實測）。Windows 在任務提示詞加了「只用檔案工具」，macOS 的專案流程提示詞待跟進。
 - **GLM API 串流偶發停滯**（兩平台）：實測部分輪次 `turn.started` 後完全沒有 model request 事件，掛住 5 分鐘以上；重試（新工作階段）即可恢復。Windows 的 live 測試對每次呼叫做了重試，App 端仍靠使用者按「接著做」。
+- **直播的 TTS／VTube Studio 表演層**（Windows）：macOS 端有 AVSpeechSynthesizer＋VTS websocket（含口型包絡）；Windows 的直播以純文字運行（情緒標籤 parser 已移植、提示詞不帶 cue），表演層待實作。留言匯入、OBS 雙端推流兩端都等 Live2D 模型。
+- **匯出檔跨平台互通**：Windows 的密碼匯出已對齊 macOS 的檔案格式（PBKDF2＋AES-GCM＋Apple 日期編碼），macOS 讀 Windows 匯出檔理應可直接運作；尚未實測，建議各做一次往返。
 
 - **降版會悄悄改寫成員用的程式**（macOS）
   - 現象：舊版本讀到不認得的程式名稱（例如還沒有 ZCode 的版本讀到 `ZCode`），會退回 Claude Code（`MemberCard` 解碼：`?? agent.builtInExecutor ?? .claude`），下次存檔就寫回去。
