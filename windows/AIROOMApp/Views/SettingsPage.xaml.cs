@@ -2,6 +2,7 @@ using AIROOMApp.ViewModels;
 using AIROOMCore;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 
 namespace AIROOMApp.Views;
 
@@ -321,6 +322,151 @@ public sealed partial class SettingsPage : Page
         });
         RenderBackups();
         restoreButton.IsEnabled = false;
+        RenderPortableExport();
+    }
+
+    /// <summary>搬到另一台電腦：密碼匯出。登入憑證與 API 金鑰不包含在內。</summary>
+    void RenderPortableExport()
+    {
+        var panel = new StackPanel { Spacing = 10 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "搬到另一台電腦：密碼匯出",
+            FontSize = 15,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        });
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var exportButton = new Button
+        {
+            Content = "匯出加密檔…",
+            Style = (Style)Application.Current.Resources["AccentButtonStyle"],
+            IsEnabled = Model.StorageAvailable,
+        };
+        exportButton.Click += async (_, _) => await ExportAsync();
+        buttons.Children.Add(exportButton);
+        var importButton = new Button { Content = "從匯出檔匯入…", IsEnabled = Model.CanRestore };
+        importButton.Click += async (_, _) => await ImportAsync();
+        buttons.Children.Add(importButton);
+        panel.Children.Add(buttons);
+        panel.Children.Add(new TextBlock
+        {
+            Text = "匯出檔包含話題、茶歇室、圓桌、專案、人物卡、記憶、附件與頭像，用你設定的密碼加密（PBKDF2 + AES-256-GCM），不依賴這台電腦的金鑰，所以能在另一台電腦匯入。官方 CLI 的登入憑證與 API 金鑰不包含在內，到新電腦要重新登入。",
+            FontSize = 12,
+            Opacity = 0.7,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "密碼不會被儲存，也無法找回。忘記密碼，這個匯出檔就打不開。",
+            FontSize = 12,
+            Opacity = 0.85,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        Root.Children.Add(new Border
+        {
+            Style = (Style)Application.Current.Resources["StudioPanel"],
+            Child = panel,
+        });
+    }
+
+    async Task ExportAsync()
+    {
+        var password = await AskPassword("設定匯出密碼", $"至少 {PortableExportCodec.MinimumPasswordLength} 個字。匯入時要輸入同一組密碼。", confirm: true);
+        if (password is null) return;
+        var picker = new Windows.Storage.Pickers.FileSavePicker
+        {
+            SuggestedFileName = $"airoom-{DateTime.Now:yyyyMMdd-HHmm}",
+            SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary,
+        };
+        picker.FileTypeChoices.Add("AIROOM 匯出檔", [".airoomexport"]);
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.Window);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker,
+            (nint)Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd).Value);
+        var file = await picker.PickSaveFileAsync();
+        if (file is null) return;
+        Model.ExportPortable(file.Path, password);
+        Render();
+    }
+
+    async Task ImportAsync()
+    {
+        var picker = new Windows.Storage.Pickers.FileOpenPicker
+        {
+            SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary,
+        };
+        picker.FileTypeFilter.Add(".airoomexport");
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.Window);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker,
+            (nint)Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd).Value);
+        var file = await picker.PickSingleFileAsync();
+        if (file is null) return;
+        var password = await AskPassword("輸入匯出密碼", file.Name, confirm: false);
+        if (password is null) return;
+        PortableExport export;
+        try
+        {
+            export = Model.OpenPortable(file.Path, password);
+        }
+        catch (Exception error)
+        {
+            Model.StatusMessage = error.Message;
+            return;
+        }
+        var summary = BackupSummary.From(export.State);
+        var folders = string.Join("\n", export.State.ReferencedFolders().Take(6));
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = $"匯入 {file.Name}？",
+            Content = new StackPanel { Spacing = 6 },
+            PrimaryButtonText = "先備份目前資料，再匯入",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        var content = (StackPanel)dialog.Content;
+        content.Children.Add(new TextBlock { Text = $"匯出時間：{export.CreatedAt.ToLocalTime():yyyy/MM/dd HH:mm}", FontSize = 12 });
+        content.Children.Add(new TextBlock { Text = $"成員工位：{summary.DeskTopics} 個話題，{summary.DeskMessages} 則訊息", FontSize = 12 });
+        content.Children.Add(new TextBlock { Text = $"人物卡：{string.Join("、", summary.MemberNames)}（{summary.Memories} 條記憶）", FontSize = 12, TextWrapping = TextWrapping.Wrap });
+        content.Children.Add(new TextBlock { Text = $"附件：{export.Attachments.Count} 個", FontSize = 12 });
+        if (folders.Length > 0)
+        {
+            content.Children.Add(new TextBlock { Text = "用到的資料夾：", FontSize = 12 });
+            content.Children.Add(new TextBlock { Text = folders, FontSize = 12, FontFamily = new FontFamily("Consolas"), Opacity = 0.8, TextWrapping = TextWrapping.Wrap });
+        }
+        content.Children.Add(new TextBlock { Text = "目前的資料會先在這台電腦備份，再換成匯出檔的內容；附件會加入這台電腦。排程與成員閒聊會先暫停。", FontSize = 11, Opacity = 0.7, TextWrapping = TextWrapping.Wrap });
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            Model.ImportPortable(export);
+            Render();
+        }
+    }
+
+    async Task<string?> AskPassword(string title, string message, bool confirm)
+    {
+        var box = new TextBox { PlaceholderText = "密碼" };
+        var again = confirm ? new TextBox { PlaceholderText = "再輸入一次" } : null;
+        var form = new StackPanel { Spacing = 8 };
+        form.Children.Add(new TextBlock { Text = message, FontSize = 12, Opacity = 0.8, TextWrapping = TextWrapping.Wrap });
+        form.Children.Add(box);
+        if (again is not null) form.Children.Add(again);
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = title,
+            Content = form,
+            PrimaryButtonText = confirm ? "匯出" : "解密並預覽",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        dialog.IsPrimaryButtonEnabled = false;
+        void Check()
+        {
+            dialog.IsPrimaryButtonEnabled = box.Text.Length >= PortableExportCodec.MinimumPasswordLength
+                && (again is null || again.Text == box.Text);
+        }
+        box.TextChanged += (_, _) => Check();
+        if (again is not null) again.TextChanged += (_, _) => Check();
+        return await dialog.ShowAsync() == ContentDialogResult.Primary ? box.Text : null;
     }
 
     static string StatusLabel(OfficialCLIStatus status) => status switch

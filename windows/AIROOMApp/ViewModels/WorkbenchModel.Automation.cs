@@ -247,6 +247,24 @@ public sealed partial class WorkbenchModel
         }
         foreach (var (roomID, text, target) in roomDispatches)
         {
+            if (liveActive)
+            {
+                // During a live show a scheduled message becomes a viewer-like
+                // prompt; it does not spawn a competing CLI process.
+                lock (Archive)
+                {
+                    if (LiveConfig().RoomID == roomID && FindRoom(roomID) is { } live)
+                    {
+                        live.Entries.Add(new RoomEntry
+                        {
+                            Speaker = Speaker.User, DisplayName = "定時主持", Body = text,
+                        });
+                        live.UpdatedAt = DateTimeOffset.Now;
+                    }
+                }
+                PersistRooms();
+                continue;
+            }
             DispatchRoomMessage(roomID, text, target, "定時任務");
         }
         foreach (var (title, body) in reminders)
@@ -279,7 +297,7 @@ public sealed partial class WorkbenchModel
             if (quota is not { } sample || sample.Status != QuotaStatus.Ready || !sample.IsFresh(now)) return true;
             return !sample.Windows.Any(window => window.Exhausted);
         });
-        if (enabledMembers.Count < 2 || roomRunning) return;
+        if (enabledMembers.Count < 2 || roomRunning || liveActive) return;
         if (!LocalAutomation.ShouldAutoChat(rule, now, roomExists: true, quotaAvailable: quotaOK)) return;
         lock (Archive)
         {
@@ -311,7 +329,7 @@ public sealed partial class WorkbenchModel
             due = opening.Opened(DateTimeOffset.Now);
         }
         Persist();
-        if (!due || roomRunning) return;
+        if (!due || roomRunning || liveActive) return;
         _ = Task.Run(() => RunDailyOpening());
     }
 
