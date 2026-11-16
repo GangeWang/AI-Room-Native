@@ -189,6 +189,19 @@ struct LiveStageView: View {
     }
 
     private func emotionGrid(_ agent: MemberID, _ character: LiveCharacterStage) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(t("情緒 → 熱鍵", "Emotion → hotkey")).font(.subheadline.weight(.semibold))
+                Button(t("依名稱自動對應", "Match by name")) { model.autoMapStageEmotions(agent) }
+                    .disabled(stage.hotkeys(agent).isEmpty)
+                    .help(t("熱鍵名稱含有 happy／開心 這類字就自動對應", "Maps hotkeys whose names contain happy, sad…"))
+                Spacer()
+            }
+            emotionPickers(agent, character)
+        }
+    }
+
+    private func emotionPickers(_ agent: MemberID, _ character: LiveCharacterStage) -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 12)], alignment: .leading, spacing: 8) {
             ForEach(LiveEmotion.allCases.filter { $0 != .neutral }) { emotion in
                 Picker(english ? emotion.rawValue : emotion.zhTitle, selection: Binding(

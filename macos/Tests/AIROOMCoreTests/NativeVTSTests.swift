@@ -234,3 +234,14 @@ final class NativeVTSLiveTests: XCTestCase {
     }
 }
 #endif
+
+final class LiveHotkeyMatcherTests: XCTestCase {
+    func testMatchesByEnglishOrChineseName() {
+        let keys = [VTSHotkey(id: "a", name: "開心 happy", type: "ToggleExpression"),
+                    VTSHotkey(id: "b", name: "Shy face", type: "ToggleExpression"),
+                    VTSHotkey(id: "c", name: "生氣", type: "ToggleExpression"),
+                    VTSHotkey(id: "d", name: "Remove Expressions", type: "RemoveAllExpressions")]
+        let map = LiveHotkeyMatcher.match(keys)
+        XCTAssertEqual(map, ["happy": "a", "shy": "b", "angry": "c"])
+    }
+}

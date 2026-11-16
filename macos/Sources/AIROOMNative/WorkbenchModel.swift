@@ -1607,6 +1607,17 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
+    /// Fills emotion → hotkey from hotkey names; returns how many were mapped.
+    @discardableResult
+    func autoMapStageEmotions(_ agent: MemberID) -> Int {
+        let found = LiveHotkeyMatcher.match(stage.hotkeys(agent))
+        guard !found.isEmpty else { return 0 }
+        updateStageCharacter(agent) { character in
+            for (emotion, id) in found { character.emotionHotkeys[emotion] = id }
+        }
+        return found.count
+    }
+
     func chooseStageModel(_ agent: MemberID, _ model: VTSModel?) {
         updateStageCharacter(agent) {
             $0.vtsModelID = model?.id ?? ""

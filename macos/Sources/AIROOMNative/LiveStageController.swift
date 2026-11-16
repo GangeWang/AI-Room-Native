@@ -135,7 +135,17 @@ final class LiveStageController: ObservableObject {
         if !modelID.isEmpty && model.id != modelID {
             if models(agent).isEmpty || models(agent).contains(where: { $0.id == modelID }) {
                 activeExpression[agent] = nil
-                try await client.loadModel(id: modelID)
+                // A freshly started VTS refuses while its startup model is
+                // still loading (error 154), so retry for about 15 s.
+                var attempt = 0
+                while true {
+                    do { try await client.loadModel(id: modelID); break }
+                    catch VTSError.api(let code, let message) {
+                        attempt += 1
+                        guard attempt < 10 else { throw VTSError.api(code: code, message: message) }
+                        try await Task.sleep(nanoseconds: 1_500_000_000)
+                    }
+                }
                 model = try await client.currentModel()
             } else {
                 lastWarning = "這個 VTube Studio 裡找不到指定的模型，先沿用目前開著的模型。"

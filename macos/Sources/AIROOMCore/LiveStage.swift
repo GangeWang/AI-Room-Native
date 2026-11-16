@@ -257,6 +257,24 @@ public struct LiveStageSettings: Codable, Equatable, Sendable {
     }
 }
 
+// MARK: Hotkey auto-mapping
+
+public enum LiveHotkeyMatcher {
+    /// Maps each emotion to the first hotkey whose name contains the emotion's
+    /// English tag or Chinese title ("開心 happy", "Happy face", "害羞"…).
+    public static func match(_ hotkeys: [VTSHotkey]) -> [String: String] {
+        var result: [String: String] = [:]
+        for emotion in LiveEmotion.allCases where emotion != .neutral {
+            let hit = hotkeys.first { hotkey in
+                let name = hotkey.name.lowercased()
+                return name.contains(emotion.rawValue) || name.contains(emotion.zhTitle)
+            }
+            if let hit { result[emotion.rawValue] = hit.id }
+        }
+        return result
+    }
+}
+
 // MARK: Lip sync envelope
 
 public enum LipSync {
