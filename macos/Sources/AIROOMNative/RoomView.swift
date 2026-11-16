@@ -100,7 +100,7 @@ struct RoomView: View {
                             Stepper(t("間隔 \(model.archive.liveShow.turnDelaySeconds) 秒", "Delay \(model.archive.liveShow.turnDelaySeconds)s"),
                                 value: Binding(get: { model.archive.liveShow.turnDelaySeconds },
                                                set: { value in model.updateLiveConfig { $0.turnDelaySeconds = value } }),
-                                in: 15...180, step: 15).disabled(model.liveActive)
+                                in: 0...180, step: 1).disabled(model.liveActive)
                             Stepper(t("最多 \(model.archive.liveShow.maxTurns) 輪", "Up to \(model.archive.liveShow.maxTurns) turns"),
                                 value: Binding(get: { model.archive.liveShow.maxTurns },
                                                set: { value in model.updateLiveConfig { $0.maxTurns = value } }),
@@ -260,7 +260,10 @@ struct RoomView: View {
                         .pickerStyle(.menu)
                         .frame(maxWidth: 245)
                         .disabled(model.roomRunning || model.liveActive)
-                        Text(t("用 @名字 指定誰先接話。共用紀錄會傳給所選 AI 供應商。", "Use @name to choose who answers first. Shared history goes to the selected AI vendors."))
+                        Text(model.liveActive
+                             ? t("直播中：以「主持人」身分插話，下一位發言的 AI 會先照做；正在說的那句不會被打斷。",
+                                 "Live: cut in as the host; the next co-host follows it. The line being spoken is not cut off.")
+                             : t("用 @名字 指定誰先接話。共用紀錄會傳給所選 AI 供應商。", "Use @name to choose who answers first. Shared history goes to the selected AI vendors."))
                             .font(.caption).foregroundStyle(.secondary)
                         Spacer()
                         if model.roomRunning {
@@ -273,13 +276,15 @@ struct RoomView: View {
                         .disabled(!model.canGenerateImage)
                         .help(model.canGenerateImage ? t("請 Codex 生成或修改一張圖片", "Ask Codex to create or edit a picture")
                               : t("需要 Codex 在場，且目前沒有成員正在發言", "Needs Codex in the room and nobody speaking"))
-                        Button { model.sendToRoom() } label: {
-                            Label(model.answeringQuestionID != nil ? t("回答", "Answer") : t("送出", "Send"), systemImage: "arrow.up")
+                        Button { model.liveActive ? model.interjectLive() : model.sendToRoom() } label: {
+                            Label(model.liveActive ? t("插話", "Cut in")
+                                  : model.answeringQuestionID != nil ? t("回答", "Answer") : t("送出", "Send"),
+                                  systemImage: model.liveActive ? "megaphone" : "arrow.up")
                         }
                         .keyboardShortcut(.return, modifiers: .command)
                         .buttonStyle(.borderedProminent)
-                        // A chat accepts interjections while members are talking.
-                        .disabled((model.roomRunning && model.activeRoom?.lounge.style != .chat) || model.liveActive
+                        // A chat accepts interjections while members are talking; so does a live show.
+                        .disabled((model.roomRunning && !model.liveActive && model.activeRoom?.lounge.style != .chat)
                                   || model.roomDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }

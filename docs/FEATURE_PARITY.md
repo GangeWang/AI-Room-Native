@@ -30,7 +30,7 @@
 | GLM（ZCode） | 多執行端 | **已實作** | 走 ZCode 桌面版內附的 `zcode.cjs app-server`（做法照 Windows 版 PR #3；有 Node.js v22 以上就用它來跑，否則用 ZCode 主程式，但後者每輪會在 Dock 冒出好幾個圖示），用桌面版存的登入，支援 Start Plan。唯讀任務用 `plan`；寫入任務用 `build`（每次修改都先詢問），AIROOM 只放行工作資料夾內的寫檔與改檔，其他一律拒絕，所以成員不能執行終端機指令，也不能改資料夾以外的檔案。AIROOM 執行時會在記憶體裡解開桌面版的登入權杖，只交給 ZCode 自己的程式。已實測新對話、跨行程續聊、唯讀擋寫、寫入模式能寫、指令被拒。只收文字；回覆是輪詢取得，不是逐字串流；額度要到 ZCode 桌面版看。用的是 ZCode 的內部協議，ZCode 更新後可能失效 |
 | 其他 AI（Kimi 等） | 多執行端 | **暫緩** | 成員已能選執行端、形象模板已備好；Kimi CLI 還沒接 |
 | DMG、Apple 公證、自動更新 | Windows 發行包 | **部分** | `Scripts/make-dmg.sh` 產生可拖曳安裝的 DMG（App 與 DMG 都用 Apple Development 憑證簽章）；未公證（使用者決定不加入付費開發者計畫），在別台 Mac 第一次開啟需到「隱私權與安全性」允許；不會自動更新（原版也沒有），但有新版本提醒：每天最多查一次 GitHub 最新 Release，以頂部橫幅提示並可略過該版本；設定可關閉，選單有「檢查更新…」 |
-| TTS、Live2D（VTube Studio） | 原版本身不提供 | **新增** `LiveEvent`、macOS TTS、VTS 表情熱鍵與嘴型同步 | 單一 VTS 模型；VTS 實機待驗收；見 `LIVE_STAGE.md` |
+| TTS、Live2D（VTube Studio） | 原版本身不提供 | **新增** `LiveEvent`、macOS TTS、VTS 表情熱鍵與嘴型同步 | 兩個原生版 VTS 各載入成員自己的模型、自動重連；AI Room 端實機待驗收；見 `LIVE_STAGE.md` |
 | OBS、直播聊天連接器 | 原版本身不提供 | **未完成** | 下一階段：YouTube／Bilibili 留言匯入、OBS + 直播姬雙端推流 |
 
 ## 建議的 macOS 人工驗收

@@ -53,9 +53,19 @@ struct LiveStageView: View {
                     Label(t("連接 VTube Studio（Live2D）", "Connect VTube Studio (Live2D)"),
                           systemImage: "person.crop.square.badge.camera").font(.headline)
                 }
-                Text(t("每位成員各開一個 VTube Studio、各自載入自己的模型。第一個從 Steam 開啟（連接埠 8001）；第二個執行 ~/Library/Application Support/Steam/steamapps/common/VTube Studio 裡的 start_without_steam，會自動使用下一個連接埠（8002）。兩個都要在設定開啟「Start API」，OBS 以兩個 NDI 來源分別擷取。",
-                       "Each co-host runs its own VTube Studio with its own model. Start the first from Steam (port 8001); launch start_without_steam in ~/Library/Application Support/Steam/steamapps/common/VTube Studio for the second, which takes the next port (8002). Enable \"Start API\" in both; capture each in OBS as its own NDI source."))
+                Text(t("每位成員各用一個原生版 VTube Studio（不需要 Steam）。按「開啟 VTube Studio」會依連接埠由小到大一個一個開，開好就自動連線並換上各自的模型。連接埠和 NDI 名稱都依開啟順序決定：先開的是 8001／Live2D Camera NDI5，後開的是 8002／Live2D Camera NDI5 2。第一次要在 VTS 設定開啟「Start API」，兩個實例共用設定，開一次即可。",
+                       "Each co-host uses its own native VTube Studio (no Steam needed). \"Open VTube Studio\" starts them one by one, lowest port first, then connects each and puts on its model. Ports and NDI names follow start order: first is 8001 / Live2D Camera NDI5, second is 8002 / Live2D Camera NDI5 2. Turn on \"Start API\" in VTS once; both instances share settings."))
                     .font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    Button { model.launchVTubeStudio() } label: {
+                        Label(t("開啟 VTube Studio", "Open VTube Studio"), systemImage: "play.rectangle")
+                    }
+                    .disabled(!settings.vtsEnabled || stage.launchStatus != nil || model.avatarMembers.isEmpty)
+                    if let status = stage.launchStatus {
+                        ProgressView().controlSize(.small)
+                        Text(status).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 if let warning = stage.lastWarning {
                     Label(warning, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
                 }
@@ -73,8 +83,8 @@ struct LiveStageView: View {
                     .frame(width: 80).textFieldStyle(.roundedBorder)
                 Button(stage.isConnected(agent) ? t("重新連線", "Reconnect") : t("連線", "Connect")) { model.connectVTubeStudio(agent) }
                     .buttonStyle(.borderedProminent)
-                    .disabled(!settings.vtsEnabled || stage.connection(agent) == .connecting)
-                if stage.isConnected(agent) {
+                    .disabled(!settings.vtsEnabled || stage.isBusy(agent))
+                if stage.isConnected(agent) || stage.isBusy(agent) {
                     Button(t("重新讀取熱鍵", "Reload hotkeys")) { Task { await stage.refreshHotkeys(agent) } }
                     Button(t("中斷", "Disconnect")) { stage.disconnect(agent) }
                 }
@@ -85,6 +95,27 @@ struct LiveStageView: View {
                 }
             }
             connectionStatus(agent)
+            modelPicker(agent, character)
+        }
+    }
+
+    private func modelPicker(_ agent: MemberID, _ character: LiveCharacterStage) -> some View {
+        let available = stage.models(agent)
+        return HStack(spacing: 10) {
+            Picker(t("模型", "Model"), selection: Binding(
+                get: { character.vtsModelID },
+                set: { id in model.chooseStageModel(agent, available.first(where: { $0.id == id })) })) {
+                Text(t("沿用 VTS 目前的模型", "Keep the model VTS has open")).tag("")
+                if !character.vtsModelID.isEmpty, !available.contains(where: { $0.id == character.vtsModelID }) {
+                    Text((character.vtsModelName.isEmpty ? String(character.vtsModelID.prefix(8)) : character.vtsModelName)
+                         + t("（離線）", " (offline)")).tag(character.vtsModelID)
+                }
+                ForEach(available) { item in Text(item.name).tag(item.id) }
+            }
+            .frame(maxWidth: 360)
+            Text(t("兩個 VTS 共用設定，開啟時會是同一個模型；連線後自動換成這裡選的。",
+                   "Both instances share settings and open the same model; this one is put on after connecting."))
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -93,8 +124,12 @@ struct LiveStageView: View {
         case .off:
             Label(t("未連線", "Not connected"), systemImage: "circle").font(.caption).foregroundStyle(.secondary)
         case .connecting:
-            Label(t("連線中…若 VTube Studio 跳出 AI Room Native 授權視窗，請按 Allow", "Connecting… click Allow on the AI Room Native prompt in VTube Studio"),
+            Label(t("連線中…若 VTube Studio 跳出「\(VTSProtocol.pluginName(for: agent))」授權視窗，請按 Allow",
+                    "Connecting… click Allow on the \"\(VTSProtocol.pluginName(for: agent))\" prompt in VTube Studio"),
                   systemImage: "hourglass").font(.caption)
+        case .reconnecting(let attempt):
+            Label(t("VTube Studio 斷線，自動重連中（第 \(attempt) 次）…", "VTube Studio dropped; reconnecting (try \(attempt))…"),
+                  systemImage: "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(.orange)
         case .connected(let name):
             Label(t("已連線 · 模型：", "Connected · model: ") + (name.isEmpty ? t("（未載入）", "(none loaded)") : name)
                   + " · \(stage.hotkeys(agent).count) " + t("個熱鍵", "hotkeys"),
@@ -140,6 +175,17 @@ struct LiveStageView: View {
                                      set: { value in model.updateStageCharacter(agent) { $0.drivesAvatar = value } }))
                 if character.drivesAvatar {
                     vtsControls(agent, character)
+                    if character.aiRig, let status = stage.rigStatus[agent] {
+                        Text(status).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    }
+                    Toggle(isOn: Binding(get: { character.aiRig }, set: { model.setStageRig(agent, $0) })) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(t("讓 AI 接管骨架", "Let the agent drive the rig"))
+                            Text(t("AI 用 [pose …] 標籤直接控制頭部角度、視線、眼睛、眉毛和笑容，跟台詞同步；沒說話時自動眨眼、呼吸、輕微晃動。以 VTS 追蹤參數送出，會取代鏡頭追蹤。",
+                                   "The agent poses head, gaze, eyes, brows and smile with [pose …] tags, synced to its words; idles with blinks and breathing between lines. Sent as VTS tracking inputs, replacing camera tracking."))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     HStack {
                         Text(t("嘴型參數", "Mouth parameter"))
                         TextField("MouthOpen", text: Binding(get: { character.mouthParameter },
@@ -154,6 +200,19 @@ struct LiveStageView: View {
     }
 
     private func emotionGrid(_ agent: MemberID, _ character: LiveCharacterStage) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(t("情緒 → 熱鍵", "Emotion → hotkey")).font(.subheadline.weight(.semibold))
+                Button(t("依名稱自動對應", "Match by name")) { model.autoMapStageEmotions(agent) }
+                    .disabled(stage.hotkeys(agent).isEmpty)
+                    .help(t("熱鍵名稱含有 happy／開心 這類字就自動對應", "Maps hotkeys whose names contain happy, sad…"))
+                Spacer()
+            }
+            emotionPickers(agent, character)
+        }
+    }
+
+    private func emotionPickers(_ agent: MemberID, _ character: LiveCharacterStage) -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 12)], alignment: .leading, spacing: 8) {
             ForEach(LiveEmotion.allCases.filter { $0 != .neutral }) { emotion in
                 Picker(english ? emotion.rawValue : emotion.zhTitle, selection: Binding(

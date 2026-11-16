@@ -12,17 +12,37 @@ AI 回覆（可含 [happy] 等情緒標籤）
   → 念完才進入下一輪（兩位 AI 不會同時說話）
 ```
 
-## 第一次設定（兩位各一個 VTube Studio）
+念的同時，下一位 AI 已經開始寫自己的台詞（只等上一句定稿，不等念完），念完再等「間隔」秒數（0–180，預設 3）就接上。
+代價：某人說話時插入的觀眾留言或主持人插話，要再晚一輪才會被接到；每 12 輪的摘要那一輪不會提前準備。
 
-1. 第一個 VTS 從 Steam 開啟，載入 GPT 娘的模型（通常是連接埠 **8001**）。
-2. 第二個 VTS：執行 `~/Library/Application Support/Steam/steamapps/common/VTube Studio/start_without_steam`，載入 Claude 的模型，它會自動使用 **8002**。
-3. 兩個 VTS 都到設定開啟 **Start API**。
-4. AIROOM →「直播舞台」→ 勾選「連接 VTube Studio」→ 在每位成員卡確認連接埠、按「連線」→ 在對應的 VTS 視窗按 **Allow**。授權 Token 各自存在本機加密資料。
+## 第一次設定（兩位各一個原生版 VTube Studio）
+
+用的是原生版 `/Applications/VTubeStudio.app`（Apple Silicon，bundle id `com.Denchi.VTube-Studio`，不需要 Steam）。
+
+1. AI Room →「直播舞台」→ 勾選「連接 VTube Studio」→ 按 **開啟 VTube Studio**。
+   AI Room 依連接埠由小到大一個一個開（`open -n /Applications/VTubeStudio.app --args --nosteam`），等前一個的 API 起來才開下一個，開好就自動連線。
+   手動開也可以：同一行指令執行兩次，**等第一個起來再開第二個**。
+2. 第一次使用時，在 VTS 設定開啟 **Start API**。兩個實例共用同一份設定，開一次兩個都會生效；開好後再按一次「開啟 VTube Studio」或各自按「連線」。
+3. 兩個 VTS 各跳一次授權視窗，外掛名分別是 `AIROOM Native (codex)`、`AIROOM Native (claude)`，都按 **Allow**。Token 存在本機加密資料，之後重開 AI Room 不用再按。
+4. 在每位成員卡的「模型」選該成員的 Live2D 模型。兩個實例共用「上次的模型」，開起來會是同一個；連線後 AI Room 會自動換成這裡選的。
 5. 把各情緒對應到該模型的熱鍵，勾選「用語音念出發言」，選聲音 → 按「試演」。
-6. OBS：兩個 VTS 各是一個 NDI 來源；聲音從系統預設輸出播放，以「桌面音訊」擷取。
+6. OBS：加兩個 NDI 來源，`Live2D Camera NDI5`（先開的，8001，預設是 GPT 娘）和 `Live2D Camera NDI5 2`（後開的，8002，預設是 Claude）。聲音從系統預設輸出播放，以「桌面音訊」擷取。
+
+### 連接埠和 NDI 名稱依啟動順序決定
+
+VTS 每開一個實例就佔用 8001 起的下一個空連接埠，NDI 名稱也照順序編號，不會綁定某位成員。所以永遠先開 GPT 娘、再開 Claude；用「開啟 VTube Studio」按鈕就會照這個順序。
+
+### 授權為什麼是每位成員一個外掛名
+
+兩個實例共用 `StreamingAssets/Config/Plugins` 裡的授權檔，而 VTS 每個外掛名只留一份授權。以前兩位都叫 `AIROOM Native`，第二位按 Allow 時，第一位的 token 會立刻失效。現在每位成員各用一個外掛名，各自授權，互不影響。從舊版升級後，兩邊各要再按一次 Allow。
+
+### 斷線
+
+VTS 關掉或斷線時，AI Room 會在 1、2、5 秒後重試，之後每 10 秒一次，約 5 分鐘後停止。自動重連只用存好的 token，不會跳授權視窗；token 失效時會停下來，請你按「連線」重新授權。
 
 ## 限制（尚未完成）
 
 - TTS 使用 macOS 內建聲音；更自然的聲音需在系統設定下載「加強版／高品質」語音。外部 TTS 服務尚未串接。
 - 直播平台留言（YouTube／Bilibili）仍需手動插入；OBS + 直播姬雙端推流之後處理。
-- VTS 實機連線、熱鍵與嘴型同步尚待你在裝好 VTube Studio 後驗收；協定層以模擬 VTS 的單元測試覆蓋。
+- 原生版 VTS 本身的 API、熱鍵、嘴型、雙實例與 NDI 已在 vtube-native 專案實測；AI Room 這邊的雙實例授權、模型自動載入與自動重連，以模擬 VTS 的單元測試覆蓋，實機驗收待做（兩邊按 Allow → 重開 AI Room → 兩邊都能自動認證）。
+- `URLSessionWebSocketTask` 應會自動合併 VTS 拆成多段的長訊息（推測，尚未實機確認）。

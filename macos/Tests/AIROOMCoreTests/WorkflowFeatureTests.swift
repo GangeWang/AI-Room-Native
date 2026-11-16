@@ -29,7 +29,9 @@ final class WorkflowFeatureTests: XCTestCase {
     func testLiveSettingsBoundResourceUse() {
         let config = LiveShowSettings(topic: String(repeating: "x", count: 3000), turnDelaySeconds: 0, maxTurns: 10_000, maxDurationMinutes: 1000, summary: String(repeating: "y", count: 6000))
         XCTAssertEqual(config.topic.count, 2000)
-        XCTAssertEqual(config.turnDelaySeconds, 15)
+        XCTAssertEqual(config.turnDelaySeconds, 0)
+        XCTAssertEqual(LiveShowSettings(turnDelaySeconds: -5).turnDelaySeconds, 0)
+        XCTAssertEqual(LiveShowSettings().turnDelaySeconds, 3)
         XCTAssertEqual(config.maxTurns, 300)
         XCTAssertEqual(config.maxDurationMinutes, 240)
         XCTAssertEqual(config.summary.count, 5000)

@@ -61,7 +61,7 @@ public struct VTSHotkey: Identifiable, Equatable, Sendable {
     public var toggles: Bool { type == "ToggleExpression" }
 }
 
-public struct VTSModel: Equatable, Sendable {
+public struct VTSModel: Identifiable, Equatable, Sendable {
     public var loaded: Bool
     public var name: String
     public var id: String
@@ -74,6 +74,8 @@ public enum VTSError: Error, LocalizedError, Equatable {
     case disconnected
     case unexpectedResponse(String)
     case unknownHotkey(String)
+    /// The stored token no longer works and asking again was not allowed.
+    case needsApproval
 
     public var errorDescription: String? {
         switch self {
@@ -83,6 +85,7 @@ public enum VTSError: Error, LocalizedError, Equatable {
         case .disconnected: return "未連線到 VTube Studio。"
         case .unexpectedResponse(let type): return "VTube Studio 回應格式不符：\(type)"
         case .unknownHotkey(let id): return "目前模型沒有這個熱鍵：\(id)"
+        case .needsApproval: return "VTube Studio 授權已失效，請按「連線」並在 VTS 按 Allow。"
         }
     }
 }
@@ -90,19 +93,39 @@ public enum VTSError: Error, LocalizedError, Equatable {
 public enum VTSProtocol {
     public static let apiName = "VTubeStudioPublicAPI"
     public static let apiVersion = "1.0"
-    public static let pluginName = "AIROOM Native"
     public static let pluginDeveloper = "AIROOM"
 
-    static var plugin: [String: JSONValue] {
-        ["pluginName": .string(pluginName), "pluginDeveloper": .string(pluginDeveloper)]
+    /// One plugin name per member. VTube Studio keeps one grant per plugin name,
+    /// and every instance started from the same app shares those grants: with a
+    /// single name, clicking Allow for the second member revoked the first
+    /// member's token. VTS accepts 3–32 characters, so the handle is kept ASCII.
+    public static func pluginName(for member: MemberID) -> String {
+        let handle = String(member.handle.filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }.prefix(16))
+        return handle.isEmpty ? "AIROOM Native" : "AIROOM Native (\(handle))"
     }
 
-    public static func tokenRequest(id: String) -> VTSEnvelope {
-        VTSEnvelope(requestID: id, messageType: "AuthenticationTokenRequest", data: .object(plugin))
+    static func plugin(_ name: String) -> [String: JSONValue] {
+        ["pluginName": .string(name), "pluginDeveloper": .string(pluginDeveloper)]
     }
-    public static func authenticate(id: String, token: String) -> VTSEnvelope {
-        var data = plugin; data["authenticationToken"] = .string(token)
+
+    public static func tokenRequest(id: String, plugin name: String) -> VTSEnvelope {
+        VTSEnvelope(requestID: id, messageType: "AuthenticationTokenRequest", data: .object(plugin(name)))
+    }
+    public static func authenticate(id: String, token: String, plugin name: String) -> VTSEnvelope {
+        var data = plugin(name); data["authenticationToken"] = .string(token)
         return VTSEnvelope(requestID: id, messageType: "AuthenticationRequest", data: .object(data))
+    }
+    public static func availableModels(id: String) -> VTSEnvelope {
+        VTSEnvelope(requestID: id, messageType: "AvailableModelsRequest")
+    }
+    public static func loadModel(id: String, modelID: String) -> VTSEnvelope {
+        VTSEnvelope(requestID: id, messageType: "ModelLoadRequest", data: .object(["modelID": .string(modelID)]))
+    }
+    public static func parseModels(_ data: JSONValue) -> [VTSModel] {
+        (data["availableModels"]?.array ?? []).compactMap { item in
+            guard let id = item["modelID"]?.string, !id.isEmpty else { return nil }
+            return VTSModel(loaded: item["modelLoaded"]?.bool ?? false, name: item["modelName"]?.string ?? id, id: id)
+        }
     }
     public static func currentModel(id: String) -> VTSEnvelope {
         VTSEnvelope(requestID: id, messageType: "CurrentModelRequest")
@@ -114,14 +137,19 @@ public enum VTSProtocol {
         VTSEnvelope(requestID: id, messageType: "HotkeyTriggerRequest",
                     data: .object(["hotkeyID": .string(hotkeyID)]))
     }
-    /// `faceFound: false` lets the injected mouth value win while the user's own
-    /// face tracking (if any) is idle; values are clamped to 0...1.
+    /// `faceFound: true` makes VTS treat the injected values as a tracked face;
+    /// with `false` it treats tracking as lost and eases the head back to rest,
+    /// so injected head angles never show. Values are clamped: head angles to
+    /// ±30, gaze to ±1, everything else to 0...1.
     public static func inject(id: String, parameters: [(String, Double)]) -> VTSEnvelope {
         let values: [JSONValue] = parameters.map { name, value in
-            .object(["id": .string(name), "value": .number(min(1, max(0, value)))])
+            let range: ClosedRange<Double> = name.hasPrefix("FaceAngle") ? -30...30
+                : name.hasPrefix("FacePosition") ? -15...15
+                : (name.hasPrefix("EyeLeft") || name.hasPrefix("EyeRight")) ? -1...1 : 0...1
+            return .object(["id": .string(name), "value": .number(min(range.upperBound, max(range.lowerBound, value)))])
         }
         return VTSEnvelope(requestID: id, messageType: "InjectParameterDataRequest",
-                           data: .object(["faceFound": .bool(false), "mode": .string("set"),
+                           data: .object(["faceFound": .bool(true), "mode": .string("set"),
                                           "parameterValues": .array(values)]))
     }
 
@@ -191,6 +219,11 @@ public actor VTubeStudioClient {
     private var receiver: Task<Void, Never>?
     private var pending: [String: CheckedContinuation<VTSEnvelope, Error>] = [:]
     private var knownHotkeys: [String: VTSHotkey] = [:]
+    private var onLost: (@Sendable () -> Void)?
+    /// Fire-and-forget requests (injection) get no waiter; an APIError they
+    /// cause would otherwise vanish. The latest one is kept here.
+    public private(set) var lastUnmatchedError: String?
+    public private(set) var injectedFrames = 0
     public private(set) var authenticated = false
 
     public init(makeTransport: @escaping TransportFactory) {
@@ -203,10 +236,16 @@ public actor VTubeStudioClient {
     }
     #endif
 
+    /// Called once when an authenticated link drops by itself (not on `disconnect()`).
+    public func setOnConnectionLost(_ handler: (@Sendable () -> Void)?) { onLost = handler }
+
     /// Connects and authenticates. With no (or a revoked) token, VTS shows an
     /// "Allow plugin" dialog; this waits up to `approvalTimeout` for the user.
+    /// With `mayAsk: false` (automatic reconnects) it never shows that dialog
+    /// and throws `needsApproval` instead.
     /// Returns the token to persist and the currently loaded model.
-    public func connect(port: Int, token: String,
+    public func connect(port: Int, token: String, plugin: String,
+                        mayAsk: Bool = true,
                         approvalTimeout: TimeInterval = 90) async throws -> (token: String, model: VTSModel) {
         disconnect()
         let link = makeTransport(port)
@@ -224,15 +263,16 @@ public actor VTubeStudioClient {
             }
         }
         var granted = token
-        let reused = granted.isEmpty ? false : try await authenticate(with: granted)
+        let reused = granted.isEmpty ? false : try await authenticate(with: granted, plugin: plugin)
         if !reused {
-            let reply = try await request(VTSProtocol.tokenRequest(id: Self.newID()), timeout: approvalTimeout)
+            guard mayAsk else { throw VTSError.needsApproval }
+            let reply = try await request(VTSProtocol.tokenRequest(id: Self.newID(), plugin: plugin), timeout: approvalTimeout)
             let data = try VTSProtocol.payload(reply, expecting: "AuthenticationTokenResponse")
             guard let issued = data["authenticationToken"]?.string, !issued.isEmpty else {
                 throw VTSError.unexpectedResponse("AuthenticationTokenResponse")
             }
             granted = issued
-            guard try await authenticate(with: granted) else {
+            guard try await authenticate(with: granted, plugin: plugin) else {
                 throw VTSError.notAuthenticated("使用者拒絕或 Token 無效")
             }
         }
@@ -252,6 +292,20 @@ public actor VTubeStudioClient {
                                            expecting: "CurrentModelResponse")
         return VTSModel(loaded: data["modelLoaded"]?.bool ?? false,
                         name: data["modelName"]?.string ?? "", id: data["modelID"]?.string ?? "")
+    }
+
+    public func availableModels() async throws -> [VTSModel] {
+        VTSProtocol.parseModels(try VTSProtocol.payload(try await request(VTSProtocol.availableModels(id: Self.newID())),
+                                                        expecting: "AvailableModelsResponse"))
+    }
+
+    /// Loads a model by id. Hotkeys belong to the model, so the whitelist is
+    /// cleared until `hotkeys()` is called again.
+    public func loadModel(id: String) async throws {
+        guard authenticated else { throw VTSError.disconnected }
+        _ = try VTSProtocol.payload(try await request(VTSProtocol.loadModel(id: Self.newID(), modelID: id), timeout: 20),
+                                    expecting: "ModelLoadResponse")
+        knownHotkeys = [:]
     }
 
     /// Refreshes the whitelist of hotkeys that `trigger` may fire.
@@ -276,13 +330,14 @@ public actor VTubeStudioClient {
     public func inject(_ parameters: [(String, Double)]) async {
         guard authenticated, let transport,
               let text = try? VTSProtocol.encode(VTSProtocol.inject(id: Self.newID(), parameters: parameters)) else { return }
-        try? await transport.send(text)
+        do { try await transport.send(text); injectedFrames += 1 }
+        catch { lastUnmatchedError = "送出參數失敗：\(error.localizedDescription)" }
     }
 
     // MARK: internals
 
-    private func authenticate(with token: String) async throws -> Bool {
-        let reply = try await request(VTSProtocol.authenticate(id: Self.newID(), token: token))
+    private func authenticate(with token: String, plugin: String) async throws -> Bool {
+        let reply = try await request(VTSProtocol.authenticate(id: Self.newID(), token: token, plugin: plugin))
         let data = try VTSProtocol.payload(reply, expecting: "AuthenticationResponse")
         authenticated = data["authenticated"]?.bool ?? false
         return authenticated
@@ -307,6 +362,10 @@ public actor VTubeStudioClient {
     }
 
     private func deliver(_ envelope: VTSEnvelope) {
+        if pending[envelope.requestID] == nil, envelope.messageType == "APIError" {
+            let code = Int(envelope.data?["errorID"]?.number ?? -1)
+            lastUnmatchedError = "VTube Studio 錯誤 \(code)：\(envelope.data?["message"]?.string ?? "")"
+        }
         resolve(envelope.requestID, with: .success(envelope))
     }
 
@@ -321,8 +380,11 @@ public actor VTubeStudioClient {
 
     private func connectionLost(_ link: any VTSTransport) {
         guard link === transport else { return }
+        let wasUp = authenticated
         transport = nil; authenticated = false
+        knownHotkeys = [:]
         failPending(VTSError.disconnected)
+        if wasUp { onLost?() }
     }
 
     private func failPending(_ error: Error) {
