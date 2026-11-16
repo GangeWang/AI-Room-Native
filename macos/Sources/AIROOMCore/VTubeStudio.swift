@@ -220,6 +220,10 @@ public actor VTubeStudioClient {
     private var pending: [String: CheckedContinuation<VTSEnvelope, Error>] = [:]
     private var knownHotkeys: [String: VTSHotkey] = [:]
     private var onLost: (@Sendable () -> Void)?
+    /// Fire-and-forget requests (injection) get no waiter; an APIError they
+    /// cause would otherwise vanish. The latest one is kept here.
+    public private(set) var lastUnmatchedError: String?
+    public private(set) var injectedFrames = 0
     public private(set) var authenticated = false
 
     public init(makeTransport: @escaping TransportFactory) {
@@ -326,7 +330,8 @@ public actor VTubeStudioClient {
     public func inject(_ parameters: [(String, Double)]) async {
         guard authenticated, let transport,
               let text = try? VTSProtocol.encode(VTSProtocol.inject(id: Self.newID(), parameters: parameters)) else { return }
-        try? await transport.send(text)
+        do { try await transport.send(text); injectedFrames += 1 }
+        catch { lastUnmatchedError = "送出參數失敗：\(error.localizedDescription)" }
     }
 
     // MARK: internals
@@ -357,6 +362,10 @@ public actor VTubeStudioClient {
     }
 
     private func deliver(_ envelope: VTSEnvelope) {
+        if pending[envelope.requestID] == nil, envelope.messageType == "APIError" {
+            let code = Int(envelope.data?["errorID"]?.number ?? -1)
+            lastUnmatchedError = "VTube Studio 錯誤 \(code)：\(envelope.data?["message"]?.string ?? "")"
+        }
         resolve(envelope.requestID, with: .success(envelope))
     }
 

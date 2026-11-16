@@ -175,6 +175,9 @@ struct LiveStageView: View {
                                      set: { value in model.updateStageCharacter(agent) { $0.drivesAvatar = value } }))
                 if character.drivesAvatar {
                     vtsControls(agent, character)
+                    if character.aiRig, let status = stage.rigStatus[agent] {
+                        Text(status).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    }
                     Toggle(isOn: Binding(get: { character.aiRig }, set: { model.setStageRig(agent, $0) })) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(t("讓 AI 接管骨架", "Let the agent drive the rig"))

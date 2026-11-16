@@ -18,6 +18,8 @@ final class LiveStageController: ObservableObject {
     @Published private(set) var lastWarning: String?
     /// Set while "Open VTube Studio" is starting instances.
     @Published private(set) var launchStatus: String?
+    @Published private(set) var rigStatus: [MemberID: String] = [:]
+    private var rigTrace: [MemberID: String] = [:]
 
     /// What a member's link was opened with, kept so a dropped link can be
     /// reopened. Removed when the user disconnects.
@@ -111,9 +113,19 @@ final class LiveStageController: ObservableObject {
         guard rigTasks[agent] == nil, let client = clients[agent] else { return }
         if animators[agent] == nil { animators[agent] = LivePoseAnimator() }
         rigTasks[agent] = Task { [weak self] in
+            var tick = 0
             while !Task.isCancelled {
                 guard let self, let animator = self.animators[agent], let link = self.links[agent] else { return }
                 await client.inject(animator.frame(at: Self.now(), mouthParameter: link.mouthParameter))
+                tick += 1
+                if tick % 6 == 0 {
+                    // Five times a second: what is sent, and what VTS says about it.
+                    let frames = await client.injectedFrames
+                    let error = await client.lastUnmatchedError
+                    let headX = animator.frame(at: Self.now()).first { $0.0 == LivePoseAnimator.Input.headX }?.1 ?? 0
+                    self.rigStatus[agent] = String(format: "骨架串流：已送出 %d 幀 · FaceAngleX %.1f · %@", frames, headX,
+                                                   self.rigTrace[agent] ?? "待機") + (error.map { " · \($0)" } ?? "")
+                }
                 try? await Task.sleep(nanoseconds: 33_000_000)
             }
         }
@@ -273,7 +285,11 @@ final class LiveStageController: ObservableObject {
             if let client { await show(event.emotion, for: character, on: client) }
             let rig = client != nil && drivesRig(event.speaker)
             if rig, event.pose != nil || event.emotion != lastEmotion[event.speaker] {
-                animators[event.speaker]?.apply(event.pose ?? LivePose.preset(for: event.emotion), at: Self.now())
+                let pose = event.pose ?? LivePose.preset(for: event.emotion)
+                animators[event.speaker]?.apply(pose, at: Self.now())
+                rigTrace[event.speaker] = "第 \(event.sequence + 1) 段 → head \(pose.headX.map { String(Int($0)) } ?? "-")"
+            } else {
+                rigTrace[event.speaker] = "第 \(event.sequence + 1) 段 · rig=\(rig) client=\(client != nil) 連線=\(isConnected(event.speaker))"
             }
             lastEmotion[event.speaker] = event.emotion
             speaking = event.speaker
