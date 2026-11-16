@@ -1411,6 +1411,26 @@ final class WorkbenchModel: ObservableObject {
         // the new audience entry; this avoids ambiguous duplicate submissions.
     }
 
+    /// The room composer during a show: a host line the next co-host follows.
+    /// The turn in progress is not interrupted.
+    func interjectLive() {
+        guard storageAvailable, liveActive,
+              let roomID = archive.liveShow.roomID,
+              let index = archive.rooms.firstIndex(where: { $0.id == roomID }) else { return }
+        let text = roomDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, text.count <= 2_000 else {
+            statusMessage = "直播中的插話限 1–2,000 字。"; return
+        }
+        do { try PrivacyGuard.validatePrompt(text) }
+        catch { statusMessage = error.localizedDescription; return }
+        archive.rooms[index].entries.append(RoomEntry(
+            speaker: .user, displayName: LiveShowPolicy.hostDisplayName(userName: archive.settings.userName), body: text))
+        archive.rooms[index].updatedAt = .now
+        roomDraft = ""
+        persist()
+        statusMessage = "已插話，下一位發言的 AI 會先處理。"
+    }
+
     func startLiveShow() {
         guard storageAvailable, !liveActive, !roomRunning,
               let roomIndex = activeRoomIndex else { return }
