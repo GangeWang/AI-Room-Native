@@ -12,6 +12,9 @@ AI 回覆（可含 [happy] 等情緒標籤）
   → 念完才進入下一輪（兩位 AI 不會同時說話）
 ```
 
+念的同時，下一位 AI 已經開始寫自己的台詞（只等上一句定稿，不等念完），念完再等「間隔」秒數（0–180，預設 3）就接上。
+代價：某人說話時插入的觀眾留言或主持人插話，要再晚一輪才會被接到；每 12 輪的摘要那一輪不會提前準備。
+
 ## 第一次設定（兩位各一個原生版 VTube Studio）
 
 用的是原生版 `/Applications/VTubeStudio.app`（Apple Silicon，bundle id `com.Denchi.VTube-Studio`，不需要 Steam）。

@@ -186,12 +186,12 @@ public struct LiveShowSettings: Codable, Equatable, Sendable {
     public var maxDurationMinutes: Int
     public var summary: String
     public var summaryThroughEntryID: UUID?
-    public init(roomID: UUID? = nil, topic: String = "", turnDelaySeconds: Int = 45,
+    public init(roomID: UUID? = nil, topic: String = "", turnDelaySeconds: Int = 3,
                 maxTurns: Int = 80, maxDurationMinutes: Int = 120, summary: String = "",
                 summaryThroughEntryID: UUID? = nil) {
         self.roomID = roomID
         self.topic = String(topic.prefix(2_000))
-        self.turnDelaySeconds = min(180, max(15, turnDelaySeconds))
+        self.turnDelaySeconds = min(180, max(0, turnDelaySeconds))
         self.maxTurns = min(300, max(2, maxTurns))
         self.maxDurationMinutes = min(240, max(10, maxDurationMinutes))
         self.summary = String(summary.prefix(5_000))
@@ -205,7 +205,7 @@ public enum LiveShowPolicy {
     public static func canStart(participants: [MemberID], enabled: Set<MemberID>,
                                 config: LiveShowSettings) -> Bool {
         Set(participants).intersection(enabled).count >= 2 && config.maxTurns >= 2
-            && config.turnDelaySeconds >= 15 && config.maxDurationMinutes >= 10
+            && config.turnDelaySeconds >= 0 && config.maxDurationMinutes >= 10
     }
     public static func nextSpeaker(participants: [MemberID], last: MemberID?) -> MemberID? {
         var unique: [MemberID] = []

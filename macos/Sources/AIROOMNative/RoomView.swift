@@ -100,7 +100,7 @@ struct RoomView: View {
                             Stepper(t("間隔 \(model.archive.liveShow.turnDelaySeconds) 秒", "Delay \(model.archive.liveShow.turnDelaySeconds)s"),
                                 value: Binding(get: { model.archive.liveShow.turnDelaySeconds },
                                                set: { value in model.updateLiveConfig { $0.turnDelaySeconds = value } }),
-                                in: 15...180, step: 15).disabled(model.liveActive)
+                                in: 0...180, step: 1).disabled(model.liveActive)
                             Stepper(t("最多 \(model.archive.liveShow.maxTurns) 輪", "Up to \(model.archive.liveShow.maxTurns) turns"),
                                 value: Binding(get: { model.archive.liveShow.maxTurns },
                                                set: { value in model.updateLiveConfig { $0.maxTurns = value } }),
