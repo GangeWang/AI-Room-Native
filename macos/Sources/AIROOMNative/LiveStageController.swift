@@ -141,7 +141,10 @@ final class LiveStageController: ObservableObject {
                 lastWarning = "這個 VTube Studio 裡找不到指定的模型，先沿用目前開著的模型。"
             }
         }
-        connections[agent] = .connected(model: model.loaded ? model.name : "")
+        // CurrentModelRequest can report a model's original name after it was
+        // renamed in VTS; the model list carries the current one.
+        let listed = models(agent).first(where: { $0.id == model.id })?.name
+        connections[agent] = .connected(model: model.loaded ? (listed ?? model.name) : "")
     }
 
     private func connectionLost(_ agent: MemberID) {
