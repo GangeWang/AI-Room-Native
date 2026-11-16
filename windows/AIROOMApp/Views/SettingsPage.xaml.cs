@@ -1,3 +1,4 @@
+using AIROOMApp.Services;
 using AIROOMApp.ViewModels;
 using AIROOMCore;
 using Microsoft.UI.Xaml;
@@ -323,6 +324,7 @@ public sealed partial class SettingsPage : Page
         RenderBackups();
         restoreButton.IsEnabled = false;
         RenderPortableExport();
+        RenderStartMenu();
     }
 
     /// <summary>搬到另一台電腦：密碼匯出。登入憑證與 API 金鑰不包含在內。</summary>
@@ -369,6 +371,66 @@ public sealed partial class SettingsPage : Page
         });
     }
 
+    /// <summary>啟動整合：把免安裝的 zip 接上開始選單，對應 mac 放進 /Applications
+    /// 之後就能被 Spotlight／啟動台找到的體驗。捷徑只放使用者資料夾，不寫登錄檔。</summary>
+    void RenderStartMenu()
+    {
+        var panel = new StackPanel { Spacing = 10 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "啟動",
+            FontSize = 15,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        });
+        var note = new TextBlock
+        {
+            FontSize = 12,
+            Opacity = 0.7,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        var toggle = new ToggleSwitch
+        {
+            Header = "在開始選單顯示 AI Room Native",
+            IsOn = StartMenuService.IsInstalled(),
+        };
+        var suppress = false;
+        toggle.Toggled += (_, _) =>
+        {
+            if (suppress) return;
+            suppress = true;
+            try
+            {
+                if (toggle.IsOn) StartMenuService.Install();
+                else StartMenuService.Uninstall();
+                note.Text = toggle.IsOn
+                    ? "已加入開始選單。按 Win 鍵輸入「AI Room」就能啟動，也可以釘到工作列。捷徑指向現在這份程式；把資料夾搬到別處之後，要重新加入一次。"
+                    : "已從開始選單移除；程式本身與資料不受影響。";
+            }
+            catch (Exception error)
+            {
+                toggle.IsOn = !toggle.IsOn;
+                note.Text = "無法更新開始選單：" + error.Message;
+            }
+            finally
+            {
+                suppress = false;
+            }
+        };
+        panel.Children.Add(toggle);
+        panel.Children.Add(note);
+        panel.Children.Add(new TextBlock
+        {
+            Text = "這份 zip 免安裝，捷徑是接上 Windows 啟動方式的唯一一步：放在使用者自己的開始選單資料夾，不寫登錄檔、不需系統管理員。移除就關掉這個開關（或直接刪掉捷徑）。",
+            FontSize = 11,
+            Opacity = 0.6,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        Root.Children.Add(new Border
+        {
+            Style = (Style)Application.Current.Resources["StudioPanel"],
+            Child = panel,
+        });
+    }
     async Task ExportAsync()
     {
         var password = await AskPassword("設定匯出密碼", $"至少 {PortableExportCodec.MinimumPasswordLength} 個字。匯入時要輸入同一組密碼。", confirm: true);
