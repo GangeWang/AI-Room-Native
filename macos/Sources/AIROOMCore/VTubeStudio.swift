@@ -137,14 +137,19 @@ public enum VTSProtocol {
         VTSEnvelope(requestID: id, messageType: "HotkeyTriggerRequest",
                     data: .object(["hotkeyID": .string(hotkeyID)]))
     }
-    /// `faceFound: false` lets the injected mouth value win while the user's own
-    /// face tracking (if any) is idle; values are clamped to 0...1.
+    /// `faceFound: true` makes VTS treat the injected values as a tracked face;
+    /// with `false` it treats tracking as lost and eases the head back to rest,
+    /// so injected head angles never show. Values are clamped: head angles to
+    /// ±30, gaze to ±1, everything else to 0...1.
     public static func inject(id: String, parameters: [(String, Double)]) -> VTSEnvelope {
         let values: [JSONValue] = parameters.map { name, value in
-            .object(["id": .string(name), "value": .number(min(1, max(0, value)))])
+            let range: ClosedRange<Double> = name.hasPrefix("FaceAngle") ? -30...30
+                : name.hasPrefix("FacePosition") ? -15...15
+                : (name.hasPrefix("EyeLeft") || name.hasPrefix("EyeRight")) ? -1...1 : 0...1
+            return .object(["id": .string(name), "value": .number(min(range.upperBound, max(range.lowerBound, value)))])
         }
         return VTSEnvelope(requestID: id, messageType: "InjectParameterDataRequest",
-                           data: .object(["faceFound": .bool(false), "mode": .string("set"),
+                           data: .object(["faceFound": .bool(true), "mode": .string("set"),
                                           "parameterValues": .array(values)]))
     }
 

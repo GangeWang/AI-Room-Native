@@ -1496,7 +1496,7 @@ final class WorkbenchModel: ObservableObject {
         let performs = archive.liveStage.performs
         let prompt = LiveShowPolicy.prompt(room: archive.rooms[index], speaker: speaker, speakerName: memberName(speaker),
             topic: config.topic, summary: archive.liveShow.summary, language: settings.language,
-            cues: performs)
+            cues: performs, poses: stage.drivesRig(speaker))
         let runner = runner, workspace = workspace
         let reply = Task { @MainActor [weak self] () throws -> String in
             try await runner.run(id: runID, agent: speaker, prompt: prompt,
@@ -1643,7 +1643,8 @@ final class WorkbenchModel: ObservableObject {
         guard storageAvailable else { return }
         let character = archive.liveStage.character(agent)
         stage.connect(agent, port: character.vtsPort, token: character.vtsToken,
-                      modelID: character.vtsModelID) { [weak self] token in
+                      modelID: character.vtsModelID, aiRig: character.aiRig,
+                      mouthParameter: character.mouthParameter) { [weak self] token in
             self?.updateStageCharacter(agent) { $0.vtsToken = token }
         }
     }
@@ -1675,6 +1676,12 @@ final class WorkbenchModel: ObservableObject {
             for (emotion, id) in found { character.emotionHotkeys[emotion] = id }
         }
         return found.count
+    }
+
+    func setStageRig(_ agent: MemberID, _ on: Bool) {
+        updateStageCharacter(agent) { $0.aiRig = on }
+        let character = archive.liveStage.character(agent)
+        stage.setRig(agent, on: on, mouthParameter: character.mouthParameter)
     }
 
     func chooseStageModel(_ agent: MemberID, _ model: VTSModel?) {

@@ -184,7 +184,9 @@ final class VTubeStudioClientTests: XCTestCase {
         let envelope = VTSProtocol.inject(id: "1", parameters: [("MouthOpen", 3)])
         let value = envelope.data?["parameterValues"]?.array?.first?["value"]?.number
         XCTAssertEqual(value, 1)
-        XCTAssertEqual(envelope.data?["faceFound"]?.bool, false)
+        XCTAssertEqual(envelope.data?["faceFound"]?.bool, true)
+        let head = VTSProtocol.inject(id: "2", parameters: [("FaceAngleX", -50), ("EyeRightX", -3)])
+        XCTAssertEqual(head.data?["parameterValues"]?.array?.map { $0["value"]?.number }, [-30, -1])
     }
 }
 

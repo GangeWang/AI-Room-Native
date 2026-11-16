@@ -25,6 +25,8 @@ final class LiveStageController: ObservableObject {
         var port: Int
         var token: String
         var modelID: String
+        var aiRig: Bool
+        var mouthParameter: String
         var onNewToken: (String) -> Void
     }
 
@@ -35,6 +37,12 @@ final class LiveStageController: ObservableObject {
     /// Expression hotkey currently switched on per model (VTS expressions toggle).
     private var activeExpression: [MemberID: String] = [:]
     private var stopped = false
+    /// Agents whose rig the stage drives: keyframes from their lines plus idle
+    /// motion, sent as VTS tracking inputs at 30 Hz while connected.
+    private var animators: [MemberID: LivePoseAnimator] = [:]
+    private var lastEmotion: [MemberID: LiveEmotion] = [:]
+    private var rigTasks: [MemberID: Task<Void, Never>] = [:]
+    private static func now() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
 
     /// Waits before each automatic reconnect: quickly at first, then every
     /// 10 s for about five minutes.
@@ -55,10 +63,11 @@ final class LiveStageController: ObservableObject {
 
     // MARK: VTube Studio
 
-    func connect(_ agent: MemberID, port: Int, token: String, modelID: String,
-                 onNewToken: @escaping (String) -> Void) {
+    func connect(_ agent: MemberID, port: Int, token: String, modelID: String, aiRig: Bool,
+                 mouthParameter: String, onNewToken: @escaping (String) -> Void) {
         retries.removeValue(forKey: agent)?.cancel()
-        links[agent] = Link(port: port, token: token, modelID: modelID, onNewToken: onNewToken)
+        links[agent] = Link(port: port, token: token, modelID: modelID, aiRig: aiRig,
+                            mouthParameter: mouthParameter, onNewToken: onNewToken)
         connections[agent] = .connecting
         Task {
             do { try await open(agent, mayAsk: true) }
@@ -68,6 +77,7 @@ final class LiveStageController: ObservableObject {
 
     func disconnect(_ agent: MemberID) {
         links[agent] = nil
+        stopRig(agent)
         retries.removeValue(forKey: agent)?.cancel()
         activeExpression[agent] = nil
         hotkeys[agent] = nil
@@ -86,6 +96,31 @@ final class LiveStageController: ObservableObject {
                 await refreshHotkeys(agent)
             } catch { lastWarning = error.localizedDescription }
         }
+    }
+
+    /// Turns the agent's rig control on or off (and picks up a new mouth input).
+    func setRig(_ agent: MemberID, on: Bool, mouthParameter: String) {
+        links[agent]?.aiRig = on
+        links[agent]?.mouthParameter = mouthParameter
+        if on && isConnected(agent) { startRig(agent) } else { stopRig(agent) }
+    }
+
+    func drivesRig(_ agent: MemberID) -> Bool { rigTasks[agent] != nil }
+
+    private func startRig(_ agent: MemberID) {
+        guard rigTasks[agent] == nil, let client = clients[agent] else { return }
+        if animators[agent] == nil { animators[agent] = LivePoseAnimator() }
+        rigTasks[agent] = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, let animator = self.animators[agent], let link = self.links[agent] else { return }
+                await client.inject(animator.frame(at: Self.now(), mouthParameter: link.mouthParameter))
+                try? await Task.sleep(nanoseconds: 33_000_000)
+            }
+        }
+    }
+
+    private func stopRig(_ agent: MemberID) {
+        rigTasks.removeValue(forKey: agent)?.cancel()
     }
 
     func refreshHotkeys(_ agent: MemberID) async {
@@ -126,6 +161,7 @@ final class LiveStageController: ObservableObject {
         let wanted = links[agent]?.modelID ?? ""
         try await loadIfNeeded(agent, modelID: wanted, client: client, current: result.model)
         await refreshHotkeys(agent)
+        if links[agent]?.aiRig == true { startRig(agent) }
     }
 
     private func loadIfNeeded(_ agent: MemberID, modelID: String, client: VTubeStudioClient,
@@ -142,11 +178,21 @@ final class LiveStageController: ObservableObject {
                     do { try await client.loadModel(id: modelID); break }
                     catch VTSError.api(let code, let message) {
                         attempt += 1
-                        guard attempt < 10 else { throw VTSError.api(code: code, message: message) }
+                        guard attempt < 10 else {
+                            throw VTSError.api(code: code, message: code == 154
+                                ? "VTube Studio 目前不能換模型，通常是 VTS 視窗裡有對話框或設定視窗開著（例如 Auto-Setup 詢問）。關掉後再按「連線」。"
+                                : message)
+                        }
                         try await Task.sleep(nanoseconds: 1_500_000_000)
                     }
                 }
+                // VTS answers before the new model has finished loading; wait for it
+                // so the status and the hotkey list belong to the new model.
                 model = try await client.currentModel()
+                for _ in 0..<20 where !(model.loaded && model.id == modelID) {
+                    try await Task.sleep(nanoseconds: 500_000_000)
+                    model = try await client.currentModel()
+                }
             } else {
                 lastWarning = "這個 VTube Studio 裡找不到指定的模型，先沿用目前開著的模型。"
             }
@@ -159,6 +205,7 @@ final class LiveStageController: ObservableObject {
 
     private func connectionLost(_ agent: MemberID) {
         guard links[agent] != nil, retries[agent] == nil else { return }
+        stopRig(agent)
         activeExpression[agent] = nil
         hotkeys[agent] = nil
         retries[agent] = Task { [weak self] in
@@ -224,13 +271,30 @@ final class LiveStageController: ObservableObject {
             let client = stage.vtsEnabled && character.drivesAvatar && isConnected(event.speaker)
                 ? clients[event.speaker] : nil
             if let client { await show(event.emotion, for: character, on: client) }
+            let rig = client != nil && drivesRig(event.speaker)
+            if rig, event.pose != nil || event.emotion != lastEmotion[event.speaker] {
+                animators[event.speaker]?.apply(event.pose ?? LivePose.preset(for: event.emotion), at: Self.now())
+            }
+            lastEmotion[event.speaker] = event.emotion
             speaking = event.speaker
             subtitle = event.utterance
-            guard stage.speechEnabled else { continue }
-            let mouth = character.mouthParameter
-            await speech.speak(event.utterance, character: character, language: language) { value in
-                await client?.inject([(mouth, value)])
+            guard stage.speechEnabled else {
+                // Without a voice, still give each pose time to be seen.
+                if rig { try? await Task.sleep(nanoseconds: 1_200_000_000) }
+                continue
             }
+            let mouth = character.mouthParameter
+            let agent = event.speaker
+            await speech.speak(event.utterance, character: character, language: language) { value in
+                if rig { await MainActor.run { self.animators[agent]?.mouth = value } }
+                else { await client?.inject([(mouth, value)]) }
+            }
+        }
+        // Close the mouth and settle back to rest after the line.
+        for agent in Set(events.map(\.speaker)) where drivesRig(agent) {
+            animators[agent]?.mouth = 0
+            animators[agent]?.relax(at: Self.now() + 0.6, over: 1.2)
+            lastEmotion[agent] = nil
         }
         speaking = nil
     }
@@ -245,8 +309,8 @@ final class LiveStageController: ObservableObject {
 
     func rehearse(_ agent: MemberID, name: String, stage: LiveStageSettings, language: InterfaceLanguage) {
         let line = language == .english
-            ? "[happy] Hi everyone, I'm \(name)! [thinking] This is a voice and expression test. [surprised] Can you see my mouth move?"
-            : "[happy] 大家好，我是\(name)！[thinking] 這是聲音和表情的測試。[surprised] 有看到我的嘴巴在動嗎？"
+            ? "[happy] Hi everyone, I'm \(name)! [thinking] [pose head=-14,6,10 gaze=up in=0.7] This is a voice and expression test. [pose head=16,-2,-6 gaze=left smile=0.6 in=0.5] Over here, [surprised] can you see my mouth move? [shy] [pose head=8,-8,-10 gaze=down smile=0.8 in=0.8] Thanks for watching."
+            : "[happy] 大家好，我是\(name)！[thinking] [pose head=-14,6,10 gaze=up in=0.7] 這是聲音和表情的測試。[pose head=16,-2,-6 gaze=left smile=0.6 in=0.5] 往這邊看，[surprised] 有看到我的嘴巴在動嗎？[shy] [pose head=8,-8,-10 gaze=down smile=0.8 in=0.8] 謝謝收看。"
         Task {
             await perform(LiveCueParser.events(from: LiveCueParser.parse(line), speaker: agent),
                           stage: stage, language: language)

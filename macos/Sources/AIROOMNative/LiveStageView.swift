@@ -175,6 +175,14 @@ struct LiveStageView: View {
                                      set: { value in model.updateStageCharacter(agent) { $0.drivesAvatar = value } }))
                 if character.drivesAvatar {
                     vtsControls(agent, character)
+                    Toggle(isOn: Binding(get: { character.aiRig }, set: { model.setStageRig(agent, $0) })) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(t("讓 AI 接管骨架", "Let the agent drive the rig"))
+                            Text(t("AI 用 [pose …] 標籤直接控制頭部角度、視線、眼睛、眉毛和笑容，跟台詞同步；沒說話時自動眨眼、呼吸、輕微晃動。以 VTS 追蹤參數送出，會取代鏡頭追蹤。",
+                                   "The agent poses head, gaze, eyes, brows and smile with [pose …] tags, synced to its words; idles with blinks and breathing between lines. Sent as VTS tracking inputs, replacing camera tracking."))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     HStack {
                         Text(t("嘴型參數", "Mouth parameter"))
                         TextField("MouthOpen", text: Binding(get: { character.mouthParameter },
