@@ -159,12 +159,17 @@ public struct LiveCharacterStage: Codable, Equatable, Sendable {
     public var pitch: Double
     /// Whether this co-host has its own VTube Studio instance to drive.
     public var drivesAvatar: Bool
-    /// Each co-host has a separate VTS instance (a second one is started with
-    /// `start_without_steam` and takes the next free port).
+    /// Each co-host has a separate VTS instance; each new instance takes the
+    /// next free port from 8001 up, in the order they are started.
     public var vtsPort: Int
     /// Plugin token issued by that VTS instance after the user clicks Allow.
     /// It only grants control of local VTS; stored with the encrypted state.
     public var vtsToken: String
+    /// The VTS model this co-host wears. Instances share their settings, so
+    /// both start on the same last-used model; this one is loaded on connect.
+    /// Empty keeps whatever model the instance has open.
+    public var vtsModelID: String
+    public var vtsModelName: String
     public var mouthParameter: String
     /// LiveEmotion.rawValue → VTube Studio hotkeyID. Only IDs reported by the
     /// currently loaded model are ever triggered.
@@ -172,7 +177,7 @@ public struct LiveCharacterStage: Codable, Equatable, Sendable {
 
     public init(agent: MemberID, voiceIdentifier: String = "", speechRate: Double = 0.5,
                 pitch: Double = 1.0, drivesAvatar: Bool = false, vtsPort: Int? = nil, vtsToken: String = "",
-                mouthParameter: String = "MouthOpen", emotionHotkeys: [String: String] = [:]) {
+                vtsModelID: String = "", vtsModelName: String = "", mouthParameter: String = "MouthOpen", emotionHotkeys: [String: String] = [:]) {
         self.agent = agent
         self.voiceIdentifier = String(voiceIdentifier.prefix(200))
         self.speechRate = min(0.65, max(0.3, speechRate))
@@ -180,13 +185,15 @@ public struct LiveCharacterStage: Codable, Equatable, Sendable {
         self.drivesAvatar = drivesAvatar
         self.vtsPort = min(65_535, max(1_024, vtsPort ?? Self.defaultPort(agent)))
         self.vtsToken = String(vtsToken.prefix(512))
+        self.vtsModelID = String(vtsModelID.prefix(128))
+        self.vtsModelName = String(vtsModelName.prefix(200))
         let mouth = mouthParameter.filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }
         self.mouthParameter = mouth.isEmpty ? "MouthOpen" : String(mouth.prefix(32))
         self.emotionHotkeys = emotionHotkeys.filter { LiveEmotion(rawValue: $0.key) != nil && $0.value.count <= 128 }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case agent, voiceIdentifier, speechRate, pitch, drivesAvatar, vtsPort, vtsToken, mouthParameter, emotionHotkeys
+        case agent, voiceIdentifier, speechRate, pitch, drivesAvatar, vtsPort, vtsToken, vtsModelID, vtsModelName, mouthParameter, emotionHotkeys
     }
 
     /// GPT's model went live first, so its VTS instance usually owns 8001.
@@ -201,6 +208,8 @@ public struct LiveCharacterStage: Codable, Equatable, Sendable {
                   drivesAvatar: try box.decodeIfPresent(Bool.self, forKey: .drivesAvatar) ?? false,
                   vtsPort: try box.decodeIfPresent(Int.self, forKey: .vtsPort),
                   vtsToken: try box.decodeIfPresent(String.self, forKey: .vtsToken) ?? "",
+                  vtsModelID: try box.decodeIfPresent(String.self, forKey: .vtsModelID) ?? "",
+                  vtsModelName: try box.decodeIfPresent(String.self, forKey: .vtsModelName) ?? "",
                   mouthParameter: try box.decodeIfPresent(String.self, forKey: .mouthParameter) ?? "MouthOpen",
                   emotionHotkeys: try box.decodeIfPresent([String: String].self, forKey: .emotionHotkeys) ?? [:])
     }
@@ -243,7 +252,8 @@ public struct LiveStageSettings: Codable, Equatable, Sendable {
         let edited = characters[index]
         characters[index] = LiveCharacterStage(agent: edited.agent, voiceIdentifier: edited.voiceIdentifier,
             speechRate: edited.speechRate, pitch: edited.pitch, drivesAvatar: edited.drivesAvatar,
-            vtsPort: edited.vtsPort, vtsToken: edited.vtsToken, mouthParameter: edited.mouthParameter, emotionHotkeys: edited.emotionHotkeys)
+            vtsPort: edited.vtsPort, vtsToken: edited.vtsToken,
+            vtsModelID: edited.vtsModelID, vtsModelName: edited.vtsModelName, mouthParameter: edited.mouthParameter, emotionHotkeys: edited.emotionHotkeys)
     }
 }
 

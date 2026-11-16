@@ -1563,9 +1563,36 @@ final class WorkbenchModel: ObservableObject {
     func connectVTubeStudio(_ agent: MemberID) {
         guard storageAvailable else { return }
         let character = archive.liveStage.character(agent)
-        stage.connect(agent, port: character.vtsPort, token: character.vtsToken) { [weak self] token in
+        stage.connect(agent, port: character.vtsPort, token: character.vtsToken,
+                      modelID: character.vtsModelID) { [weak self] token in
             self?.updateStageCharacter(agent) { $0.vtsToken = token }
         }
+    }
+
+    /// Members whose own VTube Studio avatar the stage drives.
+    var avatarMembers: [MemberID] {
+        enabledMemberIDs.filter { archive.liveStage.character($0).drivesAvatar }
+    }
+
+    /// Opens one native VTube Studio per avatar member, lowest port first so
+    /// ports and NDI names come out the same every time, then connects them.
+    func launchVTubeStudio() {
+        guard storageAvailable, archive.liveStage.vtsEnabled else { return }
+        let members = avatarMembers
+        stage.launchVTubeStudio(ports: members.map { archive.liveStage.character($0).vtsPort }) { [weak self] in
+            guard let self else { return }
+            for agent in members where !self.stage.isConnected(agent) && !self.stage.isBusy(agent) {
+                self.connectVTubeStudio(agent)
+            }
+        }
+    }
+
+    func chooseStageModel(_ agent: MemberID, _ model: VTSModel?) {
+        updateStageCharacter(agent) {
+            $0.vtsModelID = model?.id ?? ""
+            $0.vtsModelName = model?.name ?? ""
+        }
+        stage.useModel(agent, modelID: model?.id ?? "")
     }
 
     func forgetVTubeStudioToken(_ agent: MemberID) {

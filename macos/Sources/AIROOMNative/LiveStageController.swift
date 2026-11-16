@@ -7,57 +7,192 @@ import AIROOMCore
 @MainActor
 final class LiveStageController: ObservableObject {
     enum Connection: Equatable {
-        case off, connecting, connected(model: String), failed(String)
+        case off, connecting, connected(model: String), reconnecting(attempt: Int), failed(String)
     }
 
     @Published private(set) var connections: [MemberID: Connection] = [:]
     @Published private(set) var hotkeys: [MemberID: [VTSHotkey]] = [:]
+    @Published private(set) var models: [MemberID: [VTSModel]] = [:]
     @Published private(set) var speaking: MemberID?
     @Published private(set) var subtitle = ""
     @Published private(set) var lastWarning: String?
+    /// Set while "Open VTube Studio" is starting instances.
+    @Published private(set) var launchStatus: String?
+
+    /// What a member's link was opened with, kept so a dropped link can be
+    /// reopened. Removed when the user disconnects.
+    private struct Link {
+        var port: Int
+        var token: String
+        var modelID: String
+        var onNewToken: (String) -> Void
+    }
 
     private var clients: [MemberID: VTubeStudioClient] = [:]
+    private var links: [MemberID: Link] = [:]
+    private var retries: [MemberID: Task<Void, Never>] = [:]
     private let speech = SpeechPlayer()
     /// Expression hotkey currently switched on per model (VTS expressions toggle).
     private var activeExpression: [MemberID: String] = [:]
     private var stopped = false
 
+    /// Waits before each automatic reconnect: quickly at first, then every
+    /// 10 s for about five minutes.
+    static let reconnectDelays: [TimeInterval] = [1, 2, 5] + Array(repeating: 10, count: 27)
+
     func connection(_ agent: MemberID) -> Connection { connections[agent] ?? .off }
     func hotkeys(_ agent: MemberID) -> [VTSHotkey] { hotkeys[agent] ?? [] }
+    func models(_ agent: MemberID) -> [VTSModel] { models[agent] ?? [] }
     func isConnected(_ agent: MemberID) -> Bool {
         if case .connected = connection(agent) { return true } else { return false }
+    }
+    func isBusy(_ agent: MemberID) -> Bool {
+        switch connection(agent) {
+        case .connecting, .reconnecting: return true
+        default: return false
+        }
     }
 
     // MARK: VTube Studio
 
-    func connect(_ agent: MemberID, port: Int, token: String, onNewToken: @escaping (String) -> Void) {
-        let client = clients[agent] ?? VTubeStudioClient()
-        clients[agent] = client
-        activeExpression[agent] = nil
+    func connect(_ agent: MemberID, port: Int, token: String, modelID: String,
+                 onNewToken: @escaping (String) -> Void) {
+        retries.removeValue(forKey: agent)?.cancel()
+        links[agent] = Link(port: port, token: token, modelID: modelID, onNewToken: onNewToken)
         connections[agent] = .connecting
         Task {
-            do {
-                let result = try await client.connect(port: port, token: token)
-                if result.token != token { onNewToken(result.token) }
-                connections[agent] = .connected(model: result.model.loaded ? result.model.name : "")
-                await refreshHotkeys(agent)
-            } catch {
-                connections[agent] = .failed(error.localizedDescription)
-            }
+            do { try await open(agent, mayAsk: true) }
+            catch { if links[agent] != nil { connections[agent] = .failed(error.localizedDescription) } }
         }
     }
 
     func disconnect(_ agent: MemberID) {
+        links[agent] = nil
+        retries.removeValue(forKey: agent)?.cancel()
         activeExpression[agent] = nil
         hotkeys[agent] = nil
         connections[agent] = .off
         if let client = clients[agent] { Task { await client.disconnect() } }
     }
 
+    /// Switches the member's VTS to `modelID` now (when connected) and keeps
+    /// it for later connects.
+    func useModel(_ agent: MemberID, modelID: String) {
+        links[agent]?.modelID = modelID
+        guard !modelID.isEmpty, isConnected(agent), let client = clients[agent] else { return }
+        Task {
+            do {
+                try await loadIfNeeded(agent, modelID: modelID, client: client, current: nil)
+                await refreshHotkeys(agent)
+            } catch { lastWarning = error.localizedDescription }
+        }
+    }
+
     func refreshHotkeys(_ agent: MemberID) async {
         guard let client = clients[agent] else { return }
         do { hotkeys[agent] = try await client.hotkeys() }
         catch { lastWarning = error.localizedDescription }
+    }
+
+    func refreshModels(_ agent: MemberID) async {
+        guard let client = clients[agent] else { return }
+        do { models[agent] = try await client.availableModels() }
+        catch { lastWarning = error.localizedDescription }
+    }
+
+    private func client(for agent: MemberID) async -> VTubeStudioClient {
+        if let existing = clients[agent] { return existing }
+        let client = VTubeStudioClient()
+        clients[agent] = client
+        await client.setOnConnectionLost { [weak self] in
+            Task { @MainActor in self?.connectionLost(agent) }
+        }
+        return client
+    }
+
+    /// Connects, authenticates, puts on the member's model and reads its hotkeys.
+    private func open(_ agent: MemberID, mayAsk: Bool) async throws {
+        guard let link = links[agent] else { return }
+        let client = await client(for: agent)
+        activeExpression[agent] = nil
+        let result = try await client.connect(port: link.port, token: link.token,
+                                              plugin: VTSProtocol.pluginName(for: agent), mayAsk: mayAsk)
+        guard links[agent] != nil else { await client.disconnect(); return }
+        if result.token != link.token {
+            links[agent]?.token = result.token
+            link.onNewToken(result.token)
+        }
+        await refreshModels(agent)
+        let wanted = links[agent]?.modelID ?? ""
+        try await loadIfNeeded(agent, modelID: wanted, client: client, current: result.model)
+        await refreshHotkeys(agent)
+    }
+
+    private func loadIfNeeded(_ agent: MemberID, modelID: String, client: VTubeStudioClient,
+                              current: VTSModel?) async throws {
+        var model: VTSModel
+        if let current { model = current } else { model = try await client.currentModel() }
+        if !modelID.isEmpty && model.id != modelID {
+            if models(agent).isEmpty || models(agent).contains(where: { $0.id == modelID }) {
+                activeExpression[agent] = nil
+                try await client.loadModel(id: modelID)
+                model = try await client.currentModel()
+            } else {
+                lastWarning = "這個 VTube Studio 裡找不到指定的模型，先沿用目前開著的模型。"
+            }
+        }
+        connections[agent] = .connected(model: model.loaded ? model.name : "")
+    }
+
+    private func connectionLost(_ agent: MemberID) {
+        guard links[agent] != nil, retries[agent] == nil else { return }
+        activeExpression[agent] = nil
+        hotkeys[agent] = nil
+        retries[agent] = Task { [weak self] in
+            for (index, delay) in Self.reconnectDelays.enumerated() {
+                guard let self, self.links[agent] != nil else { return }
+                self.connections[agent] = .reconnecting(attempt: index + 1)
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                guard !Task.isCancelled, self.links[agent] != nil else { return }
+                do {
+                    try await self.open(agent, mayAsk: false)
+                    self.retries[agent] = nil
+                    return
+                } catch VTSError.needsApproval {
+                    self.connections[agent] = .failed(VTSError.needsApproval.localizedDescription)
+                    self.retries[agent] = nil
+                    return
+                } catch {
+                    continue
+                }
+            }
+            guard let self, self.links[agent] != nil else { return }
+            self.connections[agent] = .failed("VTube Studio 斷線，自動重連約 5 分鐘仍連不上。開好 VTS 後請按「連線」。")
+            self.retries[agent] = nil
+        }
+    }
+
+    /// Starts native VTube Studio instances for these ports, lowest first.
+    func launchVTubeStudio(ports: [Int], then: @escaping () -> Void) {
+        guard launchStatus == nil else { return }
+        guard let app = VTubeStudioLauncher.installedApp() else {
+            lastWarning = VTubeStudioLauncher.Failure.notInstalled.localizedDescription
+            return
+        }
+        lastWarning = nil
+        launchStatus = "檢查 VTube Studio…"
+        Task {
+            do {
+                try await VTubeStudioLauncher().start(ports: ports, app: app) { port in
+                    await MainActor.run { self.launchStatus = "正在開啟 VTube Studio（連接埠 \(port)）…" }
+                }
+                launchStatus = nil
+                then()
+            } catch {
+                launchStatus = nil
+                lastWarning = error.localizedDescription
+            }
+        }
     }
 
     // MARK: Performance
@@ -121,8 +256,8 @@ final class LiveStageController: ObservableObject {
                 if toggles(target) { activeExpression[agent] = target }
             }
         } catch {
+            // A dropped link reconnects by itself (see `connectionLost`).
             lastWarning = error.localizedDescription
-            if case VTSError.disconnected = error { connections[agent] = .failed(error.localizedDescription) }
         }
     }
 }
