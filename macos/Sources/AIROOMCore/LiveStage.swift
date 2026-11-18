@@ -55,6 +55,12 @@ public struct LivePose: Codable, Equatable, Sendable {
     public var brows: Double?
     /// 0 frown ... 0.35 neutral ... 1 big smile (also narrows the eyes and blushes on most rigs).
     public var smile: Double?
+    /// -1...1 per side: upper arm (shoulder) and forearm (elbow). Sent as the
+    /// member's own VTS custom inputs, which the model maps to its arm rig.
+    public var armL: Double?
+    public var armR: Double?
+    public var elbowL: Double?
+    public var elbowR: Double?
     /// Seconds to move into this pose.
     public var duration: Double
 
@@ -62,6 +68,7 @@ public struct LivePose: Codable, Equatable, Sendable {
 
     public init(headX: Double? = nil, headY: Double? = nil, headZ: Double? = nil, gazeX: Double? = nil,
                 gazeY: Double? = nil, eyes: Double? = nil, brows: Double? = nil, smile: Double? = nil,
+                armL: Double? = nil, armR: Double? = nil, elbowL: Double? = nil, elbowR: Double? = nil,
                 duration: Double = LivePose.defaultDuration) {
         func clamp(_ value: Double?, _ low: Double, _ high: Double) -> Double? {
             guard let value, value.isFinite else { return nil }
@@ -70,11 +77,13 @@ public struct LivePose: Codable, Equatable, Sendable {
         self.headX = clamp(headX, -30, 30); self.headY = clamp(headY, -20, 20); self.headZ = clamp(headZ, -30, 30)
         self.gazeX = clamp(gazeX, -1, 1); self.gazeY = clamp(gazeY, -1, 1)
         self.eyes = clamp(eyes, 0, 1); self.brows = clamp(brows, 0, 1); self.smile = clamp(smile, 0, 1)
+        self.armL = clamp(armL, -1, 1); self.armR = clamp(armR, -1, 1)
+        self.elbowL = clamp(elbowL, -1, 1); self.elbowR = clamp(elbowR, -1, 1)
         self.duration = clamp(duration, 0.1, 4) ?? LivePose.defaultDuration
     }
 
     public var isEmpty: Bool {
-        [headX, headY, headZ, gazeX, gazeY, eyes, brows, smile].allSatisfy { $0 == nil }
+        [headX, headY, headZ, gazeX, gazeY, eyes, brows, smile, armL, armR, elbowL, elbowR].allSatisfy { $0 == nil }
     }
 
     /// Parses the inside of a `[pose …]` tag. Unknown keys and bad numbers are
@@ -82,6 +91,7 @@ public struct LivePose: Codable, Equatable, Sendable {
     public init?(arguments: String) {
         var headX: Double?, headY: Double?, headZ: Double?, gazeX: Double?, gazeY: Double?
         var eyes: Double?, brows: Double?, smile: Double?, duration = LivePose.defaultDuration
+        var armL: Double?, armR: Double?, elbowL: Double?, elbowR: Double?
         func numbers(_ text: Substring) -> [Double] { text.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) } }
         for pair in arguments.split(whereSeparator: \.isWhitespace).prefix(12) {
             let parts = pair.split(separator: "=", maxSplits: 1)
@@ -105,12 +115,23 @@ public struct LivePose: Codable, Equatable, Sendable {
             case "eyes": eyes = Double(value)
             case "brows": brows = Double(value)
             case "smile": smile = Double(value)
+            case "arms":
+                let v = numbers(value)
+                if v.count > 0 { armL = v[0] }; if v.count > 1 { armR = v[1] }
+            case "elbows":
+                let v = numbers(value)
+                if v.count > 0 { elbowL = v[0] }; if v.count > 1 { elbowR = v[1] }
+            case "arml": armL = Double(value)
+            case "armr": armR = Double(value)
+            case "elbowl": elbowL = Double(value)
+            case "elbowr": elbowR = Double(value)
             case "in": duration = Double(value.trimmingCharacters(in: CharacterSet(charactersIn: "s"))) ?? duration
             default: continue
             }
         }
         let pose = LivePose(headX: headX, headY: headY, headZ: headZ, gazeX: gazeX, gazeY: gazeY,
-                            eyes: eyes, brows: brows, smile: smile, duration: duration)
+                            eyes: eyes, brows: brows, smile: smile,
+                            armL: armL, armR: armR, elbowL: elbowL, elbowR: elbowR, duration: duration)
         guard !pose.isEmpty else { return nil }
         self = pose
     }

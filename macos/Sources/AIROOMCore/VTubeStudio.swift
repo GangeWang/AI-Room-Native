@@ -115,6 +115,14 @@ public enum VTSProtocol {
         var data = plugin(name); data["authenticationToken"] = .string(token)
         return VTSEnvelope(requestID: id, messageType: "AuthenticationRequest", data: .object(data))
     }
+    /// A custom input this plugin owns (VTS keeps it; creating it again just
+    /// updates it). Names must be 4–32 letters/digits.
+    public static func createParameter(id: String, name: String, explanation: String,
+                                       min: Double, max: Double, defaultValue: Double) -> VTSEnvelope {
+        VTSEnvelope(requestID: id, messageType: "ParameterCreationRequest", data: .object([
+            "parameterName": .string(name), "explanation": .string(String(explanation.prefix(200))),
+            "min": .number(min), "max": .number(max), "defaultValue": .number(defaultValue)]))
+    }
     public static func availableModels(id: String) -> VTSEnvelope {
         VTSEnvelope(requestID: id, messageType: "AvailableModelsRequest")
     }
@@ -145,6 +153,7 @@ public enum VTSProtocol {
         let values: [JSONValue] = parameters.map { name, value in
             let range: ClosedRange<Double> = name.hasPrefix("FaceAngle") ? -30...30
                 : name.hasPrefix("FacePosition") ? -15...15
+                : name.hasPrefix("AIROOM") ? -1...1
                 : (name.hasPrefix("EyeLeft") || name.hasPrefix("EyeRight")) ? -1...1 : 0...1
             return .object(["id": .string(name), "value": .number(min(range.upperBound, max(range.lowerBound, value)))])
         }
@@ -292,6 +301,14 @@ public actor VTubeStudioClient {
                                            expecting: "CurrentModelResponse")
         return VTSModel(loaded: data["modelLoaded"]?.bool ?? false,
                         name: data["modelName"]?.string ?? "", id: data["modelID"]?.string ?? "")
+    }
+
+    public func createParameter(_ name: String, explanation: String, min: Double, max: Double,
+                                defaultValue: Double) async throws {
+        guard authenticated else { throw VTSError.disconnected }
+        _ = try VTSProtocol.payload(try await request(VTSProtocol.createParameter(id: Self.newID(), name: name,
+                                        explanation: explanation, min: min, max: max, defaultValue: defaultValue)),
+                                    expecting: "ParameterCreationResponse")
     }
 
     public func availableModels() async throws -> [VTSModel] {

@@ -70,3 +70,34 @@ final class LivePoseTests: XCTestCase {
                                              cues: false, poses: true).contains("[pose"))
     }
 }
+
+final class LiveArmTests: XCTestCase {
+    func testArmKeysParseAndClamp() {
+        let pose = LivePose(arguments: " arms=0.8,-3 elbows=1 elbowR=-0.5")
+        XCTAssertEqual(pose?.armL, 0.8); XCTAssertEqual(pose?.armR, -1)
+        XCTAssertEqual(pose?.elbowL, 1); XCTAssertEqual(pose?.elbowR, -0.5)
+        XCTAssertNotNil(LivePose(arguments: " armL=0.2"), "arms alone make a pose")
+    }
+
+    func testEachMemberGetsValidUniqueArmInputs() {
+        let claude = LivePoseAnimator.ArmInputs(member: .claude)
+        XCTAssertEqual(claude.all, ["AIROOMclaudeArmL", "AIROOMclaudeArmR", "AIROOMclaudeElbowL", "AIROOMclaudeElbowR"])
+        let added = LivePoseAnimator.ArmInputs(member: MemberID(rawValue: "m-ab12cd"))
+        XCTAssertTrue(Set(claude.all).isDisjoint(with: added.all))
+        for name in claude.all + added.all {
+            XCTAssertTrue((4...32).contains(name.count) && name.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }, name)
+        }
+    }
+
+    func testArmsAreStreamedOnlyWithInputs() {
+        var rig = LivePoseAnimator(idle: false)
+        rig.apply(LivePose(armL: 0.6, elbowR: -1, duration: 0.5), at: 0)
+        let inputs = LivePoseAnimator.ArmInputs(member: .claude)
+        let frame = Dictionary(uniqueKeysWithValues: rig.frame(at: 1, arms: inputs))
+        XCTAssertEqual(frame[inputs.armL]!, 0.6, accuracy: 1e-9)
+        XCTAssertEqual(frame[inputs.elbowR]!, -1, accuracy: 1e-9)
+        XCTAssertNil(Dictionary(uniqueKeysWithValues: rig.frame(at: 1))[inputs.armL])
+        let sent = VTSProtocol.inject(id: "1", parameters: [(inputs.armL, -5)])
+        XCTAssertEqual(sent.data?["parameterValues"]?.array?.first?["value"]?.number, -1)
+    }
+}
