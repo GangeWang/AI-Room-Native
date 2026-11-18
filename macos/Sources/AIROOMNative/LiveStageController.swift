@@ -338,8 +338,10 @@ final class LiveStageController: ObservableObject {
         }
     }
 
-    func rehearse(_ agent: MemberID, name: String, stage: LiveStageSettings, language: InterfaceLanguage) {
-        let line = language == .english
+    func rehearse(_ agent: MemberID, name: String, stage: LiveStageSettings, language: InterfaceLanguage,
+                  script: String = "") {
+        let custom = String(script.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2_000))
+        let line = !custom.isEmpty ? custom : language == .english
             ? "[happy] Hi everyone, I'm \(name)! [thinking] [pose head=-14,6,10 gaze=up arms=0.8,0 elbows=0.8,0 in=0.7] This is a voice and expression test. [pose head=16,-2,-6 gaze=left smile=0.6 arms=0,0.8 elbows=0,-0.8 in=0.5] Over here, [surprised] can you see my mouth move? [shy] [pose head=8,-8,-10 gaze=down smile=0.8 arms=-0.6,-0.6 elbows=1,1 in=0.8] Thanks for watching."
             : "[happy] 大家好，我是\(name)！[thinking] [pose head=-14,6,10 gaze=up arms=0.8,0 elbows=0.8,0 in=0.7] 這是聲音和表情的測試。[pose head=16,-2,-6 gaze=left smile=0.6 arms=0,0.8 elbows=0,-0.8 in=0.5] 往這邊看，[surprised] 有看到我的嘴巴在動嗎？[shy] [pose head=8,-8,-10 gaze=down smile=0.8 arms=-0.6,-0.6 elbows=1,1 in=0.8] 謝謝收看。"
         Task {
