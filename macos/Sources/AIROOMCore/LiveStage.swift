@@ -393,10 +393,15 @@ public enum LipSync {
     /// Converts per-window RMS loudness into 0...1 mouth openness. Normalised to
     /// the utterance's own peak so quiet and loud voices animate similarly.
     public static func mouthCurve(rms: [Float], gate: Float = 0.08) -> [Double] {
-        guard let peak = rms.max(), peak > 0 else { return rms.map { _ in 0 } }
-        return rms.map { value in
-            let level = value / peak
-            return level < gate ? 0 : Double(min(1, pow(level, 0.6)))
-        }
+        let peak = rms.max() ?? 0
+        return rms.map { mouth(level: $0, peak: peak, gate: gate) }
+    }
+
+    /// One window's openness against the loudest window heard so far (used
+    /// while audio is still streaming in and the final peak is unknown).
+    public static func mouth(level: Float, peak: Float, gate: Float = 0.08) -> Double {
+        guard peak > 0 else { return 0 }
+        let relative = level / peak
+        return relative < gate ? 0 : Double(min(1, pow(relative, 0.6)))
     }
 }
