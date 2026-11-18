@@ -94,97 +94,158 @@ public sealed partial class WorkbenchModel
         liveStopRequested = true;
         if (liveRunID is { } id) runner.Cancel(id);
         liveCancellation?.Cancel();
+        StopStage();
         // The loop does the final state cleanup when its in-flight request exits.
+    }
+
+    /// <summary>One turn in flight: who speaks, which room entry carries it,
+    /// and the reply task (started before the previous line is spoken).</summary>
+    sealed record LiveTurn(MemberID Speaker, Guid EntryID, Guid RunID, Task<string> Reply);
+
+    /// <summary>Who speaks after `last`, if the show may go on; null ends the show.</summary>
+    MemberID? NextLiveSpeaker(Guid roomID, DateTimeOffset started, LiveShowSettings config,
+        MemberID? last, CancellationToken token)
+    {
+        List<MemberID> eligible;
+        lock (Archive)
+        {
+            var room = FindRoom(roomID);
+            if (room is null) return null;
+            var present = PresentMembers(room);
+            eligible = room.Participants
+                .Where(agent => present.Any(card => card.Agent == agent && card.Enabled)).ToList();
+        }
+        if (!LiveShowPolicy.ShouldContinue(liveTurns, started, DateTimeOffset.Now, config,
+                hasTwoAgents: eligible.Distinct().Count() >= 2, userStopped: liveStopRequested || token.IsCancellationRequested))
+        {
+            return null;
+        }
+        var speaker = LiveShowPolicy.NextSpeaker(eligible, last);
+        if (speaker is not { } who) return null;
+        // A confirmed fresh 100% sample is an actual rate limit. Unknown quota
+        // is NOT interpreted as 0%; bounded manual live sessions may continue.
+        var quota = QuotaOf(who);
+        if (quota is { } sample && sample.Status == QuotaStatus.Ready && sample.IsFresh(DateTimeOffset.Now)
+            && sample.Windows.Any(window => window.Exhausted))
+        {
+            StatusMessage = $"{who.RawValue} 的官方額度已用盡，直播已暫停。";
+            return null;
+        }
+        return who;
+    }
+
+    /// <summary>Appends the placeholder entry and starts the model run in the
+    /// background. Called for the current turn and (when performing) for the
+    /// next one, which writes its line while the current one is being spoken.</summary>
+    LiveTurn BeginLiveTurn(Guid roomID, LiveShowSettings config, MemberID who, CancellationToken token)
+    {
+        var runID = Guid.NewGuid();
+        var entryID = Guid.NewGuid();
+        liveRunID = runID;
+        lock (Archive)
+        {
+            if (FindRoom(roomID) is { } live)
+            {
+                live.Entries.Add(new RoomEntry
+                {
+                    Id = entryID, Speaker = Speaker.Assistant, Agent = who,
+                    DisplayName = MemberName(who), Body = "準備發言……", Delivery = RoomDelivery.InProgress,
+                });
+                live.UpdatedAt = DateTimeOffset.Now;
+            }
+        }
+        Persist();
+        var performs = StageSettings().Performs;
+        string prompt;
+        lock (Archive)
+        {
+            prompt = LiveShowPolicy.Prompt(FindRoom(roomID) ?? new TeamRoom(), who, MemberName(who),
+                config.Topic, config.Summary, Archive.Settings.Language,
+                cues: performs, poses: StageDrivesRig(who));
+        }
+        var home = Desk?.PersonalFolder(who) ?? "";
+        var runSettings = CloneSettingsWithWorkspace(home.Length > 0 ? home : ".");
+        var reply = Task.Run(() => runner.RunAsync(runID, who, prompt, runSettings,
+            fallbackWorkspace: home, access: ExecutionAccess.ReadFiles,
+            onUpdate: text => RunOnDispatcher(() =>
+                UpdateRoomEntryText(roomID, entryID, performs ? LiveCueParser.Parse(text).CleanText : text)),
+            cancellationToken: token));
+        return new LiveTurn(who, entryID, runID, reply);
     }
 
     async Task LiveLoopAsync(Guid roomID, DateTimeOffset started, LiveShowSettings config, CancellationToken token)
     {
+        LiveTurn? ahead = null;
         try
         {
-            var settings = CloneSettingsWithWorkspace("");
             while (true)
             {
-                TeamRoom? room;
-                List<MemberID> eligible;
-                lock (Archive)
+                lock (Archive) if (FindRoom(roomID) is null) return;
+                LiveTurn turn;
+                if (ahead is { } prepared)
                 {
-                    room = FindRoom(roomID);
-                    if (room is null) return;
-                    var present = PresentMembers(room);
-                    eligible = room.Participants
-                        .Where(agent => present.Any(card => card.Agent == agent && card.Enabled)).ToList();
+                    turn = prepared;
+                    ahead = null;
                 }
-                var now = DateTimeOffset.Now;
-                if (!LiveShowPolicy.ShouldContinue(liveTurns, started, now, config,
-                        hasTwoAgents: eligible.Distinct().Count() >= 2, userStopped: liveStopRequested || token.IsCancellationRequested))
+                else
                 {
-                    return;
+                    var speaker = NextLiveSpeaker(roomID, started, config, liveLastSpeaker, token);
+                    if (speaker is not { } who) return;
+                    turn = BeginLiveTurn(roomID, config, who, token);
                 }
-                var speaker = LiveShowPolicy.NextSpeaker(eligible, liveLastSpeaker);
-                if (speaker is not { } who) return;
-                // A confirmed fresh 100% sample is an actual rate limit. Unknown quota
-                // is NOT interpreted as 0%; bounded manual live sessions may continue.
-                var quota = QuotaOf(who);
-                if (quota is { } sample && sample.Status == QuotaStatus.Ready && sample.IsFresh(now)
-                    && sample.Windows.Any(window => window.Exhausted))
-                {
-                    StatusMessage = $"{who.RawValue} 的官方額度已用盡，直播已暫停。";
-                    return;
-                }
-                var runID = Guid.NewGuid();
-                var entryID = Guid.NewGuid();
-                liveRunID = runID;
-                lock (Archive)
-                {
-                    if (FindRoom(roomID) is { } live)
-                    {
-                        live.Entries.Add(new RoomEntry
-                        {
-                            Id = entryID, Speaker = Speaker.Assistant, Agent = who,
-                            DisplayName = MemberName(who), Body = "準備發言……", Delivery = RoomDelivery.InProgress,
-                        });
-                        live.UpdatedAt = DateTimeOffset.Now;
-                    }
-                }
-                Persist();
-                string prompt;
-                lock (Archive)
-                {
-                    prompt = LiveShowPolicy.Prompt(FindRoom(roomID) ?? new TeamRoom(), who, MemberName(who),
-                        config.Topic, config.Summary, Archive.Settings.Language, cues: false);
-                }
+                var spokenBy = turn.Speaker;
+                var performs = StageSettings().Performs;
+                string answer;
                 try
                 {
-                    var home = Desk?.PersonalFolder(who) ?? "";
-                    var runSettings = CloneSettingsWithWorkspace(home.Length > 0 ? home : ".");
-                    var answer = await runner.RunAsync(runID, who, prompt, runSettings,
-                        fallbackWorkspace: home, access: ExecutionAccess.ReadFiles,
-                        onUpdate: text => RunOnDispatcher(() =>
-                            UpdateRoomEntryText(roomID, entryID, text)));
-                    // Stop requested during a network reply: cannot promote it into
-                    // the next model's context even if the process returned successfully.
-                    if (liveStopRequested || token.IsCancellationRequested)
-                    {
-                        FinishRoomReply(roomID, entryID, "直播停止；本輪結果未轉交。", RoomDelivery.Interrupted);
-                        return;
-                    }
-                    FinishRoomReply(roomID, entryID, answer, RoomDelivery.Completed);
-                    liveLastSpeaker = who;
-                    liveTurns += 1;
-                    Persist();
-                    BumpRooms();
+                    answer = await turn.Reply;
                 }
                 catch (Exception error)
                 {
-                    FinishRoomReply(roomID, entryID, $"直播回覆未確認：{error.Message}",
+                    liveRunID = null;
+                    FinishRoomReply(roomID, turn.EntryID, $"直播回覆未確認：{error.Message}",
                         liveStopRequested ? RoomDelivery.Interrupted : RoomDelivery.Failed);
-                    StatusMessage = $"直播已停止，因為 {who.RawValue} 的回覆沒有成功完成。請檢查帳號及連線。";
+                    if (!liveStopRequested)
+                    {
+                        StatusMessage = $"直播已停止，因為 {spokenBy.RawValue} 的回覆沒有成功完成。請檢查帳號及連線。";
+                    }
                     return;
                 }
                 liveRunID = null;
+                // Stop requested during a network reply: cannot promote it into
+                // the next model's context even if the process returned successfully.
+                if (liveStopRequested || token.IsCancellationRequested)
+                {
+                    FinishRoomReply(roomID, turn.EntryID, "直播停止；本輪結果未轉交。", RoomDelivery.Interrupted);
+                    return;
+                }
+                // Emotion cues are stage directions: the shared transcript (and
+                // therefore the next co-host's context) only keeps spoken text.
+                var parsed = LiveCueParser.Parse(answer);
+                var spoken = performs && parsed.CleanText.Length > 0 ? parsed.CleanText : answer;
+                FinishRoomReply(roomID, turn.EntryID, spoken, RoomDelivery.Completed);
+                liveLastSpeaker = spokenBy;
+                liveTurns += 1;
+                Persist();
+                BumpRooms();
+                if (performs)
+                {
+                    // The next co-host writes its line while this one is spoken, so
+                    // the gap after the voice is only the delay, not a whole model
+                    // run. Skipped on summary turns, which use their own run.
+                    var summaryDue = liveTurns % 12 == 0;
+                    if (!summaryDue && NextLiveSpeaker(roomID, started, config, spokenBy, token) is { } upcoming)
+                    {
+                        ahead = BeginLiveTurn(roomID, config, upcoming, token);
+                    }
+                    // Waits for the voice to finish so co-hosts never overlap.
+                    await PerformAsync(LiveCueParser.Events(parsed, spokenBy, turnID: turn.EntryID),
+                        StageSettings(), Archive.Settings.Language);
+                    if (liveStopRequested || token.IsCancellationRequested) return;
+                }
                 if (liveTurns > 0 && liveTurns % 12 == 0 && !liveStopRequested)
                 {
-                    await SummarizeLiveHistoryAsync(roomID, config, settings, token);
+                    await SummarizeLiveHistoryAsync(roomID, config, CloneSettingsWithWorkspace(""), token);
                 }
                 // Keep CPU idle while waiting for the next turn. Audience inserts
                 // remain visible immediately and are read by the next agent turn.
@@ -194,6 +255,12 @@ public sealed partial class WorkbenchModel
         }
         finally
         {
+            if (ahead is { } leftover)
+            {
+                // Generated ahead but never spoken: stop it and keep it out of the transcript.
+                _ = runner.Cancel(leftover.RunID);
+                FinishRoomReply(roomID, leftover.EntryID, "直播停止；本輪結果未轉交。", RoomDelivery.Interrupted);
+            }
             liveActive = false;
             liveRunID = null;
             liveStartedAt = null;
@@ -212,6 +279,7 @@ public sealed partial class WorkbenchModel
             }
             Persist();
             BumpRooms();
+            await ResetStageAvatarsAsync();
         }
     }
 
