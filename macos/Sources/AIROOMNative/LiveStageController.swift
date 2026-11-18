@@ -123,7 +123,7 @@ final class LiveStageController: ObservableObject {
                     let frames = await client.injectedFrames
                     let error = await client.lastUnmatchedError
                     let headX = animator.frame(at: Self.now()).first { $0.0 == LivePoseAnimator.Input.headX }?.1 ?? 0
-                    self.rigStatus[agent] = String(format: "骨架串流：已送出 %d 幀 · FaceAngleX %.1f · %@", frames, headX,
+                    self.rigStatus[agent] = String(format: "骨架串流：已送出 %d 幀 · FaceAngleX %.1f · 嘴 %.2f · %@", frames, headX, animator.mouth,
                                                    self.rigTrace[agent] ?? "待機") + (error.map { " · \($0)" } ?? "")
                 }
                 try? await Task.sleep(nanoseconds: 33_000_000)
