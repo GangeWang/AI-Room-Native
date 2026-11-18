@@ -1697,10 +1697,10 @@ final class WorkbenchModel: ObservableObject {
         updateStageCharacter(agent) { $0.vtsToken = "" }
     }
 
-    func rehearseStage(_ agent: MemberID) {
+    func rehearseStage(_ agent: MemberID, script: String = "") {
         guard !liveActive else { return }
         let name = archive.members.first(where: { $0.agent == agent })?.name ?? agent.shortName
-        stage.rehearse(agent, name: name, stage: archive.liveStage, language: archive.settings.language)
+        stage.rehearse(agent, name: name, stage: archive.liveStage, language: archive.settings.language, script: script)
     }
 
     private func summarizeLiveHistory(roomID: UUID, config: LiveShowSettings,

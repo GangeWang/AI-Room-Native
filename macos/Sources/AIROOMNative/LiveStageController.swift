@@ -116,14 +116,15 @@ final class LiveStageController: ObservableObject {
             var tick = 0
             while !Task.isCancelled {
                 guard let self, let animator = self.animators[agent], let link = self.links[agent] else { return }
-                await client.inject(animator.frame(at: Self.now(), mouthParameter: link.mouthParameter))
+                await client.inject(animator.frame(at: Self.now(), mouthParameter: link.mouthParameter,
+                                                   arms: LivePoseAnimator.ArmInputs(member: agent)))
                 tick += 1
                 if tick % 6 == 0 {
                     // Five times a second: what is sent, and what VTS says about it.
                     let frames = await client.injectedFrames
                     let error = await client.lastUnmatchedError
                     let headX = animator.frame(at: Self.now()).first { $0.0 == LivePoseAnimator.Input.headX }?.1 ?? 0
-                    self.rigStatus[agent] = String(format: "骨架串流：已送出 %d 幀 · FaceAngleX %.1f · %@", frames, headX,
+                    self.rigStatus[agent] = String(format: "骨架串流：已送出 %d 幀 · FaceAngleX %.1f · 嘴 %.2f · %@", frames, headX, animator.mouth,
                                                    self.rigTrace[agent] ?? "待機") + (error.map { " · \($0)" } ?? "")
                 }
                 try? await Task.sleep(nanoseconds: 33_000_000)
@@ -173,7 +174,21 @@ final class LiveStageController: ObservableObject {
         let wanted = links[agent]?.modelID ?? ""
         try await loadIfNeeded(agent, modelID: wanted, client: client, current: result.model)
         await refreshHotkeys(agent)
-        if links[agent]?.aiRig == true { startRig(agent) }
+        if links[agent]?.aiRig == true {
+            await createArmInputs(agent, on: client)
+            startRig(agent)
+        }
+    }
+
+    /// The arm inputs live in VTS as this member's custom parameters; the
+    /// model's parameter settings map them onto its arm rig.
+    private func createArmInputs(_ agent: MemberID, on client: VTubeStudioClient) async {
+        let names = LivePoseAnimator.ArmInputs(member: agent)
+        let explain = ["AI Room：左上臂", "AI Room：右上臂", "AI Room：左手肘", "AI Room：右手肘"]
+        for (name, text) in zip(names.all, explain) {
+            do { try await client.createParameter(name, explanation: text, min: -1, max: 1, defaultValue: 0) }
+            catch { lastWarning = "建立手臂參數 \(name) 失敗：\(error.localizedDescription)" }
+        }
     }
 
     private func loadIfNeeded(_ agent: MemberID, modelID: String, client: VTubeStudioClient,
@@ -323,10 +338,12 @@ final class LiveStageController: ObservableObject {
         }
     }
 
-    func rehearse(_ agent: MemberID, name: String, stage: LiveStageSettings, language: InterfaceLanguage) {
-        let line = language == .english
-            ? "[happy] Hi everyone, I'm \(name)! [thinking] [pose head=-14,6,10 gaze=up in=0.7] This is a voice and expression test. [pose head=16,-2,-6 gaze=left smile=0.6 in=0.5] Over here, [surprised] can you see my mouth move? [shy] [pose head=8,-8,-10 gaze=down smile=0.8 in=0.8] Thanks for watching."
-            : "[happy] 大家好，我是\(name)！[thinking] [pose head=-14,6,10 gaze=up in=0.7] 這是聲音和表情的測試。[pose head=16,-2,-6 gaze=left smile=0.6 in=0.5] 往這邊看，[surprised] 有看到我的嘴巴在動嗎？[shy] [pose head=8,-8,-10 gaze=down smile=0.8 in=0.8] 謝謝收看。"
+    func rehearse(_ agent: MemberID, name: String, stage: LiveStageSettings, language: InterfaceLanguage,
+                  script: String = "") {
+        let custom = String(script.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2_000))
+        let line = !custom.isEmpty ? custom : language == .english
+            ? "[happy] Hi everyone, I'm \(name)! [thinking] [pose head=-14,6,10 gaze=up arms=0.8,0 elbows=0.8,0 in=0.7] This is a voice and expression test. [pose head=16,-2,-6 gaze=left smile=0.6 arms=0,0.8 elbows=0,-0.8 in=0.5] Over here, [surprised] can you see my mouth move? [shy] [pose head=8,-8,-10 gaze=down smile=0.8 arms=-0.6,-0.6 elbows=1,1 in=0.8] Thanks for watching."
+            : "[happy] 大家好，我是\(name)！[thinking] [pose head=-14,6,10 gaze=up arms=0.8,0 elbows=0.8,0 in=0.7] 這是聲音和表情的測試。[pose head=16,-2,-6 gaze=left smile=0.6 arms=0,0.8 elbows=0,-0.8 in=0.5] 往這邊看，[surprised] 有看到我的嘴巴在動嗎？[shy] [pose head=8,-8,-10 gaze=down smile=0.8 arms=-0.6,-0.6 elbows=1,1 in=0.8] 謝謝收看。"
         Task {
             await perform(LiveCueParser.events(from: LiveCueParser.parse(line), speaker: agent),
                           stage: stage, language: language)

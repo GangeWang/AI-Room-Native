@@ -44,50 +44,59 @@ final class SpeechPlayer {
         utterance.rate = Float(character.speechRate)
         utterance.pitchMultiplier = Float(character.pitch)
 
-        guard let buffer = Self.mixdown(await synthesize(utterance)), token == generation else { return }
-        let window = max(1, Int(buffer.format.sampleRate / Self.mouthFrameRate))
-        let curve = LipSync.mouthCurve(rms: Self.rms(buffer, window: window))
-        if connectedFormat != buffer.format {
-            engine.disconnectNodeOutput(player)
-            engine.connect(player, to: engine.mainMixerNode, format: buffer.format)
-            connectedFormat = buffer.format
-        }
-        do { if !engine.isRunning { try engine.start() } } catch { return }
-
+        // Stream: play each chunk as soon as it is synthesized. Waiting for the
+        // whole utterance stalled every line, because on current macOS the
+        // empty end-of-stream buffer often never arrives (we waited 30 s for it).
+        let stream = SpeechStream()
         let done = OnceFlag()
+        let started = Date()
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             let finish = { done.run { continuation.resume() } }
             interrupt = finish
-            player.scheduleBuffer(buffer, at: nil, options: .interrupts,
-                                  completionCallbackType: .dataPlayedBack) { _ in finish() }
-            player.play()
-            Task { @MainActor [player] in
-                while !done.isDone && token == self.generation {
-                    if let now = player.lastRenderTime, let time = player.playerTime(forNodeTime: now) {
-                        let index = Int(time.sampleTime) / window
-                        await onMouth(curve.indices.contains(index) ? curve[index] : 0)
+            synthesizer.write(utterance) { [weak self] buffer in
+                guard let pcm = buffer as? AVAudioPCMBuffer else { return }
+                if pcm.frameLength == 0 {
+                    stream.endSynthesis()
+                    if stream.isDrained { finish() }
+                    return
+                }
+                guard let mono = Self.mixdown([pcm]) else { return }
+                DispatchQueue.main.async {
+                    guard let self, token == self.generation, !done.isDone else { return }
+                    if !stream.isStarted {
+                        if self.connectedFormat != mono.format {
+                            self.engine.disconnectNodeOutput(self.player)
+                            self.engine.connect(self.player, to: self.engine.mainMixerNode, format: mono.format)
+                            self.connectedFormat = mono.format
+                        }
+                        do { if !self.engine.isRunning { try self.engine.start() } } catch { finish(); return }
+                        self.player.stop() // restart the timeline so sample time indexes this line
+                        stream.start(window: max(1, Int(mono.format.sampleRate / Self.mouthFrameRate)))
                     }
+                    stream.add(Self.rms(mono, window: stream.window))
+                    self.player.scheduleBuffer(mono, completionCallbackType: .dataPlayedBack) { _ in
+                        stream.played()
+                        if stream.isFinished { finish() }
+                    }
+                    if !self.player.isPlaying { self.player.play() }
+                }
+            }
+            // Watchdog: end when no new audio arrived for a while and all of it
+            // has played, or when synthesis never produced anything.
+            Task { @MainActor [player] in
+                while !done.isDone {
                     try? await Task.sleep(nanoseconds: UInt64(1_000_000_000 / Self.mouthFrameRate))
+                    guard token == self.generation else { finish(); break }
+                    if stream.isStarted, let now = player.lastRenderTime, let time = player.playerTime(forNodeTime: now) {
+                        await onMouth(stream.mouth(atSample: Int(time.sampleTime)))
+                    }
+                    if stream.isIdle(for: 0.8) && stream.isDrained { finish() }
+                    if !stream.isStarted && Date().timeIntervalSince(started) > 10 { finish() }
                 }
                 await onMouth(0)
             }
         }
         interrupt = nil
-    }
-
-    private func synthesize(_ utterance: AVSpeechUtterance) async -> [AVAudioPCMBuffer] {
-        let collected = BufferBox()
-        let done = OnceFlag()
-        return await withCheckedContinuation { continuation in
-            let finish = { done.run { continuation.resume(returning: collected.all) } }
-            interrupt = finish
-            synthesizer.write(utterance) { buffer in
-                guard let pcm = buffer as? AVAudioPCMBuffer else { return }
-                if pcm.frameLength == 0 { finish() } else { collected.append(pcm) }
-            }
-            // Some voices never deliver the empty end-of-stream buffer.
-            Task { try? await Task.sleep(nanoseconds: 30_000_000_000); finish() }
-        }
     }
 
     /// Mono float32 copy of every synthesized chunk (Int16 or Float32 input).
@@ -124,11 +133,37 @@ final class SpeechPlayer {
     }
 }
 
-private final class BufferBox: @unchecked Sendable {
+/// One line's streaming state, shared by the synthesizer callback, the
+/// player's completion callbacks and the mouth loop.
+private final class SpeechStream: @unchecked Sendable {
     private let lock = NSLock()
-    private var buffers: [AVAudioPCMBuffer] = []
-    func append(_ buffer: AVAudioPCMBuffer) { lock.lock(); buffers.append(buffer); lock.unlock() }
-    var all: [AVAudioPCMBuffer] { lock.lock(); defer { lock.unlock() }; return buffers }
+    private var levels: [Float] = []
+    private var peak: Float = 0
+    private var scheduled = 0, finished = 0
+    private var synthesisEnded = false
+    private var lastArrival = Date()
+    private var started = false
+    private var windowSize = 1
+
+    var window: Int { lock.lock(); defer { lock.unlock() }; return windowSize }
+    var isStarted: Bool { lock.lock(); defer { lock.unlock() }; return started }
+    func start(window: Int) { lock.lock(); windowSize = window; started = true; lock.unlock() }
+    func add(_ rms: [Float]) {
+        lock.lock(); levels += rms; peak = max(peak, rms.max() ?? 0); scheduled += 1; lastArrival = Date(); lock.unlock()
+    }
+    func played() { lock.lock(); finished += 1; lock.unlock() }
+    func endSynthesis() { lock.lock(); synthesisEnded = true; lock.unlock() }
+    var isDrained: Bool { lock.lock(); defer { lock.unlock() }; return started && finished >= scheduled }
+    var isFinished: Bool { lock.lock(); defer { lock.unlock() }; return synthesisEnded && started && finished >= scheduled }
+    func isIdle(for seconds: TimeInterval) -> Bool {
+        lock.lock(); defer { lock.unlock() }; return started && Date().timeIntervalSince(lastArrival) > seconds
+    }
+    func mouth(atSample sample: Int) -> Double {
+        lock.lock(); defer { lock.unlock() }
+        let index = sample / windowSize
+        guard index >= 0, index < levels.count else { return 0 }
+        return LipSync.mouth(level: levels[index], peak: peak)
+    }
 }
 
 private final class OnceFlag: @unchecked Sendable {

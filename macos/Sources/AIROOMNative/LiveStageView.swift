@@ -7,6 +7,8 @@ struct LiveStageView: View {
     @EnvironmentObject private var model: WorkbenchModel
     @ObservedObject var stage: LiveStageController
     @State private var voices: [AVSpeechSynthesisVoice] = []
+    /// Optional rehearsal line per member, e.g. to try pose values.
+    @State private var scripts: [MemberID: String] = [:]
 
     private var settings: LiveStageSettings { model.archive.liveStage }
     private var english: Bool { model.archive.settings.language == .english }
@@ -151,9 +153,13 @@ struct LiveStageView: View {
                     if stage.speaking == agent {
                         Label(t("發言中", "Speaking"), systemImage: "speaker.wave.2.fill").font(.caption).foregroundStyle(agent.studioColor)
                     }
-                    Button { model.rehearseStage(agent) } label: { Label(t("試演", "Rehearse"), systemImage: "play.circle") }
+                    Button { model.rehearseStage(agent, script: scripts[agent] ?? "") } label: { Label(t("試演", "Rehearse"), systemImage: "play.circle") }
                         .disabled(model.liveActive || !settings.performs)
                 }
+                TextField(t("自訂試演台詞（可留空；可用 [happy]、[pose head=10 arms=1,0] 等標籤）",
+                            "Custom rehearsal line (optional; tags like [happy] or [pose head=10 arms=1,0] work)"),
+                          text: Binding(get: { scripts[agent] ?? "" }, set: { scripts[agent] = $0 }))
+                    .textFieldStyle(.roundedBorder).font(.caption)
                 Picker(t("聲音", "Voice"), selection: Binding(get: { character.voiceIdentifier },
                         set: { value in model.updateStageCharacter(agent) { $0.voiceIdentifier = value } })) {
                     Text(t("系統預設", "System default")).tag("")

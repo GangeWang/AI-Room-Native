@@ -55,6 +55,12 @@ public struct LivePose: Codable, Equatable, Sendable {
     public var brows: Double?
     /// 0 frown ... 0.35 neutral ... 1 big smile (also narrows the eyes and blushes on most rigs).
     public var smile: Double?
+    /// -1...1 per side: upper arm (shoulder) and forearm (elbow). Sent as the
+    /// member's own VTS custom inputs, which the model maps to its arm rig.
+    public var armL: Double?
+    public var armR: Double?
+    public var elbowL: Double?
+    public var elbowR: Double?
     /// Seconds to move into this pose.
     public var duration: Double
 
@@ -62,6 +68,7 @@ public struct LivePose: Codable, Equatable, Sendable {
 
     public init(headX: Double? = nil, headY: Double? = nil, headZ: Double? = nil, gazeX: Double? = nil,
                 gazeY: Double? = nil, eyes: Double? = nil, brows: Double? = nil, smile: Double? = nil,
+                armL: Double? = nil, armR: Double? = nil, elbowL: Double? = nil, elbowR: Double? = nil,
                 duration: Double = LivePose.defaultDuration) {
         func clamp(_ value: Double?, _ low: Double, _ high: Double) -> Double? {
             guard let value, value.isFinite else { return nil }
@@ -70,11 +77,13 @@ public struct LivePose: Codable, Equatable, Sendable {
         self.headX = clamp(headX, -30, 30); self.headY = clamp(headY, -20, 20); self.headZ = clamp(headZ, -30, 30)
         self.gazeX = clamp(gazeX, -1, 1); self.gazeY = clamp(gazeY, -1, 1)
         self.eyes = clamp(eyes, 0, 1); self.brows = clamp(brows, 0, 1); self.smile = clamp(smile, 0, 1)
+        self.armL = clamp(armL, -1, 1); self.armR = clamp(armR, -1, 1)
+        self.elbowL = clamp(elbowL, -1, 1); self.elbowR = clamp(elbowR, -1, 1)
         self.duration = clamp(duration, 0.1, 4) ?? LivePose.defaultDuration
     }
 
     public var isEmpty: Bool {
-        [headX, headY, headZ, gazeX, gazeY, eyes, brows, smile].allSatisfy { $0 == nil }
+        [headX, headY, headZ, gazeX, gazeY, eyes, brows, smile, armL, armR, elbowL, elbowR].allSatisfy { $0 == nil }
     }
 
     /// Parses the inside of a `[pose …]` tag. Unknown keys and bad numbers are
@@ -82,6 +91,7 @@ public struct LivePose: Codable, Equatable, Sendable {
     public init?(arguments: String) {
         var headX: Double?, headY: Double?, headZ: Double?, gazeX: Double?, gazeY: Double?
         var eyes: Double?, brows: Double?, smile: Double?, duration = LivePose.defaultDuration
+        var armL: Double?, armR: Double?, elbowL: Double?, elbowR: Double?
         func numbers(_ text: Substring) -> [Double] { text.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) } }
         for pair in arguments.split(whereSeparator: \.isWhitespace).prefix(12) {
             let parts = pair.split(separator: "=", maxSplits: 1)
@@ -105,12 +115,23 @@ public struct LivePose: Codable, Equatable, Sendable {
             case "eyes": eyes = Double(value)
             case "brows": brows = Double(value)
             case "smile": smile = Double(value)
+            case "arms":
+                let v = numbers(value)
+                if v.count > 0 { armL = v[0] }; if v.count > 1 { armR = v[1] }
+            case "elbows":
+                let v = numbers(value)
+                if v.count > 0 { elbowL = v[0] }; if v.count > 1 { elbowR = v[1] }
+            case "arml": armL = Double(value)
+            case "armr": armR = Double(value)
+            case "elbowl": elbowL = Double(value)
+            case "elbowr": elbowR = Double(value)
             case "in": duration = Double(value.trimmingCharacters(in: CharacterSet(charactersIn: "s"))) ?? duration
             default: continue
             }
         }
         let pose = LivePose(headX: headX, headY: headY, headZ: headZ, gazeX: gazeX, gazeY: gazeY,
-                            eyes: eyes, brows: brows, smile: smile, duration: duration)
+                            eyes: eyes, brows: brows, smile: smile,
+                            armL: armL, armR: armR, elbowL: elbowL, elbowR: elbowR, duration: duration)
         guard !pose.isEmpty else { return nil }
         self = pose
     }
@@ -120,14 +141,18 @@ extension LivePose {
     /// What the rig does for a bare emotion tag with no pose of its own.
     public static func preset(for emotion: LiveEmotion) -> LivePose {
         switch emotion {
-        case .neutral:   return LivePose(headX: 0, headY: 0, headZ: 0, gazeX: 0, gazeY: 0, eyes: 1, brows: 0.5, smile: 0.35, duration: 0.6)
-        case .happy:     return LivePose(headY: 3, headZ: 4, eyes: 1, brows: 0.65, smile: 0.9, duration: 0.5)
-        case .excited:   return LivePose(headY: 6, headZ: -5, eyes: 1, brows: 0.85, smile: 1, duration: 0.3)
-        case .thinking:  return LivePose(headX: -8, headY: 4, headZ: 9, gazeX: 0.5, gazeY: 0.6, eyes: 0.8, brows: 0.6, smile: 0.3, duration: 0.8)
-        case .surprised: return LivePose(headY: 5, eyes: 1, brows: 1, smile: 0.4, duration: 0.2)
-        case .sad:       return LivePose(headY: -8, headZ: -4, gazeY: -0.5, eyes: 0.7, brows: 0.2, smile: 0.1, duration: 1.0)
-        case .angry:     return LivePose(headY: -4, eyes: 0.85, brows: 0, smile: 0.05, duration: 0.4)
-        case .shy:       return LivePose(headX: 10, headY: -6, headZ: -8, gazeX: -0.6, gazeY: -0.4, eyes: 0.75, brows: 0.55, smile: 0.7, duration: 0.7)
+        case .neutral:   return LivePose(headX: 0, headY: 0, headZ: 0, gazeX: 0, gazeY: 0, eyes: 1, brows: 0.5, smile: 0.35,
+                                     armL: 0, armR: 0, elbowL: 0, elbowR: 0, duration: 0.6)
+        case .happy:     return LivePose(headY: 3, headZ: 4, eyes: 1, brows: 0.65, smile: 0.9, armL: 0, armR: 0, elbowL: 0, elbowR: 0, duration: 0.5)
+        case .excited:   return LivePose(headY: 6, headZ: -5, eyes: 1, brows: 0.85, smile: 1,
+                                     armL: 0.7, armR: 0.7, elbowL: 0.6, elbowR: 0.6, duration: 0.3)
+        case .thinking:  return LivePose(headX: -8, headY: 4, headZ: 9, gazeX: 0.5, gazeY: 0.6, eyes: 0.8, brows: 0.6, smile: 0.3, armL: 0, armR: 0.2, elbowL: 0, elbowR: 1, duration: 0.8)
+        case .surprised: return LivePose(headY: 5, eyes: 1, brows: 1, smile: 0.4,
+                                     armL: 0.3, armR: 0.3, elbowL: 0.9, elbowR: 0.9, duration: 0.2)
+        case .sad:       return LivePose(headY: -8, headZ: -4, gazeY: -0.5, eyes: 0.7, brows: 0.2, smile: 0.1, armL: 0, armR: 0, elbowL: 0, elbowR: 0, duration: 1.0)
+        case .angry:     return LivePose(headY: -4, eyes: 0.85, brows: 0, smile: 0.05, armL: 0, armR: 0, elbowL: 0, elbowR: 0, duration: 0.4)
+        case .shy:       return LivePose(headX: 10, headY: -6, headZ: -8, gazeX: -0.6, gazeY: -0.4, eyes: 0.75, brows: 0.55, smile: 0.7,
+                                     armL: 0, armR: 0, elbowL: 1, elbowR: 1, duration: 0.7)
         }
     }
 }
@@ -393,10 +418,15 @@ public enum LipSync {
     /// Converts per-window RMS loudness into 0...1 mouth openness. Normalised to
     /// the utterance's own peak so quiet and loud voices animate similarly.
     public static func mouthCurve(rms: [Float], gate: Float = 0.08) -> [Double] {
-        guard let peak = rms.max(), peak > 0 else { return rms.map { _ in 0 } }
-        return rms.map { value in
-            let level = value / peak
-            return level < gate ? 0 : Double(min(1, pow(level, 0.6)))
-        }
+        let peak = rms.max() ?? 0
+        return rms.map { mouth(level: $0, peak: peak, gate: gate) }
+    }
+
+    /// One window's openness against the loudest window heard so far (used
+    /// while audio is still streaming in and the final peak is unknown).
+    public static func mouth(level: Float, peak: Float, gate: Float = 0.08) -> Double {
+        guard peak > 0 else { return 0 }
+        let relative = level / peak
+        return relative < gate ? 0 : Double(min(1, pow(relative, 0.6)))
     }
 }

@@ -17,9 +17,23 @@ public struct LivePoseAnimator: Sendable {
         public static let brows = "Brows", smile = "MouthSmile"
     }
 
+    /// The member's own VTS custom inputs for the arms (VTS requires unique,
+    /// 4–32 character alphanumeric names; each member gets its own set so two
+    /// members' plugins never claim the same parameter).
+    public struct ArmInputs: Equatable, Sendable {
+        public var armL, armR, elbowL, elbowR: String
+        public init(member: MemberID) {
+            let tag = String(member.handle.filter { $0.isASCII && ($0.isLetter || $0.isNumber) }.prefix(14))
+            let base = "AIROOM" + (tag.isEmpty ? "member" : tag)
+            armL = base + "ArmL"; armR = base + "ArmR"; elbowL = base + "ElbowL"; elbowR = base + "ElbowR"
+        }
+        public var all: [String] { [armL, armR, elbowL, elbowR] }
+    }
+
     struct Values: Equatable, Sendable {
         var headX = 0.0, headY = 0.0, headZ = 0.0, gazeX = 0.0, gazeY = 0.0
         var eyes = 1.0, brows = 0.5, smile = 0.35
+        var armL = 0.0, armR = 0.0, elbowL = 0.0, elbowR = 0.0
 
         func applying(_ pose: LivePose) -> Values {
             var next = self
@@ -27,6 +41,8 @@ public struct LivePoseAnimator: Sendable {
             if let v = pose.headZ { next.headZ = v }; if let v = pose.gazeX { next.gazeX = v }
             if let v = pose.gazeY { next.gazeY = v }; if let v = pose.eyes { next.eyes = v }
             if let v = pose.brows { next.brows = v }; if let v = pose.smile { next.smile = v }
+            if let v = pose.armL { next.armL = v }; if let v = pose.armR { next.armR = v }
+            if let v = pose.elbowL { next.elbowL = v }; if let v = pose.elbowR { next.elbowR = v }
             return next
         }
 
@@ -34,7 +50,9 @@ public struct LivePoseAnimator: Sendable {
             func mix(_ x: Double, _ y: Double) -> Double { x + (y - x) * t }
             return Values(headX: mix(a.headX, b.headX), headY: mix(a.headY, b.headY), headZ: mix(a.headZ, b.headZ),
                           gazeX: mix(a.gazeX, b.gazeX), gazeY: mix(a.gazeY, b.gazeY), eyes: mix(a.eyes, b.eyes),
-                          brows: mix(a.brows, b.brows), smile: mix(a.smile, b.smile))
+                          brows: mix(a.brows, b.brows), smile: mix(a.smile, b.smile),
+                          armL: mix(a.armL, b.armL), armR: mix(a.armR, b.armR),
+                          elbowL: mix(a.elbowL, b.elbowL), elbowR: mix(a.elbowR, b.elbowR))
         }
     }
 
@@ -83,7 +101,8 @@ public struct LivePoseAnimator: Sendable {
     }
 
     /// The tracking inputs to send to VTube Studio at `time`.
-    public func frame(at time: TimeInterval, mouthParameter: String = "MouthOpen") -> [(String, Double)] {
+    public func frame(at time: TimeInterval, mouthParameter: String = "MouthOpen",
+                      arms: ArmInputs? = nil) -> [(String, Double)] {
         var v = values(at: time)
         var eyes = v.eyes
         if idle {
@@ -91,8 +110,11 @@ public struct LivePoseAnimator: Sendable {
             v.headX += 1.5 * sin(time * 0.53) + 0.8 * sin(time * 1.31)         // sway
             v.headZ += 1.0 * sin(time * 0.41 + 1.7)
             eyes *= Self.blink(at: time)
+            // Arms drift a little with the breath so they never look pinned.
+            let breath = 0.04 * sin(time * 2 * .pi / 4.5)
+            v.armL += breath; v.armR += breath
         }
-        return [
+        var frame: [(String, Double)] = [
             (Input.headX, min(30, max(-30, v.headX))), (Input.headY, min(20, max(-20, v.headY))),
             (Input.headZ, min(30, max(-30, v.headZ))),
             (Input.eyeOpenLeft, eyes), (Input.eyeOpenRight, eyes),
@@ -101,5 +123,10 @@ public struct LivePoseAnimator: Sendable {
             (Input.brows, v.brows), (Input.smile, v.smile),
             (mouthParameter, min(1, max(0, mouth))),
         ]
+        if let arms {
+            func c(_ x: Double) -> Double { min(1, max(-1, x)) }
+            frame += [(arms.armL, c(v.armL)), (arms.armR, c(v.armR)), (arms.elbowL, c(v.elbowL)), (arms.elbowR, c(v.elbowR))]
+        }
+        return frame
     }
 }
