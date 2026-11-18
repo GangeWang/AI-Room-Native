@@ -13,6 +13,9 @@ public sealed class NativeSettings
     public string AntigravityPath { get; set; } = "";
     public string ZCodePath { get; set; } = "";
     public string WorkspacePath { get; set; } = "";
+
+    /// <summary>VTube Studio.exe path for the live stage; empty scans Steam libraries.</summary>
+    public string VtsPath { get; set; } = "";
     public InterfaceLanguage Language { get; set; } = InterfaceLanguage.ZhTW;
 
     /// <summary>How members address the user (設定 → 個人資料). Empty = a neutral default.</summary>
