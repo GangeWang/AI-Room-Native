@@ -18,7 +18,7 @@ struct LiveStageView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 StudioPageHeading(eyebrow: "LIVE STAGE", title: t("直播舞台", "Live Stage"),
-                    subtitle: t("把雙 AI 直播的每一句話念出來，並用 VTube Studio 驅動 Live2D 表情與嘴型。一位說完才輪到下一位。",
+                    subtitle: t("把 AI 直播的每一句話念出來，並用 VTube Studio 驅動 Live2D 表情與嘴型。一位說完才輪到下一位。",
                                 "Speak every co-host line and drive Live2D expressions and lip sync through VTube Studio. One speaker at a time."))
                 speechPanel
                 vtsPanel

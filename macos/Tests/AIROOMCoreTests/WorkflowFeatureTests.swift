@@ -10,20 +10,22 @@ final class WorkflowFeatureTests: XCTestCase {
         XCTAssertEqual(LiveShowPolicy.nextSpeaker(participants: roster, last: .codex), .claude)
     }
 
-    func testLiveCannotStartWithoutBothMembers() {
+    func testLiveNeedsAtLeastOneEnabledMemberPresent() {
         let config = LiveShowSettings()
-        XCTAssertFalse(LiveShowPolicy.canStart(participants: [.claude], enabled: [.claude, .codex], config: config))
-        XCTAssertFalse(LiveShowPolicy.canStart(participants: [.claude, .codex], enabled: [.claude], config: config))
+        XCTAssertTrue(LiveShowPolicy.canStart(participants: [.claude], enabled: [.claude, .codex], config: config))
+        XCTAssertTrue(LiveShowPolicy.canStart(participants: [.claude, .codex], enabled: [.claude], config: config))
+        XCTAssertFalse(LiveShowPolicy.canStart(participants: [], enabled: [.claude], config: config))
+        XCTAssertFalse(LiveShowPolicy.canStart(participants: [.codex], enabled: [.claude], config: config))
         XCTAssertTrue(LiveShowPolicy.canStart(participants: [.claude, .codex], enabled: [.claude, .codex], config: config))
     }
 
     func testLiveCannotContinueAfterDeadlineOrUserStop() {
         let config = LiveShowSettings(maxTurns: 12, maxDurationMinutes: 30)
         let start = Date(timeIntervalSince1970: 1000)
-        XCTAssertTrue(LiveShowPolicy.shouldContinue(turns: 11, started: start, now: start.addingTimeInterval(29*60), config: config, hasTwoAgents: true, userStopped: false))
-        XCTAssertFalse(LiveShowPolicy.shouldContinue(turns: 12, started: start, now: start, config: config, hasTwoAgents: true, userStopped: false))
-        XCTAssertFalse(LiveShowPolicy.shouldContinue(turns: 2, started: start, now: start.addingTimeInterval(30*60), config: config, hasTwoAgents: true, userStopped: false))
-        XCTAssertFalse(LiveShowPolicy.shouldContinue(turns: 2, started: start, now: start, config: config, hasTwoAgents: true, userStopped: true))
+        XCTAssertTrue(LiveShowPolicy.shouldContinue(turns: 11, started: start, now: start.addingTimeInterval(29*60), config: config, hasAgents: true, userStopped: false))
+        XCTAssertFalse(LiveShowPolicy.shouldContinue(turns: 12, started: start, now: start, config: config, hasAgents: true, userStopped: false))
+        XCTAssertFalse(LiveShowPolicy.shouldContinue(turns: 2, started: start, now: start.addingTimeInterval(30*60), config: config, hasAgents: true, userStopped: false))
+        XCTAssertFalse(LiveShowPolicy.shouldContinue(turns: 2, started: start, now: start, config: config, hasAgents: true, userStopped: true))
     }
 
     func testLiveSettingsBoundResourceUse() {
