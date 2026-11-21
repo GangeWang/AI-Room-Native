@@ -68,6 +68,18 @@ final class LivePoseTests: XCTestCase {
         XCTAssertTrue(rig.contains("[pose head=X,Y,Z"))
         XCTAssertFalse(LiveShowPolicy.prompt(room: room, speaker: .claude, topic: "t", summary: "", language: .zhTW,
                                              cues: false, poses: true).contains("[pose"))
+        XCTAssertTrue(rig.contains("雙手"), "the opening line names the arms too")
+    }
+
+    func testSoloShowTalksToTheAudienceNotToCoHosts() {
+        let room = TeamRoom(entries: [])
+        for language in [InterfaceLanguage.zhTW, .english] {
+            let solo = LiveShowPolicy.prompt(room: room, speaker: .claude, topic: "t", summary: "", language: language, solo: true)
+            let duo = LiveShowPolicy.prompt(room: room, speaker: .claude, topic: "t", summary: "", language: language)
+            XCTAssertNotEqual(solo, duo)
+            XCTAssertFalse(solo.contains(language == .english ? "with other AI agents" : "正與其他 AI 輪流對話"))
+            XCTAssertTrue(solo.contains(LiveShowPolicy.hostLabel), "the owner can still direct a solo host")
+        }
     }
 }
 

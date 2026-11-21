@@ -1,6 +1,6 @@
 # 直播舞台：TTS + VTube Studio（Live2D）
 
-左側「直播舞台」設定；茶歇室的「雙 AI 同台直播」開始後自動套用。
+左側「直播舞台」設定；茶歇室的「AI 直播」開始後自動套用。在場只有一位已啟用的 AI 時，它會獨自開台、對觀眾說話；兩位以上則輪流接話。
 
 ## 流程
 
@@ -9,7 +9,7 @@ AI 回覆（可含 [happy] 等情緒標籤）
   → LiveCueParser：只認 8 種白名單情緒，其他標籤丟棄；共用紀錄只存去標籤後的文字
   → LiveEvent（speaker / utterance / emotion / turnID / sequence）
   → LiveStageController：觸發該情緒對應的 VTS 熱鍵 → macOS TTS 念出 → 依音量 30 Hz 注入 MouthOpen
-  → 念完才進入下一輪（兩位 AI 不會同時說話）
+  → 念完才進入下一輪（多位 AI 不會同時說話）
 ```
 
 念的同時，下一位 AI 已經開始寫自己的台詞（只等上一句定稿，不等念完），念完再等「間隔」秒數（0–180，預設 3）就接上。

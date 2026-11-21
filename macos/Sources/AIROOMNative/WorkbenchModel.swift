@@ -81,6 +81,8 @@ final class WorkbenchModel: ObservableObject {
     /// spoken, the next co-host's line being generated ahead.
     private var liveRunIDs: Set<UUID> = []
     private var liveStopRequested = false
+    /// Bumped on every host cut-in; a line written ahead before it is stale.
+    private var liveHostCutIns = 0
     private var liveTask: Task<Void, Never>?
     private var scheduleTimer: Task<Void, Never>?
     private var draftSaveTask: Task<Void, Never>?
@@ -1429,6 +1431,7 @@ final class WorkbenchModel: ObservableObject {
             speaker: .user, displayName: LiveShowPolicy.hostDisplayName(userName: archive.settings.userName), body: text))
         archive.rooms[index].updatedAt = .now
         roomDraft = ""
+        liveHostCutIns += 1
         persist()
         statusMessage = "已插話，下一位發言的 AI 會先處理。"
     }
@@ -1441,7 +1444,7 @@ final class WorkbenchModel: ObservableObject {
         var config = archive.liveShow
         guard LiveShowPolicy.canStart(participants: room.participants, enabled: enabled,
                                       config: config) else {
-            statusMessage = "直播模式需要至少兩位已啟用、在場的 AI 成員。"; return
+            statusMessage = "直播模式需要至少一位已啟用、在場的 AI 成員。"; return
         }
         guard !config.topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             statusMessage = "請先設定直播主題。"; return
@@ -1482,6 +1485,8 @@ final class WorkbenchModel: ObservableObject {
         var entryID: UUID
         var runID: UUID
         var reply: Task<String, Error>
+        /// `liveHostCutIns` when the prompt was built.
+        var cutIns: Int
     }
 
     /// Adds the speaker's in-progress entry and starts generating its line.
@@ -1494,9 +1499,12 @@ final class WorkbenchModel: ObservableObject {
             body: "準備發言……", delivery: .inProgress))
         persist()
         let performs = archive.liveStage.performs
+        let hosts = Set(archive.rooms[index].participants.filter { agent in
+            archive.members.contains(where: { $0.agent == agent && $0.enabled })
+        })
         let prompt = LiveShowPolicy.prompt(room: archive.rooms[index], speaker: speaker, speakerName: memberName(speaker),
             topic: config.topic, summary: archive.liveShow.summary, language: settings.language,
-            cues: performs, poses: stage.drivesRig(speaker))
+            cues: performs, poses: stage.drivesRig(speaker), solo: hosts.count == 1)
         let runner = runner, workspace = workspace
         let reply = Task { @MainActor [weak self] () throws -> String in
             try await runner.run(id: runID, agent: speaker, prompt: prompt,
@@ -1508,7 +1516,7 @@ final class WorkbenchModel: ObservableObject {
             }
         }
         liveRunIDs.insert(runID)
-        return LiveTurn(speaker: speaker, entryID: entryID, runID: runID, reply: reply)
+        return LiveTurn(speaker: speaker, entryID: entryID, runID: runID, reply: reply, cutIns: liveHostCutIns)
     }
 
     /// Who speaks after `last`, if the show may go on; nil ends the show.
@@ -1518,7 +1526,7 @@ final class WorkbenchModel: ObservableObject {
             archive.members.contains(where: { $0.agent == agent && $0.enabled })
         }
         guard LiveShowPolicy.shouldContinue(turns: liveTurns, started: started, now: .now,
-                                             config: config, hasTwoAgents: Set(eligible).count >= 2,
+                                             config: config, hasAgents: !eligible.isEmpty,
                                              userStopped: liveStopRequested || Task.isCancelled),
               let speaker = LiveShowPolicy.nextSpeaker(participants: eligible, last: last) else { return nil }
         // A confirmed fresh 100% sample is an actual rate limit. Unknown quota
@@ -1555,7 +1563,17 @@ final class WorkbenchModel: ObservableObject {
         let settings = archive.settings
         while let index = archive.rooms.firstIndex(where: { $0.id == roomID }) {
             let turn: LiveTurn
-            if let prepared = ahead {
+            if let prepared = ahead, prepared.cutIns != liveHostCutIns {
+                // The host cut in after this line was started: it never saw the
+                // instruction. Drop it and rewrite so the very next line answers.
+                ahead = nil
+                prepared.reply.cancel()
+                _ = runner.cancel(id: prepared.runID)
+                liveRunIDs.remove(prepared.runID)
+                archive.rooms[index].entries.removeAll { $0.id == prepared.entryID }
+                turn = beginLiveTurn(roomID: roomID, index: index, speaker: prepared.speaker,
+                                     config: config, settings: settings)
+            } else if let prepared = ahead {
                 turn = prepared
                 ahead = nil
             } else {
