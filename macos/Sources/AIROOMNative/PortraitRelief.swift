@@ -115,13 +115,13 @@ struct StudioReliefPortrait: View {
         }
     }
 
-    /// The figure's own shape pressed into the stock, set about a sixth of a body-width
+    /// The figure's own shape pressed into the stock, set about an eighth of a body-width
     /// to the side: it reads as the figure's thickness, like an acrylic stand.
     private func relief(_ cut: NSImage, color: Color) -> some View {
         let base = LinearGradient(colors: [color.opacity(scheme == .dark ? 0.32 : 0.26), color.opacity(scheme == .dark ? 0.22 : 0.16)],
                                   startPoint: .top, endPoint: .bottom)
-        // The character fills roughly two thirds of the picture's width, so a sixth of her body ≈ 0.11 of it.
-        let shift: CGFloat = 0.11
+        // The character fills roughly two thirds of the picture's width, so an eighth of her body ≈ 0.08 of it.
+        let shift: CGFloat = 0.08
         func echo(_ style: some ShapeStyle) -> some View {
             StudioPortrait(agent: agent, image: cut, silhouette: AnyShapeStyle(style), shift: shift)
         }
