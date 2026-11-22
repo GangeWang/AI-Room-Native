@@ -336,6 +336,58 @@ public class VTubeStudioClientTests
     }
 }
 
+public class LiveSoloShowTests
+{
+    static TeamRoom Room() => new();
+
+    [Fact]
+    public void SoloShowTalksToTheAudienceNotToCoHosts()
+    {
+        foreach (var language in new[] { InterfaceLanguage.ZhTW, InterfaceLanguage.English })
+        {
+            var solo = LiveShowPolicy.Prompt(Room(), MemberID.Claude, "Claude", "t", "", language, solo: true);
+            var duo = LiveShowPolicy.Prompt(Room(), MemberID.Claude, "Claude", "t", "", language);
+            Assert.NotEqual(solo, duo);
+            Assert.DoesNotContain(language == InterfaceLanguage.English ? "with other AI agents" : "正與其他 AI 輪流對話", solo);
+            Assert.Contains(LiveShowPolicy.HostLabel, solo); // the owner can still direct a solo host
+            if (language == InterfaceLanguage.ZhTW)
+            {
+                Assert.Contains("對著觀眾說話", solo, StringComparison.Ordinal); // zh solo opening present
+            }
+        }
+    }
+
+    [Fact]
+    public void HostCutInsAreNamedInThePromptAndDisplayName()
+    {
+        var prompt = LiveShowPolicy.Prompt(Room(), MemberID.Claude, "Claude", "t", "", InterfaceLanguage.ZhTW);
+        Assert.Contains("標記為「主持人」的使用者訊息是直播主人的現場指示", prompt);
+        Assert.Equal("主持人", LiveShowPolicy.HostDisplayName("  "));
+        Assert.Equal("主持人 · 小明", LiveShowPolicy.HostDisplayName(" 小明 "));
+    }
+
+    [Fact]
+    public void TheRigOpeningNamesTheArms()
+    {
+        var prompt = LiveShowPolicy.Prompt(Room(), MemberID.Claude, "Claude", "t", "", InterfaceLanguage.ZhTW,
+            cues: true, poses: true);
+        Assert.Contains("頭、眼睛、表情和雙手", prompt, StringComparison.Ordinal);
+        var english = LiveShowPolicy.Prompt(Room(), MemberID.Claude, "Claude", "t", "", InterfaceLanguage.English,
+            cues: true, poses: true);
+        Assert.Contains("head, eyes, face and arms", english, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SoloNeedsExactlyOneEnabledMemberPresent()
+    {
+        var config = new LiveShowSettings(null, "主題", turnDelaySeconds: 45, maxTurns: 80, maxDurationMinutes: 120);
+        var enabled = new HashSet<MemberID> { MemberID.Claude, MemberID.Codex };
+        Assert.True(LiveShowPolicy.CanStart([MemberID.Claude], enabled, config));
+        Assert.False(LiveShowPolicy.CanStart([], enabled, config));
+        Assert.False(LiveShowPolicy.CanStart([MemberID.Codex], new HashSet<MemberID> { MemberID.Claude }, config));
+    }
+}
+
 public class LiveStageSettingsTests
 {
     [Fact]

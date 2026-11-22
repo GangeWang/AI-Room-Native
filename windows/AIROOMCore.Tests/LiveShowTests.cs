@@ -58,19 +58,23 @@ public class LiveShowTests
     {
         var config = new LiveShowSettings(null, "主題", turnDelaySeconds: 45, maxTurns: 80, maxDurationMinutes: 120);
         var enabled = new HashSet<MemberID> { Claude, Codex };
-        Assert.False(LiveShowPolicy.CanStart([Claude], enabled, config)); // one member is not a show
+        Assert.True(LiveShowPolicy.CanStart([Claude], enabled, config)); // one member can host alone
+        Assert.False(LiveShowPolicy.CanStart([], enabled, config));
+        Assert.False(LiveShowPolicy.CanStart([Codex], new HashSet<MemberID> { Claude }, config)); // the enabled one is not present
         Assert.True(LiveShowPolicy.CanStart([Claude, Codex], enabled, config));
-        // The ctor clamps 5 s back to the floor; a hand-edited setting bypasses
-        // that, and the policy is the second gate before anything runs.
-        Assert.False(LiveShowPolicy.CanStart([Claude, Codex], enabled,
+        // The delay floor is 0 (the next line is written while this one is
+        // spoken), so even a hand-edited 5 s setting is legal.
+        Assert.True(LiveShowPolicy.CanStart([Claude, Codex], enabled,
             new LiveShowSettings { Topic = "主題", TurnDelaySeconds = 5 }));
+        Assert.True(LiveShowPolicy.CanStart([Claude, Codex], enabled,
+            new LiveShowSettings { Topic = "主題", TurnDelaySeconds = 0 }));
 
         var now = DateTimeOffset.Now;
         var started = now.AddMinutes(-30);
-        Assert.True(LiveShowPolicy.ShouldContinue(10, started, now, config, hasTwoAgents: true, userStopped: false));
-        Assert.False(LiveShowPolicy.ShouldContinue(10, started, now, config, hasTwoAgents: true, userStopped: true));
-        Assert.False(LiveShowPolicy.ShouldContinue(config.MaxTurns, started, now, config, hasTwoAgents: true, userStopped: false));
-        Assert.False(LiveShowPolicy.ShouldContinue(10, started.AddMinutes(-200), now, config, hasTwoAgents: true, userStopped: false));
+        Assert.True(LiveShowPolicy.ShouldContinue(10, started, now, config, hasAgents: true, userStopped: false));
+        Assert.False(LiveShowPolicy.ShouldContinue(10, started, now, config, hasAgents: true, userStopped: true));
+        Assert.False(LiveShowPolicy.ShouldContinue(config.MaxTurns, started, now, config, hasAgents: true, userStopped: false));
+        Assert.False(LiveShowPolicy.ShouldContinue(10, started.AddMinutes(-200), now, config, hasAgents: true, userStopped: false));
 
         var rotation = new List<MemberID> { Claude, Codex, new("m-three") };
         Assert.Equal(Codex, LiveShowPolicy.NextSpeaker(rotation, Claude));

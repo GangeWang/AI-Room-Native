@@ -60,7 +60,7 @@ public sealed partial class LiveStagePage : Page
             Children =
             {
                 new TextBlock { Text = "LIVE", FontSize = 11, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DarkOrange) },
-                new TextBlock { Text = "雙 AI 同台直播", FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.Bold },
+                new TextBlock { Text = "AI 直播", FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.Bold },
                 new TextBlock
                 {
                     Text = "在目前茶歇室話題裡，成員依序輪流發言。逐輪可停止；關閉程式後不會自動續播；錯過的輪次不補。",
@@ -97,7 +97,7 @@ public sealed partial class LiveStagePage : Page
         {
             panel.Children.Add(new TextBlock
             {
-                Text = "未開播。設定主題後按「開始直播」；需要至少兩位已啟用、在場的成員。",
+                Text = "未開播。設定主題後按「開始 AI 直播」；一位成員可獨自開台，多位則輪流接話。",
                 FontSize = 13,
                 Opacity = 0.8,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -105,7 +105,7 @@ public sealed partial class LiveStagePage : Page
             });
             var start = new Button
             {
-                Content = "開始直播",
+                Content = "開始 AI 直播",
                 Style = (Style)Application.Current.Resources["AccentButtonStyle"],
             };
             start.Click += (_, _) => Model.StartLiveShow();
@@ -431,7 +431,7 @@ public sealed partial class LiveStagePage : Page
         var config = Model.LiveConfig();
 
         var options = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14 };
-        options.Children.Add(OptionPicker("輪間隔", new[] { 15, 30, 45, 60, 90, 120 },
+        options.Children.Add(OptionPicker("輪間隔", new[] { 0, 1, 3, 5, 10, 15, 30, 45, 60, 90, 120, 180 },
             config.TurnDelaySeconds, value => Model.UpdateLiveConfig(live => live.TurnDelaySeconds = value),
             value => $"{value} 秒", !Model.LiveActive));
         options.Children.Add(OptionPicker("輪數上限", new[] { 2, 10, 20, 40, 80, 120 },
