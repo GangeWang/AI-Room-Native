@@ -13,6 +13,8 @@ public sealed partial class WorkbenchModel
 {
     volatile bool liveActive;
     volatile bool liveStopRequested;
+    /// <summary>Bumped on every host cut-in; a line written ahead before it is stale.</summary>
+    int liveHostCutIns;
     int liveTurns;
     MemberID? liveLastSpeaker;
     Guid? liveRunID;
@@ -53,7 +55,7 @@ public sealed partial class WorkbenchModel
             var enabled = EnabledMemberIDs.ToHashSet();
             if (!LiveShowPolicy.CanStart(room.Participants, enabled, config))
             {
-                StatusMessage = "直播模式需要至少兩位已啟用、在場的 AI 成員。";
+                StatusMessage = "直播模式需要至少一位已啟用、在場的 AI 成員。";
                 return;
             }
             if (config.Topic.Trim().Length == 0)
@@ -99,8 +101,9 @@ public sealed partial class WorkbenchModel
     }
 
     /// <summary>One turn in flight: who speaks, which room entry carries it,
-    /// and the reply task (started before the previous line is spoken).</summary>
-    sealed record LiveTurn(MemberID Speaker, Guid EntryID, Guid RunID, Task<string> Reply);
+    /// the reply task (started before the previous line is spoken) and the
+    /// cut-in count when its prompt was built.</summary>
+    sealed record LiveTurn(MemberID Speaker, Guid EntryID, Guid RunID, Task<string> Reply, int CutIns);
 
     /// <summary>Who speaks after `last`, if the show may go on; null ends the show.</summary>
     MemberID? NextLiveSpeaker(Guid roomID, DateTimeOffset started, LiveShowSettings config,
@@ -116,7 +119,7 @@ public sealed partial class WorkbenchModel
                 .Where(agent => present.Any(card => card.Agent == agent && card.Enabled)).ToList();
         }
         if (!LiveShowPolicy.ShouldContinue(liveTurns, started, DateTimeOffset.Now, config,
-                hasTwoAgents: eligible.Distinct().Count() >= 2, userStopped: liveStopRequested || token.IsCancellationRequested))
+                hasAgents: eligible.Count >= 1, userStopped: liveStopRequested || token.IsCancellationRequested))
         {
             return null;
         }
@@ -159,9 +162,12 @@ public sealed partial class WorkbenchModel
         string prompt;
         lock (Archive)
         {
-            prompt = LiveShowPolicy.Prompt(FindRoom(roomID) ?? new TeamRoom(), who, MemberName(who),
+            var room = FindRoom(roomID);
+            var present = room is null ? [] : PresentMembers(room);
+            var hosts = present.Where(card => card.Enabled).Select(card => card.Agent).Distinct().ToHashSet();
+            prompt = LiveShowPolicy.Prompt(room ?? new TeamRoom(), who, MemberName(who),
                 config.Topic, config.Summary, Archive.Settings.Language,
-                cues: performs, poses: StageDrivesRig(who));
+                cues: performs, poses: StageDrivesRig(who), solo: hosts.Count == 1);
         }
         var home = Desk?.PersonalFolder(who) ?? "";
         var runSettings = CloneSettingsWithWorkspace(home.Length > 0 ? home : ".");
@@ -170,7 +176,7 @@ public sealed partial class WorkbenchModel
             onUpdate: text => RunOnDispatcher(() =>
                 UpdateRoomEntryText(roomID, entryID, performs ? LiveCueParser.Parse(text).CleanText : text)),
             cancellationToken: token));
-        return new LiveTurn(who, entryID, runID, reply);
+        return new LiveTurn(who, entryID, runID, reply, liveHostCutIns);
     }
 
     async Task LiveLoopAsync(Guid roomID, DateTimeOffset started, LiveShowSettings config, CancellationToken token)
@@ -182,9 +188,26 @@ public sealed partial class WorkbenchModel
             {
                 lock (Archive) if (FindRoom(roomID) is null) return;
                 LiveTurn turn;
-                if (ahead is { } prepared)
+                if (ahead is { } prepared && prepared.CutIns != liveHostCutIns)
                 {
-                    turn = prepared;
+                    // The host cut in after this line was started: it never saw the
+                    // instruction. Drop it and rewrite so the very next line answers.
+                    ahead = null;
+                    _ = runner.Cancel(prepared.RunID);
+                    lock (Archive)
+                    {
+                        if (FindRoom(roomID) is { } live)
+                        {
+                            var stale = live.Entries.FindAll(item => item.Id == prepared.EntryID);
+                            foreach (var item in stale) live.Entries.Remove(item);
+                            live.UpdatedAt = DateTimeOffset.Now;
+                        }
+                    }
+                    turn = BeginLiveTurn(roomID, config, prepared.Speaker, token);
+                }
+                else if (ahead is { } ready)
+                {
+                    turn = ready;
                     ahead = null;
                 }
                 else
