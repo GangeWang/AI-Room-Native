@@ -38,14 +38,21 @@ struct StudioDashboard: View {
                                     Circle().fill(model.busyAgents.contains(agent) ? StudioTheme.orange : StudioTheme.moss)
                                         .frame(width: 8, height: 8)
                                     Text(card?.name ?? agent.shortName).font(.system(.title3, design: .rounded).weight(.semibold))
-                                        .lineLimit(1)
+                                        .lineLimit(1).minimumScaleFactor(0.85)
+                                        .layoutPriority(1)
                                     Spacer(minLength: 4)
-                                    HStack(spacing: 4) {
-                                        ExecutorLogo(executor: agent.executor, size: 13)
-                                        Text(agent.executor.rawValue).lineLimit(1)
+                                    // The name wins the space: on a narrow card the label shrinks to its mark.
+                                    ViewThatFits(in: .horizontal) {
+                                        HStack(spacing: 4) {
+                                            ExecutorLogo(executor: agent.executor, size: 13)
+                                            Text(agent.executor.rawValue).lineLimit(1).fixedSize()
+                                        }
+                                        .padding(.leading, 3).padding(.trailing, 6)
+                                        ExecutorLogo(executor: agent.executor, size: 13).padding(.horizontal, 3)
                                     }
                                         .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
-                                        .padding(.leading, 3).padding(.trailing, 6).padding(.vertical, 2)
+                                        .padding(.vertical, 2)
+                                        .help(agent.executor.rawValue)
                                         .background(StudioTheme.subtleFill(scheme), in: Capsule())
                                 }
                                 Text(model.busyAgents.contains(agent)
