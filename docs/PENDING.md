@@ -23,7 +23,7 @@
   - 加什麼（照 Windows `windows/AIROOMCore/ProjectFlow.cs` 約 656 行的原句）：「只用檔案工具（讀取、搜尋、編輯、寫檔）完成工作；不要用終端機指令（shell），寫入執行端不會放行，指令會被拒絕而且整個回合不會有回覆。」
   - 只加在任務提示詞，審核／裁定提示詞不動（與 Windows 一致）。
 - **GLM API 串流偶發停滯**（兩平台）：實測部分輪次 `turn.started` 後完全沒有 model request 事件，掛住 5 分鐘以上；重試（新工作階段）即可恢復。Windows 的 live 測試對每次呼叫做了重試，App 端仍靠使用者按「接著做」。
-- **直播的 TTS／VTube Studio 表演層**（Windows）：macOS 端有 AVSpeechSynthesizer＋VTS websocket（含口型包絡）；Windows 的直播以純文字運行（情緒標籤 parser 已移植、提示詞不帶 cue），表演層待實作。留言匯入、OBS 雙端推流兩端都等 Live2D 模型。
+- **直播的 TTS／VTube Studio 表演層**（Windows）：✅ 已移植（2026-11-19）：Core 的 LiveStage／VTubeStudio／LivePoseAnimator 逐檔對譯（逐成員 VTS 授權、自動載入模型、斷線重連、`[pose …]` 骨架接管、TTS＋音量口型、直播跑台下一位先寫）。與 macOS 的差異：Windows TTS 是整句合成（首句延遲 1–2 秒，mac 串流約 0.5 秒）；VTS 是 Steam 版（啟動器掃 Steam 資料夾，路徑可在設定覆寫）；模型選單放在直播舞台頁（mac 在成員卡）。留言匯入、OBS 雙端推流兩端都等 Live2D 模型。
 - **匯出檔跨平台互通**：Windows 的密碼匯出已對齊 macOS 的檔案格式（PBKDF2＋AES-GCM＋Apple 日期編碼），macOS 讀 Windows 匯出檔理應可直接運作；尚未實測，建議各做一次往返。
 
 - **降版會悄悄改寫成員用的程式**（macOS）
