@@ -186,7 +186,7 @@ struct AutomationView: View {
                                                      intervalMinutes: model.archive.autoChat.intervalMinutes, dailyLimit: $0) }),
                                 in: 1...6)
                         }
-                        Text(t("若想讓 Claude 和 Codex 長時間互相接話、回應觀眾，請到茶歇室使用「雙 AI 同台直播」。",
+                        Text(t("若想讓 Claude 和 Codex 長時間互相接話、回應觀眾，請到茶歇室使用「AI 直播」。",
                                "For continuous multi-agent co-hosting and viewer comments, start a Live Show in the Lounge."))
                             .font(.caption).foregroundStyle(.secondary)
                     }

@@ -118,11 +118,11 @@ struct RoomView: View {
                                 Button(t("停止直播", "Stop live show"), role: .destructive) { model.stopLiveShow() }
                             } else {
                                 Button { model.startLiveShow() } label: {
-                                    Label(t("開始雙 AI 同台直播", "Start multi-AI show"), systemImage: "play.fill")
+                                    Label(t("開始 AI 直播", "Start AI live show"), systemImage: "play.fill")
                                 }.buttonStyle(.borderedProminent).disabled(model.roomRunning)
                             }
                             Spacer()
-                            Text(t("需要兩位 AI；僅本機執行期間有效；每 12 輪產生一次摘要。", "Requires 2 agents. Runs only while app is open; summary every 12 turns."))
+                            Text(t("一位 AI 獨自開台，或多位輪流接話；僅本機執行期間有效；每 12 輪產生一次摘要。", "One agent hosts alone, or several take turns. Runs only while app is open; summary every 12 turns."))
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                         if model.liveActive {
@@ -159,7 +159,7 @@ struct RoomView: View {
                             .font(.caption2).foregroundStyle(.secondary)
                     }.padding(.vertical, 8)
                 } label: {
-                    Label(t("雙 AI 同台直播模式", "Multi-AI live co-host mode"), systemImage: "dot.radiowaves.left.and.right")
+                    Label(t("AI 直播模式", "AI live show mode"), systemImage: "dot.radiowaves.left.and.right")
                         .font(.subheadline.weight(.semibold))
                 }
                 .padding(.horizontal, 20).padding(.vertical, 9)
