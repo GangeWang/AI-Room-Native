@@ -21,7 +21,8 @@ struct RoomView: View {
                     HStack(spacing: 14) {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(t("共用上下文對話室", "Shared AI Conversation"))
-                                .font(.title2.bold())
+                                .font(.system(.title2, design: .rounded).weight(.bold))
+                                .foregroundStyle(StudioTheme.ink(scheme))
                             Text(t("同一段歷史供所有成員閱讀；完成的回覆會接續傳給下一位。",
                                    "All agents see the same transcript; each completed reply is available to the next."))
                                 .font(.caption).foregroundStyle(.secondary)
@@ -42,6 +43,7 @@ struct RoomView: View {
                         } label: {
                             Label(model.activeRoom?.title ?? t("討論室", "Discussion"), systemImage: "rectangle.stack")
                         }
+                        .buttonStyle(.automatic)
                         .disabled(model.roomRunning || model.liveActive)
                         Menu {
                             Button(t("開新話題（帶入目前話題的摘要）", "New topic (carry over a summary)")) { model.createRoom(carryOver: true) }
@@ -49,6 +51,7 @@ struct RoomView: View {
                         } label: {
                             Label(t("新話題", "New topic"), systemImage: "plus.bubble")
                         } primaryAction: { model.createRoom(carryOver: true) }
+                        .buttonStyle(.automatic)
                         .fixedSize()
                         .disabled(model.roomRunning || model.liveActive)
                         Menu {
@@ -57,6 +60,7 @@ struct RoomView: View {
                             Divider()
                             Button(role: .destructive) { confirmClear = true } label: { Label(t("清空當前話題", "Clear this topic"), systemImage: "trash") }
                         } label: { Image(systemName: "ellipsis.circle") }
+                        .buttonStyle(.automatic)
                         .menuIndicator(.hidden).fixedSize()
                         .disabled(model.roomRunning || model.liveActive || model.roomEntries().isEmpty)
                     }
@@ -87,7 +91,8 @@ struct RoomView: View {
                     }
                 }
                 .padding(18)
-                .background(StudioTheme.surface(scheme).opacity(0.91))
+                .background(.ultraThinMaterial)
+                .background(StudioTheme.surface(scheme).opacity(0.55))
                 // LIVE is a bounded, explicitly started cooperative conversation,
                 // not the occasional idle auto-chat rule from the original app.
                 DisclosureGroup {
@@ -119,7 +124,7 @@ struct RoomView: View {
                             } else {
                                 Button { model.startLiveShow() } label: {
                                     Label(t("開始 AI 直播", "Start AI live show"), systemImage: "play.fill")
-                                }.buttonStyle(.borderedProminent).disabled(model.roomRunning)
+                                }.buttonStyle(.studioPrimary).disabled(model.roomRunning)
                             }
                             Spacer()
                             Text(t("一位 AI 獨自開台，或多位輪流接話；僅本機執行期間有效；每 12 輪產生一次摘要。", "One agent hosts alone, or several take turns. Runs only while app is open; summary every 12 turns."))
@@ -163,8 +168,9 @@ struct RoomView: View {
                         .font(.subheadline.weight(.semibold))
                 }
                 .padding(.horizontal, 20).padding(.vertical, 9)
-                .background(StudioTheme.surface(scheme).opacity(0.93))
-                Divider()
+                .background(.ultraThinMaterial)
+                .background(StudioTheme.surface(scheme).opacity(0.45))
+                Rectangle().fill(StudioTheme.hairline(scheme)).frame(height: 1)
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 14) {
@@ -178,6 +184,10 @@ struct RoomView: View {
                                 let entry = item.entry
                                 if entry.speaker == .system {
                                     Text(entry.body).font(.caption).foregroundStyle(.secondary)
+                                        .multilineTextAlignment(.center)
+                                        .padding(.horizontal, 12).padding(.vertical, 5)
+                                        .background(StudioTheme.surface(scheme).opacity(0.85), in: Capsule())
+                                        .overlay(Capsule().strokeBorder(StudioTheme.hairline(scheme), lineWidth: 1))
                                         .frame(maxWidth: .infinity).padding(.vertical, 2).id(entry.id)
                                 } else if entry.isReaction {
                                     HStack(spacing: 6) {
@@ -222,11 +232,16 @@ struct RoomView: View {
                                         }
                                         if !item.reactions.isEmpty { reactionChips(item.reactions) }
                                     }
-                                    .padding(14)
-                                    .background(StudioTheme.surface(scheme).opacity(0.96),
-                                                in: RoundedRectangle(cornerRadius: 13))
-                                    .overlay(RoundedRectangle(cornerRadius: 13)
-                                        .strokeBorder(entry.isMinutes ? StudioTheme.amber : StudioTheme.border(scheme)))
+                                    .padding(14).padding(.leading, 2)
+                                    .studioCard(radius: StudioMetrics.radiusCard, fill: StudioTheme.surface(scheme).opacity(0.97))
+                                    // The speaker's color runs down the bubble's leading edge.
+                                    .overlay(alignment: .leading) {
+                                        Capsule().fill(entry.agent?.studioColor ?? StudioTheme.warning)
+                                            .frame(width: 3).padding(.vertical, 12).padding(.leading, 1.5)
+                                            .opacity(0.75)
+                                    }
+                                    .overlay(RoundedRectangle(cornerRadius: StudioMetrics.radiusCard, style: .continuous)
+                                        .strokeBorder(entry.isMinutes ? StudioTheme.amber : .clear, lineWidth: 1.2))
                                 }
                                 .id(entry.id)
                                 }
@@ -242,14 +257,13 @@ struct RoomView: View {
                         }
                     }
                 }
-                Divider()
+                Rectangle().fill(StudioTheme.hairline(scheme)).frame(height: 1)
                 VStack(alignment: .leading, spacing: 10) {
                     if let room = model.activeRoom { questionStrip(room); handsPanel(room) }
                     TextEditor(text: $model.roomDraft)
                         .frame(height: 78).font(.body).scrollContentBackground(.hidden)
                         .padding(8)
-                        .background(StudioTheme.surface(scheme), in: RoundedRectangle(cornerRadius: 12))
-                        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(StudioTheme.border(scheme)))
+                        .studioCard(radius: 12)
                     HStack(spacing: 10) {
                         Picker(t("回覆成員", "Responders"), selection: $model.roomTarget) {
                             Text(t("所有在場成員", "All present agents")).tag(nil as MemberID?)
@@ -282,14 +296,15 @@ struct RoomView: View {
                                   systemImage: model.liveActive ? "megaphone" : "arrow.up")
                         }
                         .keyboardShortcut(.return, modifiers: .command)
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.studioPrimary)
                         // A chat accepts interjections while members are talking; so does a live show.
                         .disabled((model.roomRunning && !model.liveActive && model.activeRoom?.lounge.style != .chat)
                                   || model.roomDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
                 .padding(.horizontal, 21).padding(.vertical, 13)
-                .background(StudioTheme.secondary(scheme).opacity(0.95))
+                .background(.regularMaterial)
+                .background(StudioTheme.secondary(scheme).opacity(0.5))
             }
         }
         .sheet(item: $imageRequest) { draft in
@@ -321,7 +336,8 @@ struct RoomView: View {
                     if let agent = reaction.agent { StudioAvatar(agent: agent, size: 16) }
                 }
                 .padding(.horizontal, 7).padding(.vertical, 3)
-                .background(.secondary.opacity(0.12), in: Capsule())
+                .background(StudioTheme.elevated(scheme), in: Capsule())
+                .overlay(Capsule().strokeBorder(StudioTheme.hairline(scheme), lineWidth: 1))
                 .help("\(reaction.displayName) " + t("回應了", "reacted") + " \(reaction.body)")
             }
         }
@@ -388,6 +404,7 @@ struct RoomView: View {
                             Button(t("請 \(member.name) 整理", "Ask \(member.name)")) { model.writeMinutes(by: member.agent) }
                         }
                     }
+                    .buttonStyle(.automatic)
                     .fixedSize().controlSize(.small)
                 }
             }

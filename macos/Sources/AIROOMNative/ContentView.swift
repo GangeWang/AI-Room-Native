@@ -3,6 +3,39 @@ import AIROOMCore
 
 private enum StudioRoute: Hashable {
     case home, chat(MemberID), room, roundtable, projects, members, attention, quota, automation, stage, settings
+
+    /// Each place keeps one hue: its sidebar tile, selection line and breadcrumb.
+    var hue: Color {
+        switch self {
+        case .home: return StudioTheme.orange
+        case .chat(let agent): return agent.studioColor
+        case .room: return StudioTheme.amber
+        case .roundtable: return StudioTheme.violet
+        case .projects: return StudioTheme.sky
+        case .members: return StudioTheme.plum
+        case .attention: return StudioTheme.orange
+        case .quota: return StudioTheme.moss
+        case .automation: return StudioTheme.teal
+        case .stage: return StudioTheme.rose
+        case .settings: return StudioTheme.slate
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .home: return "house.fill"
+        case .chat: return "bubble.left.fill"
+        case .room: return "cup.and.saucer.fill"
+        case .roundtable: return "person.3.fill"
+        case .projects: return "folder.fill"
+        case .members: return "person.crop.rectangle.stack.fill"
+        case .attention: return "checklist"
+        case .quota: return "chart.bar.fill"
+        case .automation: return "calendar.badge.clock"
+        case .stage: return "person.wave.2.fill"
+        case .settings: return "gearshape.fill"
+        }
+    }
 }
 
 struct ContentView: View {
@@ -72,6 +105,7 @@ struct ContentView: View {
         }
         .background(StudioTheme.background(scheme))
         .tint(StudioTheme.orange)
+        .buttonStyle(.studioSecondary)
         .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
         .sheet(item: $memberSheet) { member in
             StudioMemberSheet(agent: member, onDesk: { route = .chat(member); memberSheet = nil },
@@ -96,13 +130,14 @@ struct ContentView: View {
                     StudioBrandMark(size: 36)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("AIROOM").font(.system(size: 17, weight: .heavy, design: .rounded)).tracking(1.6)
+                            .foregroundStyle(StudioTheme.ink(scheme))
                         Text(t("我們的 AI 工作室", "Our AI Studio")).font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer()
-                }.padding(.horizontal, 16).padding(.vertical, 15)
+                }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 14)
                     .studioSidebarHitTarget()
             }.buttonStyle(.plain)
-            Divider().padding(.horizontal, 15)
+            Rectangle().fill(StudioTheme.hairline(scheme)).frame(height: 1).padding(.horizontal, 16)
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
                     groupHeading(t("團隊", "TEAM"), action: { route = .members }, icon: "person.crop.rectangle.stack")
@@ -144,16 +179,16 @@ struct ContentView: View {
                         .padding(.leading, 9)
                         .studioSelected(route == .chat(agent), accent: agent.studioColor, scheme: scheme)
                     }
-                    Divider().padding(.vertical, 9).padding(.horizontal, 9)
-                    navRow(.room, title: t("茶歇室", "Lounge"), subtitle: t("大家一起聊聊", "Team conversation"), icon: "cup.and.saucer")
-                    navRow(.roundtable, title: t("圓桌", "Roundtable"), subtitle: t("獨立比稿與比較", "Independent proposals"), icon: "person.3")
-                    navRow(.quota, title: t("用量與額度", "Usage & Quotas"), subtitle: t("官方訂閱配額", "Official subscription limits"), icon: "chart.bar.xaxis")
+                    sidebarDivider
+                    navRow(.room, title: t("茶歇室", "Lounge"), subtitle: t("大家一起聊聊", "Team conversation"), icon: "cup.and.saucer.fill")
+                    navRow(.roundtable, title: t("圓桌", "Roundtable"), subtitle: t("獨立比稿與比較", "Independent proposals"), icon: "person.3.fill")
+                    navRow(.quota, title: t("用量與額度", "Usage & Quotas"), subtitle: t("官方訂閱配額", "Official subscription limits"), icon: "chart.bar.fill")
                     navRow(.automation, title: t("排程與直播", "Automation & Live"), subtitle: t("定時任務與連續對話", "Schedules and co-hosting"), icon: "calendar.badge.clock")
-                    navRow(.stage, title: t("直播舞台", "Live Stage"), subtitle: t("語音與 VTube Studio", "Voice & VTube Studio"), icon: "person.wave.2")
-                    navRow(.attention, title: t("待你處理", "Needs Attention"), subtitle: attentionCount > 0 ? "\(attentionCount) \(t("項待確認", "items"))" : t("目前沒有待辦", "All clear"), icon: "checklist")
-                    Divider().padding(.vertical, 9).padding(.horizontal, 9)
+                    navRow(.stage, title: t("直播舞台", "Live Stage"), subtitle: t("語音與 VTube Studio", "Voice & VTube Studio"), icon: "person.wave.2.fill")
+                    navRow(.attention, title: t("待你處理", "Needs Attention"), subtitle: attentionCount > 0 ? "\(attentionCount) \(t("項待確認", "items"))" : t("目前沒有待辦", "All clear"), icon: "checklist", badge: attentionCount)
+                    sidebarDivider
                     groupHeading(t("專案", "PROJECTS"), action: { route = .projects }, icon: "plus")
-                    navRow(.projects, title: t("專案工作區", "Project Workspace"), subtitle: t("查看全部專案", "All projects"), icon: "folder")
+                    navRow(.projects, title: t("專案工作區", "Project Workspace"), subtitle: t("查看全部專案", "All projects"), icon: "folder.fill")
                     ForEach(model.archive.projectFlows.prefix(8)) { project in
                         Button { model.selectedFlowID = project.id; selectedProjectID = project.id; route = .projects } label: {
                             HStack(spacing: 8) {
@@ -170,24 +205,39 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 11).padding(.vertical, 10)
             }
-            Divider()
+            Rectangle().fill(StudioTheme.hairline(scheme)).frame(height: 1)
             VStack(spacing: 3) {
-                navRow(.members, title: t("管理人物卡", "Manage Members"), subtitle: "", icon: "person.crop.rectangle.stack")
-                navRow(.settings, title: t("設定與連接", "Settings & Connections"), subtitle: "", icon: "gearshape")
+                navRow(.members, title: t("管理人物卡", "Manage Members"), subtitle: "", icon: "person.crop.rectangle.stack.fill")
+                navRow(.settings, title: t("設定與連接", "Settings & Connections"), subtitle: "", icon: "gearshape.fill")
             }.padding(.horizontal, 11).padding(.vertical, 8)
             HStack(spacing: 7) {
                 Circle().fill(model.storageAvailable ? StudioTheme.moss : .red).frame(width: 7, height: 7)
+                    .shadow(color: (model.storageAvailable ? StudioTheme.moss : .red).opacity(0.6), radius: 3)
                 Text(model.storageAvailable ? t("本機資料已加密", "Local data encrypted") : t("儲存功能受限", "Storage unavailable"))
                 Spacer()
                 Text("ARM64").font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .padding(.horizontal, 5).padding(.vertical, 2)
+                    .background(StudioTheme.subtleFill(scheme), in: Capsule())
             }
             .font(.caption2).foregroundStyle(.secondary)
-            .padding(.horizontal, 16).padding(.bottom, 10)
+            .padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 12)
         }
-        .background(StudioTheme.sidebar(scheme))
+        .background {
+            // Lamplight pooling at the top of the sidebar.
+            ZStack(alignment: .top) {
+                StudioTheme.sidebar(scheme)
+                RadialGradient(colors: [StudioTheme.amber.opacity(scheme == .dark ? 0.10 : 0.14), .clear],
+                               center: .topLeading, startRadius: 10, endRadius: 320)
+            }
+        }
     }
 
     private var attentionCount: Int { model.attentionItems.count }
+
+    private var sidebarDivider: some View {
+        Rectangle().fill(StudioTheme.hairline(scheme)).frame(height: 1)
+            .padding(.vertical, 9).padding(.horizontal, 9)
+    }
 
     private func openAttention(_ target: AttentionItem.Target) {
         switch target {
@@ -204,7 +254,7 @@ struct ContentView: View {
 
     private func groupHeading(_ title: String, action: @escaping () -> Void, icon: String) -> some View {
         HStack {
-            Text(title).font(.system(size: 11, weight: .bold)).tracking(1.3).foregroundStyle(.secondary)
+            Text(title).font(.system(size: 10.5, weight: .bold, design: .rounded)).tracking(1.6).foregroundStyle(.secondary)
             Spacer()
             Button(action: action) {
                 Image(systemName: icon).font(.system(size: 11))
@@ -214,29 +264,38 @@ struct ContentView: View {
         }.padding(.horizontal, 9).padding(.top, 12).padding(.bottom, 5)
     }
 
-    private func navRow(_ destination: StudioRoute, title: String, subtitle: String, icon: String) -> some View {
+    private func navRow(_ destination: StudioRoute, title: String, subtitle: String, icon: String, badge: Int = 0) -> some View {
         Button { route = destination } label: {
-            HStack(spacing: 11) {
-                Image(systemName: icon).frame(width: 24)
-                    .foregroundStyle(route == destination ? StudioTheme.orange : .secondary)
+            HStack(spacing: 10) {
+                StudioIconTile(symbol: icon, tint: destination.hue, size: 26)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.subheadline.weight(.medium))
-                    if !subtitle.isEmpty { Text(subtitle).font(.caption2).foregroundStyle(.secondary) }
+                    Text(title).font(.subheadline.weight(route == destination ? .semibold : .medium))
+                        .foregroundStyle(StudioTheme.ink(scheme))
+                    if !subtitle.isEmpty { Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
                 }
                 Spacer(minLength: 0)
-            }.padding(.horizontal, 11).padding(.vertical, subtitle.isEmpty ? 8 : 10)
+                if badge > 0 {
+                    Text("\(badge)")
+                        .font(.system(size: 10, weight: .bold, design: .rounded)).monospacedDigit()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6).frame(minWidth: 18, minHeight: 18)
+                        .background(StudioTheme.accentGradient, in: Capsule())
+                }
+            }.padding(.horizontal, 8).padding(.vertical, subtitle.isEmpty ? 5 : 6)
                 .studioSidebarHitTarget()
         }
         .buttonStyle(.plain)
-        .studioSelected(route == destination, accent: StudioTheme.amber, scheme: scheme)
+        .studioSelected(route == destination, accent: destination.hue, scheme: scheme)
     }
 
     private var topBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Image(systemName: "house").foregroundStyle(.secondary)
             Text(t("AI 工作室", "AI Studio")).foregroundStyle(.secondary)
-            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
-            Text(routeTitle).fontWeight(.semibold)
+            Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(.tertiary)
+            StudioIconTile(symbol: route.symbol, tint: route.hue, size: 20)
+            Text(routeTitle).font(.system(.subheadline, design: .rounded).weight(.semibold))
+                .foregroundStyle(StudioTheme.ink(scheme))
             Spacer()
             if searchVisible {
                 TextField(t("搜尋導覽", "Find a view"), text: $searchText)
@@ -246,18 +305,23 @@ struct ContentView: View {
                 Button { searchVisible = false; searchText = "" } label: { Image(systemName: "xmark") }
                     .buttonStyle(.plain)
             } else {
-                Button { searchVisible = true } label: { Image(systemName: "magnifyingglass") }
+                Button { searchVisible = true } label: {
+                    Image(systemName: "magnifyingglass")
+                        .frame(width: 28, height: 28)
+                        .background(StudioTheme.subtleFill(scheme), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .contentShape(Rectangle())
+                }
                     .buttonStyle(.plain)
                     .keyboardShortcut("k", modifiers: .command)
                     .help(t("快速導覽 (⌘K)", "Quick navigation (⌘K)"))
             }
             Divider().frame(height: 17)
-            Image(systemName: "lock.shield").foregroundStyle(StudioTheme.moss)
+            Image(systemName: "lock.shield.fill").foregroundStyle(StudioTheme.moss)
                 .help(t("加密儲存與機密檔案保護", "Encrypted storage and sensitive file protection"))
         }
         .font(.subheadline)
-        .padding(.horizontal, 22).frame(height: 54)
-        .background(StudioTheme.surface(scheme))
+        .padding(.horizontal, 22).frame(height: 52)
+        .background(StudioTheme.surface(scheme).opacity(scheme == .dark ? 0.7 : 0.85))
     }
 
     private var routeTitle: String {
@@ -298,14 +362,21 @@ private struct StudioSelectionModifier: ViewModifier {
     var accent: Color
     var scheme: ColorScheme
     func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
         content
-            .background(selected ? StudioTheme.surface(scheme) : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 10))
+            .background {
+                if selected {
+                    shape.fill(StudioTheme.surface(scheme))
+                        .shadow(color: StudioTheme.shadow(scheme), radius: 4, y: 1.5)
+                        .overlay(shape.strokeBorder(StudioTheme.border(scheme).opacity(0.8), lineWidth: 1))
+                }
+            }
             .overlay(alignment: .leading) {
-                if selected { RoundedRectangle(cornerRadius: 2).fill(accent).frame(width: 3, height: 25).allowsHitTesting(false) }
+                if selected { Capsule().fill(accent).frame(width: 3, height: 20).offset(x: -1).allowsHitTesting(false) }
             }
     }
 }
+
 private extension View {
     /// In a plain-style Button, transparent spacers do not receive clicks by default.
     /// Expand the label to the sidebar width and make its entire rectangle hittable.

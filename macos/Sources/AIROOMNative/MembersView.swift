@@ -38,7 +38,7 @@ struct MembersView: View {
                             VStack(alignment: .leading, spacing: 8) {
                                 StudioPortrait(agent: agent)
                                     .frame(height: 190).clipped()
-                                Text(name).font(.headline)
+                                Text(name).font(StudioType.sectionTitle)
                                 let hidden = model.card(agent)?.cardHidden == true
                                 Text(agent.executor.rawValue + (hidden ? t(" · 人物卡已隱藏", " · Card hidden") : ""))
                                     .font(.caption).foregroundStyle(.secondary)
@@ -48,9 +48,9 @@ struct MembersView: View {
                             }
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(StudioTheme.surface(scheme), in: RoundedRectangle(cornerRadius: 15))
-                            .overlay(RoundedRectangle(cornerRadius: 15)
-                                .strokeBorder(selected == agent ? agent.studioColor : StudioTheme.border(scheme), lineWidth: selected == agent ? 2 : 1))
+                            .studioCard(radius: StudioMetrics.radiusPanel)
+                            .overlay(RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous)
+                                .strokeBorder(selected == agent ? agent.studioColor : .clear, lineWidth: 2))
                         }
                         .buttonStyle(.plain)
                     }
@@ -63,8 +63,8 @@ struct MembersView: View {
                         }
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, minHeight: 250)
-                        .background(StudioTheme.surface(scheme), in: RoundedRectangle(cornerRadius: 15))
-                        .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(StudioTheme.border(scheme), style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
+                        .background(StudioTheme.surface(scheme).opacity(0.6), in: RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous).strokeBorder(StudioTheme.amber.opacity(0.45), style: StrokeStyle(lineWidth: 1.2, dash: [5, 4])))
                     }
                     .buttonStyle(.plain)
                     .disabled(!model.storageAvailable)
@@ -164,7 +164,7 @@ struct MembersView: View {
                     StudioPanel { LifeEditor(member: member) }
                 }
             }
-            .padding(26)
+            .padding(StudioMetrics.page)
             .frame(maxWidth: 980)
             .frame(maxWidth: .infinity)
         }
@@ -700,7 +700,7 @@ private struct PersonaImportSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading).padding(10)
             }
             .frame(height: 300)
-            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+            .background(StudioWell(), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             HStack {
                 Spacer()
                 Button(t("不匯入", "Don't import")) { dismiss() }.keyboardShortcut(.cancelAction)

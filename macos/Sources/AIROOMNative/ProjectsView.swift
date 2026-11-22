@@ -19,7 +19,7 @@ struct ProjectsView: View {
                     Button(t("選取")) { chooseFolder() }
                 }
                 Button(t("建立專案")) { model.addProject() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.studioPrimary)
                 Divider()
                 List(selection: $selectedID) {
                     ForEach(model.archive.projects) { project in
@@ -96,7 +96,7 @@ private struct ProjectDetailView: View {
                         if workflow.step == .discussion {
                             TextEditor(text: $model.workflowDiscussionDraft)
                                 .frame(height: 70).padding(6)
-                                .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 9))
+                                .background(StudioWell(), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                             Button(t("請 Claude 和 Codex 討論需求")) { model.discussProject(id: project.id) }
                                 .disabled(model.projectBusy || model.workflowDiscussionDraft.isEmpty)
                             ForEach(workflow.discussion.suffix(12)) { entry in
@@ -115,12 +115,12 @@ private struct ProjectDetailView: View {
                         } else if workflow.step == .leader {
                             Text("負責人：" + (workflow.leader?.shortName ?? "未選擇"))
                             Button(t("由負責人擬定可驗收方案")) { model.generateWorkflowProposal(id: project.id) }
-                                .buttonStyle(.borderedProminent).disabled(model.projectBusy)
+                                .buttonStyle(.studioPrimary).disabled(model.projectBusy)
                         } else if workflow.step == .proposal {
                             Text(t("工作方案（請確認後才允許執行）")).font(.headline)
                             Text(workflow.proposal).textSelection(.enabled)
                             Button(t("核准方案並在副本執行")) { model.approveWorkflowAndRun(id: project.id) }
-                                .buttonStyle(.borderedProminent).disabled(model.projectBusy)
+                                .buttonStyle(.studioPrimary).disabled(model.projectBusy)
                             if workflow.reviewRejected { Text(t("上一輪被駁回，請重新檢查方案。"))
                                 .foregroundStyle(.orange).font(.caption) }
                         } else if workflow.step == .execution {
@@ -147,12 +147,12 @@ private struct ProjectDetailView: View {
                 TextEditor(text: task)
                     .frame(height: 120)
                     .padding(6)
-                    .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+                    .background(StudioWell(), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .disabled(project.phase != .draft || (model.workflow(for: project.id)?.step != .discussion && model.workflow(for: project.id) != nil))
                 HStack {
                     if model.workflow(for: project.id) == nil && (project.phase == .draft || project.phase == .rejected || project.phase == .failed) {
                         Button(t("在獨立副本執行（Codex）")) { model.startProject(id: project.id) }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.studioPrimary)
                             .disabled(model.projectBusy)
                     }
                     if project.phase == .executing {
@@ -161,7 +161,7 @@ private struct ProjectDetailView: View {
                     }
                     if project.phase == .reviewing {
                         Button(t("確認套用到原資料夾")) { confirmWriteback = true }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.studioPrimary)
                             .disabled(model.projectBusy)
                         Button(t("請 Claude 進行唯讀審查")) { model.reviewProjectWithClaude(id: project.id) }
                             .disabled(model.projectBusy)

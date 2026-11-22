@@ -69,9 +69,9 @@ struct StudioRoomBackdrop: View {
                             .frame(width: geo.size.width, height: geo.size.height)
                             .clipped()
                     }
-                    .opacity(scheme == .dark ? 0.24 : 0.28)
+                    .opacity(scheme == .dark ? 0.34 : 0.38)
                 }
-                StudioTheme.background(scheme).opacity(scheme == .dark ? 0.30 : 0.43)
+                StudioTheme.background(scheme).opacity(scheme == .dark ? 0.28 : 0.40)
             }
             .accessibilityHidden(true)
         }

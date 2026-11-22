@@ -115,7 +115,7 @@ struct ImageRequestSheet: View {
                 .font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $text)
                 .frame(minHeight: 110).font(.body).scrollContentBackground(.hidden).padding(8)
-                .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+                .background(StudioWell(), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             HStack(spacing: 8) {
                 ForEach(references) { image in
                     ZStack(alignment: .topTrailing) {

@@ -77,7 +77,7 @@ struct UpdateBanner: View {
                    "Version \(release.version) is available (you have \(model.currentVersion)). Download the DMG and replace the app; your data stays."))
                 .font(.callout).lineLimit(2)
             Spacer(minLength: 8)
-            Button(t("前往下載", "Download")) { model.openUpdatePage() }.buttonStyle(.borderedProminent)
+            Button(t("前往下載", "Download")) { model.openUpdatePage() }.buttonStyle(.studioPrimary)
             Button(t("略過這版", "Skip this version")) { model.skipUpdate() }
             Button { model.dismissUpdate() } label: { Image(systemName: "xmark") }
                 .buttonStyle(.borderless).help(t("稍後再提醒", "Remind me later"))

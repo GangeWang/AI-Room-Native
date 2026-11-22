@@ -16,46 +16,49 @@ struct StudioDashboard: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 17) {
-                    Text(t("我們一起工作的房間", "A place to work together"))
-                        .font(.system(size: 12, weight: .semibold)).tracking(2)
-                        .foregroundStyle(StudioTheme.warning)
-                    Text(t("歡迎來到 AIROOM。", "Welcome to AIROOM."))
-                        .font(.system(size: 32, weight: .bold, design: .rounded))
-                        .foregroundStyle(StudioTheme.ink(scheme))
-                    Text(t("讓你的 AI 成員一起討論、獨立比較提案，或在你確認後將修改寫入專案。", "Talk with your AI teammates, compare independent ideas, and approve project changes before writeback."))
-                        .font(.system(size: 15)).foregroundStyle(.secondary)
-                        .frame(maxWidth: 750, alignment: .leading)
-                    HStack(spacing: 10) {
-                        Button(action: onProject) {
-                            Label(t("打開專案工作區", "Open Projects"), systemImage: "folder.badge.plus")
-                        }.buttonStyle(.borderedProminent)
-                        Button(action: onRoom) { Label(t("前往茶歇室", "Visit Lounge"), systemImage: "cup.and.saucer") }
-                        Button(action: onMembers) { Label(t("管理人物卡", "Manage Members"), systemImage: "person.crop.rectangle.stack") }
-                    }
-                }
-                .padding(.top, 4)
+                hero
 
-                HStack(alignment: .top, spacing: 15) {
+                // Wraps into rows on a narrow window instead of squeezing each card to a sliver.
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 172, maximum: 260), spacing: 15, alignment: .top)],
+                          alignment: .leading, spacing: 15) {
                     ForEach(model.visibleAgents) { agent in
                         let card = model.archive.members.first(where: { $0.agent == agent })
                         VStack(alignment: .leading, spacing: 0) {
-                            ZStack {
-                                agent.studioColor.opacity(0.09)
+                            ZStack(alignment: .bottom) {
+                                // The portrait, blurred into an ambient wash, so artwork that has its own
+                                // background melts into the card instead of sitting in a box.
+                                if let art = model.portraitImage(agent) {
+                                    Image(nsImage: art).resizable().scaledToFill()
+                                        .blur(radius: 26).opacity(scheme == .dark ? 0.55 : 0.45)
+                                        .saturation(1.2)
+                                }
+                                // The member's own color glows up behind the portrait like a stage light.
+                                LinearGradient(colors: [agent.studioColor.opacity(0.04), agent.studioColor.opacity(0.24)],
+                                               startPoint: .top, endPoint: .bottom)
+                                Ellipse().fill(agent.studioColor.opacity(0.3)).blur(radius: 26)
+                                    .frame(height: 80).offset(y: 36)
                                 StudioPortrait(agent: agent)
                                     .padding(.top, 14)
                                     .padding(.horizontal, 8)
+                                    .shadow(color: .black.opacity(0.25), radius: 10, y: 6)
                             }
                             .frame(height: 225)
                             .clipped()
+                            .overlay(alignment: .bottom) {
+                                Rectangle().fill(StudioTheme.hairline(scheme)).frame(height: 1)
+                            }
                             VStack(alignment: .leading, spacing: 9) {
                                 HStack(spacing: 8) {
                                     Circle().fill(model.busyAgents.contains(agent) ? StudioTheme.orange : StudioTheme.moss)
                                         .frame(width: 8, height: 8)
-                                    Text(card?.name ?? agent.shortName).font(.title3.weight(.semibold))
-                                    Spacer()
+                                    Text(card?.name ?? agent.shortName).font(.system(.title3, design: .rounded).weight(.semibold))
+                                        .lineLimit(1)
+                                    Spacer(minLength: 4)
                                     Text(agent.executor.rawValue)
-                                        .font(.caption2).foregroundStyle(.secondary)
+                                        .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .padding(.horizontal, 6).padding(.vertical, 2)
+                                        .background(StudioTheme.subtleFill(scheme), in: Capsule())
                                 }
                                 Text(model.busyAgents.contains(agent)
                                      ? t("正在工作", "Working")
@@ -66,36 +69,139 @@ struct StudioDashboard: View {
                                 }
                                 HStack {
                                     Button(t("人物卡", "Profile")) { onMemberCard(agent) }
-                                    Spacer()
+                                    Spacer(minLength: 6)
                                     Button { onChat(agent) } label: {
                                         Label(t("前往工位", "Open desk"), systemImage: "arrow.right")
                                     }
-                                    .buttonStyle(.borderedProminent)
+                                    .buttonStyle(.studioPrimary)
                                     .disabled(card?.enabled == false)
                                 }
-                                .font(.caption)
+                                .controlSize(.small)
                             }
                             .padding(16)
                         }
-                        .background(StudioTheme.surface(scheme), in: RoundedRectangle(cornerRadius: 16))
-                        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(StudioTheme.border(scheme)))
+                        .clipShape(RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous))
+                        .studioCard(radius: StudioMetrics.radiusPanel)
                         .frame(maxWidth: .infinity)
                     }
                 }
 
-                HStack(alignment: .top, spacing: 16) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 16) { preflightPanel; projectPanel }
+                    VStack(alignment: .leading, spacing: 16) { preflightPanel; projectPanel }
+                }
+                Text(t("所有工作台紀錄保存在本機。外部 AI CLI 可能需要連接其官方服務。", "Workbench history stays on this device. External AI CLIs may connect to their official services."))
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            .padding(StudioMetrics.page)
+            .frame(maxWidth: 1100)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var greeting: String {
+        let name = model.archive.settings.userName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hour = Calendar.current.component(.hour, from: Date())
+        let word: String
+        switch hour {
+        case 5..<11: word = t("早安", "Good morning")
+        case 11..<17: word = t("午安", "Good afternoon")
+        case 17..<22: word = t("晚上好", "Good evening")
+        default: word = t("夜深了", "Late night")
+        }
+        return name.isEmpty ? word : word + t("，", ", ") + name
+    }
+
+    /// A banner lit by the same time-of-day artwork as the lounge, with the studio's pulse below it.
+    private var hero: some View {
+        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+        return VStack(alignment: .leading, spacing: 14) {
+            StudioEyebrow(text: greeting + t(" · 我們一起工作的房間", " · A place to work together"))
+            Text(t("歡迎來到 AIROOM。", "Welcome to AIROOM."))
+                .font(StudioType.heroTitle)
+                .foregroundStyle(StudioTheme.ink(scheme))
+            Text(t("讓你的 AI 成員一起討論、獨立比較提案，或在你確認後將修改寫入專案。", "Talk with your AI teammates, compare independent ideas, and approve project changes before writeback."))
+                .font(.system(size: 15)).foregroundStyle(.secondary)
+                .lineSpacing(2)
+                .frame(maxWidth: 560, alignment: .leading)
+            HStack(spacing: 10) {
+                Button(action: onProject) {
+                    Label(t("打開專案工作區", "Open Projects"), systemImage: "folder.badge.plus")
+                }.buttonStyle(.studioPrimary)
+                Button(action: onRoom) { Label(t("前往茶歇室", "Visit Lounge"), systemImage: "cup.and.saucer") }
+                Button(action: onMembers) { Label(t("管理人物卡", "Manage Members"), systemImage: "person.crop.rectangle.stack") }
+            }
+            .padding(.top, 2)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { statChips }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8, alignment: .leading)],
+                          alignment: .leading, spacing: 8) { statChips }
+            }
+            .padding(.top, 6)
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            TimelineView(.periodic(from: .now, by: 300)) { context in
+                ZStack {
+                    StudioTheme.surface(scheme)
+                    if let art = StudioAsset.image(StudioAsset.backdrop(for: context.date)) {
+                        Image(nsImage: art).resizable().scaledToFill()
+                            .opacity(scheme == .dark ? 0.55 : 0.7)
+                    }
+                    // Paper fades in from the left so the copy always sits on a calm field.
+                    LinearGradient(stops: [
+                        .init(color: StudioTheme.surface(scheme), location: 0),
+                        .init(color: StudioTheme.surface(scheme).opacity(0.92), location: 0.42),
+                        .init(color: StudioTheme.surface(scheme).opacity(0.35), location: 0.78),
+                        .init(color: StudioTheme.surface(scheme).opacity(0.15), location: 1)
+                    ], startPoint: .leading, endPoint: .trailing)
+                    RadialGradient(colors: [StudioTheme.amber.opacity(0.18), .clear],
+                                   center: .topLeading, startRadius: 0, endRadius: 420)
+                }
+                .accessibilityHidden(true)
+            }
+        }
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(StudioTheme.border(scheme), lineWidth: 1))
+        .shadow(color: StudioTheme.shadow(scheme), radius: 16, y: 6)
+    }
+
+    @ViewBuilder private var statChips: some View {
+        statChip(value: model.visibleAgents.count, label: t("位成員", "members"), icon: "person.2.fill", tint: StudioTheme.plum)
+        statChip(value: model.busyAgents.count, label: t("正在工作", "working"), icon: "bolt.fill", tint: StudioTheme.orange)
+        statChip(value: model.attentionItems.count, label: t("待你處理", "need you"), icon: "checklist", tint: StudioTheme.rose)
+        statChip(value: model.archive.projects.count, label: t("個專案", "projects"), icon: "folder.fill", tint: StudioTheme.sky)
+    }
+
+    private func statChip(value: Int, label: String, icon: String, tint: Color) -> some View {
+        HStack(spacing: 8) {
+            StudioIconTile(symbol: icon, tint: tint, size: 22)
+            Text("\(value)").font(.system(size: 17, weight: .bold, design: .rounded)).monospacedDigit()
+                .foregroundStyle(StudioTheme.ink(scheme))
+            Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        }
+        .padding(.leading, 6).padding(.trailing, 12).padding(.vertical, 6)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(StudioTheme.border(scheme).opacity(0.7), lineWidth: 1))
+        .accessibilityElement(children: .combine)
+    }
+
+    private var preflightPanel: some View {
                     StudioPanel {
                         VStack(alignment: .leading, spacing: 12) {
-                            Label(t("開工前檢查", "Preflight Checklist"), systemImage: "checklist")
-                                .font(.headline)
+                            StudioSectionTitle(t("開工前檢查", "Preflight Checklist"), icon: "checklist")
                             ForEach(model.memberIDs) { agent in preflightRow(agent) }
                             StudioNotice(message: t("「去登入」會在終端機打開官方程式自己的登入流程；AIROOM 不接觸帳號密碼或 Token。", "\"Sign in\" opens the official CLI's own login in Terminal; AIROOM never handles passwords or tokens."))
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
+    }
+
+    private var projectPanel: some View {
                     StudioPanel {
                         VStack(alignment: .leading, spacing: 13) {
-                            Label(t("專案進度", "Project Activity"), systemImage: "square.stack.3d.up")
-                                .font(.headline)
+                            StudioSectionTitle(t("專案進度", "Project Activity"), icon: "square.stack.3d.up")
                             if model.archive.projects.isEmpty {
                                 Text(t("還沒有專案。可以先新增一個資料夾。", "No projects yet. Add a project folder to begin."))
                                     .font(.subheadline).foregroundStyle(.secondary)
@@ -114,15 +220,8 @@ struct StudioDashboard: View {
                             }
                             Button(t("查看專案", "View Projects"), action: onProject)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                }
-                Text(t("所有工作台紀錄保存在本機。外部 AI CLI 可能需要連接其官方服務。", "Workbench history stays on this device. External AI CLIs may connect to their official services."))
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            .padding(28)
-            .frame(maxWidth: 1100)
-            .frame(maxWidth: .infinity)
-        }
     }
 }
 
@@ -158,7 +257,7 @@ struct StudioMemberSheet: View {
                     Button(t("編輯人物卡", "Edit Profile"), action: onManage)
                     Spacer()
                     Button(t("前往成員工位", "Open Member Desk"), action: onDesk)
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.studioPrimary)
                 }
             }
             .padding(20)
@@ -187,25 +286,24 @@ extension StudioDashboard {
         let status = model.officialCLIStatuses[executor]
         HStack(spacing: 8) {
             StudioAvatar(agent: agent, size: 27, running: model.busyAgents.contains(agent))
-            Text(model.memberName(agent)).font(.subheadline)
+            Text(model.memberName(agent)).font(.subheadline.weight(.medium))
             Spacer()
             switch status {
             case .authenticated:
-                Label(t("已就緒", "Ready"), systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+                StudioStatusBadge(text: t("已就緒", "Ready"), tint: StudioTheme.moss, icon: "checkmark")
             case .notLoggedIn:
-                Label(t("需要登入", "Sign-in needed"), systemImage: "person.crop.circle.badge.exclamationmark")
-                    .font(.caption).foregroundStyle(.orange)
+                StudioStatusBadge(text: t("需要登入", "Sign-in needed"), tint: StudioTheme.orange)
                 Button(t("去登入", "Sign in")) { model.openOfficialLogin(for: executor) }.controlSize(.small)
                 Button { model.checkVendorCLIAccount(for: executor) } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.borderless).help(t("重新檢查", "Check again"))
             case .missingExecutable:
-                Label(t("缺少程式", "CLI missing"), systemImage: "xmark.circle").font(.caption).foregroundStyle(.red)
+                StudioStatusBadge(text: t("缺少程式", "CLI missing"), tint: .red)
                 Button(t("設定路徑", "Set path"), action: onSettings).controlSize(.small)
             case .checking, nil:
                 ProgressView().controlSize(.mini)
                 Text(t("檢查中", "Checking")).font(.caption).foregroundStyle(.secondary)
             case .notConfirmed, .timedOut:
-                Label(t("無法確認", "Unconfirmed"), systemImage: "questionmark.circle").font(.caption).foregroundStyle(.secondary)
+                StudioStatusBadge(text: t("無法確認", "Unconfirmed"), tint: StudioTheme.slate)
                 Button { model.checkVendorCLIAccount(for: executor) } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.borderless).help(t("重新檢查", "Check again"))
             }
@@ -263,7 +361,7 @@ struct StudioAttentionView: View {
                     .buttonStyle(.borderless).font(.caption)
                 }
                 StudioNotice(message: t("這個頁面只負責帶你過去；不會自動回答、批准寫回或重送任何請求。", "This page only takes you there; it never answers, approves writeback or resends anything."))
-            }.padding(26).frame(maxWidth: 900).frame(maxWidth: .infinity)
+            }.padding(StudioMetrics.page).frame(maxWidth: 900).frame(maxWidth: .infinity)
         }
     }
 }
