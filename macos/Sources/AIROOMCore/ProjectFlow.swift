@@ -275,13 +275,6 @@ public enum ProjectFlowEngine {
                         rounds: used, tasks: tasks, version: version)
     }
 
-    /// Next task to run in a round: pending, with every dependency done.
-    public static func nextTask(in round: FlowRound, plan: FlowPlan) -> FlowTask? {
-        let done = Set(plan.tasks.filter { $0.status == .done }.map(\.key))
-        return plan.tasks(in: round).first { $0.status == .pending && $0.dependencies.allSatisfy(done.contains) }
-    }
-
-    /// Who reviews a task: another member, preferring the lead.
     /// Who reviews a task, after upstream: anyone but the author, fewest reviews so far first, the
     /// lead last (so with three or more members the lead stays free to rule on disputes), members
     /// out of quota after everyone else. A task keeps its reviewer while that member can still do it.
@@ -294,11 +287,6 @@ public enum ProjectFlowEngine {
             [unavailable.contains(id) ? 1 : 0, count(id), id == lead ? 1 : 0, members.firstIndex(of: id) ?? 0]
         }
         return candidates.min { rank($0).lexicographicallyPrecedes(rank($1)) } ?? lead
-    }
-
-    public static func parseVerdict(_ text: String) -> (pass: Bool, findings: String) {
-        let review = parseReview(text)
-        return (review.pass, review.text)
     }
 
     // MARK: Prompts

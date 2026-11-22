@@ -104,9 +104,6 @@ public enum LocalAutomation {
         let parts = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
-    public static func shouldFire(_ item: ScheduledActivity, now: Date, calendar: Calendar = .current) -> Bool {
-        evaluate(item, now: now, calendar: calendar) == .fire
-    }
 
     /// A trigger later than this (the app was closed, the Mac slept, scheduling was paused) is skipped, never replayed.
     public static let grace: TimeInterval = 120
@@ -283,17 +280,6 @@ public struct CandidateReview: Identifiable, Codable, Equatable, Sendable {
                 notes: String, vote: MemberID? = nil, error: String? = nil) {
         self.id = id; self.reviewer = reviewer; self.candidate = candidate
         self.notes = notes; self.vote = vote; self.error = error
-    }
-}
-
-public enum RoundtableDecision {
-    public static func eligible(_ results: [RoundtableResult], agent: MemberID) -> Bool {
-        results.contains { $0.agent == agent && $0.error == nil && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    }
-    /// A model vote is advisory only. The first line must be an exact machine label.
-    public static func parseVote(_ response: String, members: [MemberID] = MemberID.builtIn) -> MemberID? {
-        let first = response.split(whereSeparator: \.isNewline).first.map { String($0).trimmingCharacters(in: .whitespacesAndNewlines).lowercased() } ?? ""
-        return members.first { first == "vote: \($0.handle.lowercased())" }
     }
 }
 

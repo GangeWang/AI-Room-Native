@@ -44,11 +44,12 @@ final class LiveCueParserTests: XCTestCase {
         XCTAssertEqual(spoken, "重點 請看 和")
     }
 
-    func testMouthCurveIsNormalisedAndGated() {
-        let curve = LipSync.mouthCurve(rms: [0, 0.01, 0.5, 1.0])
+    func testMouthIsNormalisedToThePeakAndGated() {
+        let curve = [0, 0.01, 0.5, 1.0].map { LipSync.mouth(level: Float($0), peak: 1.0) }
         XCTAssertEqual(curve[0], 0); XCTAssertEqual(curve[1], 0)
         XCTAssertEqual(curve[3], 1, accuracy: 0.0001)
         XCTAssertGreaterThan(curve[2], 0.5)
+        XCTAssertEqual(LipSync.mouth(level: 0.5, peak: 0), 0, "silence so far keeps the mouth shut")
     }
 }
 

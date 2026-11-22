@@ -339,7 +339,6 @@ public struct SharedContextSnapshot: Equatable, Sendable {
     public let transcript: String
 
     public var includedCount: Int { entries.count }
-    public var totalCharacters: Int { transcript.count }
 }
 
 public enum RoomPromptBuilder {
