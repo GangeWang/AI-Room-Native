@@ -48,10 +48,6 @@ enum StudioTheme {
     static func ink(_ scheme: ColorScheme) -> Color {
         scheme == .dark ? Color(red: 0.95, green: 0.92, blue: 0.88) : Color(red: 0.20, green: 0.16, blue: 0.13)
     }
-    /// Tinted fill for a selected row or chip.
-    static func selection(_ scheme: ColorScheme) -> Color {
-        amber.opacity(scheme == .dark ? 0.16 : 0.17)
-    }
     static func subtleFill(_ scheme: ColorScheme) -> Color {
         ink(scheme).opacity(scheme == .dark ? 0.06 : 0.045)
     }
@@ -60,16 +56,10 @@ enum StudioTheme {
     }
 }
 
-/// Spacing scale and corner radii.
+/// Page padding and corner radii.
 enum StudioMetrics {
-    static let xs: CGFloat = 4
-    static let s: CGFloat = 8
-    static let m: CGFloat = 12
-    static let l: CGFloat = 16
-    static let xl: CGFloat = 24
     /// Outer padding of every scrolling page.
     static let page: CGFloat = 28
-    static let radiusSmall: CGFloat = 8
     static let radiusControl: CGFloat = 10
     static let radiusCard: CGFloat = 14
     static let radiusPanel: CGFloat = 16
@@ -138,19 +128,6 @@ extension Executor {
         case .deepseek: return "DeepSeek"
         case .antigravity: return "Antigravity"
         case .zcode: return "ZCode"
-        }
-    }
-}
-
-extension Executor {
-    /// The program's hue for icon tiles in settings and usage.
-    var studioTint: Color {
-        switch self {
-        case .claude: return StudioTheme.orange
-        case .codex: return StudioTheme.violet
-        case .deepseek: return StudioTheme.sky
-        case .antigravity: return StudioTheme.teal
-        case .zcode: return StudioTheme.plum
         }
     }
 }
