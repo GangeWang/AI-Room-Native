@@ -27,11 +27,19 @@ struct StudioDashboard: View {
                             ZStack(alignment: .bottom) {
                                 // The portrait, blurred into an ambient wash, so artwork that has its own
                                 // background melts into the card instead of sitting in a box.
-                                if let art = model.portraitImage(agent) {
-                                    Image(nsImage: art).resizable().scaledToFill()
-                                        .blur(radius: 26).opacity(scheme == .dark ? 0.55 : 0.45)
-                                        .saturation(1.2)
-                                }
+                                // Drawn as an overlay on a clear layer so the filled image never sizes the
+                                // stack: sized by its content, the portrait was pushed off the top and the
+                                // invisible overflow covered the buttons below.
+                                Color.clear
+                                    .overlay {
+                                        if let art = model.portraitImage(agent) {
+                                            Image(nsImage: art).resizable().scaledToFill()
+                                                .blur(radius: 26).opacity(scheme == .dark ? 0.55 : 0.45)
+                                                .saturation(1.2)
+                                        }
+                                    }
+                                    .clipped()
+                                    .allowsHitTesting(false)
                                 // The member's own color glows up behind the portrait like a stage light.
                                 LinearGradient(colors: [agent.studioColor.opacity(0.04), agent.studioColor.opacity(0.24)],
                                                startPoint: .top, endPoint: .bottom)
@@ -44,6 +52,8 @@ struct StudioDashboard: View {
                             }
                             .frame(height: 225)
                             .clipped()
+                            // Clipping only hides overflow; this also keeps it from taking clicks.
+                            .contentShape(Rectangle())
                             .overlay(alignment: .bottom) {
                                 Rectangle().fill(StudioTheme.hairline(scheme)).frame(height: 1)
                             }
@@ -145,10 +155,14 @@ struct StudioDashboard: View {
             TimelineView(.periodic(from: .now, by: 300)) { context in
                 ZStack {
                     StudioTheme.surface(scheme)
-                    if let art = StudioAsset.image(StudioAsset.backdrop(for: context.date)) {
-                        Image(nsImage: art).resizable().scaledToFill()
-                            .opacity(scheme == .dark ? 0.55 : 0.7)
-                    }
+                    Color.clear
+                        .overlay {
+                            if let art = StudioAsset.image(StudioAsset.backdrop(for: context.date)) {
+                                Image(nsImage: art).resizable().scaledToFill()
+                                    .opacity(scheme == .dark ? 0.55 : 0.7)
+                            }
+                        }
+                        .clipped()
                     // Paper fades in from the left so the copy always sits on a calm field.
                     LinearGradient(stops: [
                         .init(color: StudioTheme.surface(scheme), location: 0),
@@ -160,6 +174,7 @@ struct StudioDashboard: View {
                                    center: .topLeading, startRadius: 0, endRadius: 420)
                 }
                 .accessibilityHidden(true)
+                .allowsHitTesting(false)
             }
         }
         .clipShape(shape)

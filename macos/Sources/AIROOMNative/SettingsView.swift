@@ -99,7 +99,7 @@ struct SettingsView: View {
                 StudioPanel {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 12) {
-                            StudioIconTile(symbol: agent.symbol, tint: agent.studioTint, size: 40)
+                            ExecutorLogo(executor: agent, size: 40)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(agent.rawValue).font(StudioType.sectionTitle)
                                 Text(agent == .codex

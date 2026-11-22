@@ -33,7 +33,7 @@ struct StudioQuotaView: View {
                     StudioPanel {
                         VStack(alignment: .leading, spacing: 13) {
                             HStack(spacing: 10) {
-                                StudioIconTile(symbol: agent.symbol, tint: agent.studioTint, size: 37)
+                                ExecutorLogo(executor: agent, size: 37)
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(agent.rawValue).font(StudioType.sectionTitle)
                                     let names = model.archive.members.filter { $0.executor == agent }.map(\.name)
