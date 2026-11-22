@@ -155,59 +155,6 @@ extension Executor {
     }
 }
 
-/// The program's own official app icon, read from the installed vendor app at runtime
-/// (nothing is bundled). Falls back to a hue tile when the app isn't installed.
-struct ExecutorLogo: View {
-    let executor: Executor
-    var size: CGFloat = 40
-    var body: some View {
-        if let icon = ExecutorLogo.icon(for: executor) {
-            Image(nsImage: icon)
-                .resizable().interpolation(.high).aspectRatio(contentMode: .fit)
-                // macOS app icons carry a transparent margin; scale it out so tiles line up.
-                .scaleEffect(1.2)
-                .frame(width: size, height: size)
-                .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
-                .accessibilityHidden(true)
-        } else {
-            StudioIconTile(symbol: executor.symbol, tint: executor.studioTint, size: size)
-        }
-    }
-
-    @MainActor private static var cache: [Executor: NSImage?] = [:]
-
-    @MainActor static func icon(for executor: Executor) -> NSImage? {
-        if let hit = cache[executor] { return hit }
-        let image = lookUp(executor)
-        cache[executor] = image
-        return image
-    }
-
-    private static func lookUp(_ executor: Executor) -> NSImage? {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        func app(_ name: String) -> String? {
-            ["/Applications/\(name).app", "\(home)/Applications/\(name).app"]
-                .first { FileManager.default.fileExists(atPath: $0) }
-        }
-        func appIcon(_ names: String...) -> NSImage? {
-            names.lazy.compactMap(app).first.map { NSWorkspace.shared.icon(forFile: $0) }
-        }
-        switch executor {
-        case .claude: return appIcon("Claude")
-        case .codex:
-            // Codex ships inside ChatGPT.app with its own icon; a standalone Codex.app comes next.
-            if let chatGPT = app("ChatGPT"),
-               let codex = NSImage(contentsOfFile: chatGPT + "/Contents/Resources/icon-codex-dark-color.png") {
-                return codex
-            }
-            return appIcon("Codex", "ChatGPT")
-        case .deepseek: return appIcon("DeepSeek Harness")
-        case .antigravity: return appIcon("Antigravity")
-        case .zcode: return appIcon("ZCode")
-        }
-    }
-}
-
 /// A small status capsule: colored dot, short text.
 struct StudioStatusBadge: View {
     var text: String

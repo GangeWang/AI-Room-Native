@@ -24,33 +24,9 @@ struct StudioDashboard: View {
                     ForEach(model.visibleAgents) { agent in
                         let card = model.archive.members.first(where: { $0.agent == agent })
                         VStack(alignment: .leading, spacing: 0) {
-                            ZStack(alignment: .bottom) {
-                                // The portrait, blurred into an ambient wash, so artwork that has its own
-                                // background melts into the card instead of sitting in a box.
-                                // Drawn as an overlay on a clear layer so the filled image never sizes the
-                                // stack: sized by its content, the portrait was pushed off the top and the
-                                // invisible overflow covered the buttons below.
-                                Color.clear
-                                    .overlay {
-                                        if let art = model.portraitImage(agent) {
-                                            Image(nsImage: art).resizable().scaledToFill()
-                                                .blur(radius: 26).opacity(scheme == .dark ? 0.55 : 0.45)
-                                                .saturation(1.2)
-                                        }
-                                    }
-                                    .clipped()
-                                    .allowsHitTesting(false)
-                                // The member's own color glows up behind the portrait like a stage light.
-                                LinearGradient(colors: [agent.studioColor.opacity(0.04), agent.studioColor.opacity(0.24)],
-                                               startPoint: .top, endPoint: .bottom)
-                                Ellipse().fill(agent.studioColor.opacity(0.3)).blur(radius: 26)
-                                    .frame(height: 80).offset(y: 36)
-                                StudioPortrait(agent: agent)
-                                    .padding(.top, 14)
-                                    .padding(.horizontal, 8)
-                                    .shadow(color: .black.opacity(0.25), radius: 10, y: 6)
-                            }
-                            .frame(height: 225)
+                            // Card face in relief: cut-out figure over its own pressed silhouette.
+                            StudioReliefPortrait(agent: agent)
+                            .frame(height: 232)
                             .clipped()
                             // Clipping only hides overflow; this also keeps it from taking clicks.
                             .contentShape(Rectangle())
@@ -64,10 +40,12 @@ struct StudioDashboard: View {
                                     Text(card?.name ?? agent.shortName).font(.system(.title3, design: .rounded).weight(.semibold))
                                         .lineLimit(1)
                                     Spacer(minLength: 4)
-                                    Text(agent.executor.rawValue)
+                                    HStack(spacing: 4) {
+                                        ExecutorLogo(executor: agent.executor, size: 13)
+                                        Text(agent.executor.rawValue).lineLimit(1)
+                                    }
                                         .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .padding(.horizontal, 6).padding(.vertical, 2)
+                                        .padding(.leading, 3).padding(.trailing, 6).padding(.vertical, 2)
                                         .background(StudioTheme.subtleFill(scheme), in: Capsule())
                                 }
                                 Text(model.busyAgents.contains(agent)
@@ -92,6 +70,7 @@ struct StudioDashboard: View {
                         }
                         .clipShape(RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous))
                         .studioCard(radius: StudioMetrics.radiusPanel)
+                        .studioBevel(radius: StudioMetrics.radiusPanel)
                         .frame(maxWidth: .infinity)
                     }
                 }
@@ -253,11 +232,8 @@ struct StudioMemberSheet: View {
     var body: some View {
         let member = model.archive.members.first(where: { $0.agent == agent })
         VStack(spacing: 0) {
-            ZStack {
-                agent.studioColor.opacity(0.08)
-                StudioPortrait(agent: agent).padding(.top, 14)
-            }
-            .frame(height: 210).clipped()
+            StudioReliefPortrait(agent: agent)
+                .frame(height: 230).clipped()
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
                     Text(member?.name ?? agent.shortName).font(.title2.bold())

@@ -32,17 +32,26 @@ struct StudioPortrait: View {
     let agent: MemberID
     /// The editor's framing while a slider is being dragged.
     var preview: (scale: Double, offset: PortraitOffset)? = nil
+    /// Draw this picture (e.g. the cut-out) instead of the saved portrait, with the same framing.
+    var image: NSImage? = nil
+    /// Draw only the picture's shape, filled with this style (for relief echoes).
+    var silhouette: AnyShapeStyle? = nil
+    /// Sideways shift as a share of the drawn picture's width.
+    var shift: CGFloat = 0
     var body: some View {
         let card = model.card(agent)
         let scale = preview?.scale ?? card?.portraitScale ?? 1
         let offset = preview?.offset ?? card?.portraitOffset ?? PortraitOffset(x: 0, y: 0)
         GeometryReader { geo in
-            if let art = model.portraitImage(agent) {
+            if let art = image ?? model.portraitImage(agent) {
+                let drawnWidth = min(geo.size.width, geo.size.height * art.size.width / max(art.size.height, 1)) * scale
                 Image(nsImage: art)
+                    .renderingMode(silhouette == nil ? .original : .template)
                     .resizable().scaledToFit()
+                    .foregroundStyle(silhouette ?? AnyShapeStyle(Color.primary))
                     .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                     .scaleEffect(scale, anchor: .top)
-                    .offset(x: geo.size.width * offset.x, y: geo.size.height * offset.y)
+                    .offset(x: geo.size.width * offset.x + drawnWidth * shift, y: geo.size.height * offset.y)
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
                     .accessibilityLabel(agent.shortName)

@@ -36,8 +36,10 @@ struct MembersView: View {
                         let name = model.archive.members.first(where: { $0.agent == agent })?.name ?? agent.shortName
                         Button { selected = agent } label: {
                             VStack(alignment: .leading, spacing: 8) {
-                                StudioPortrait(agent: agent)
-                                    .frame(height: 190).clipped()
+                                StudioReliefPortrait(agent: agent, topInset: 10)
+                                    .frame(height: 200)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    .contentShape(Rectangle())
                                 Text(name).font(StudioType.sectionTitle)
                                 let hidden = model.card(agent)?.cardHidden == true
                                 Text(agent.executor.rawValue + (hidden ? t(" · 人物卡已隱藏", " · Card hidden") : ""))
