@@ -178,7 +178,7 @@ public sealed class LiveShowSettings
 {
     public Guid? RoomID { get; set; }
     public string Topic { get; set; } = "";
-    public int TurnDelaySeconds { get; set; } = 45;
+    public int TurnDelaySeconds { get; set; } = 3;
     public int MaxTurns { get; set; } = 80;
     public int MaxDurationMinutes { get; set; } = 120;
     public string Summary { get; set; } = "";
@@ -191,7 +191,7 @@ public sealed class LiveShowSettings
     {
         RoomID = roomID;
         Topic = topic.Length > 2_000 ? topic[..2_000] : topic;
-        TurnDelaySeconds = Math.Min(180, Math.Max(15, turnDelaySeconds));
+        TurnDelaySeconds = Math.Min(180, Math.Max(0, turnDelaySeconds));
         MaxTurns = Math.Min(300, Math.Max(2, maxTurns));
         MaxDurationMinutes = Math.Min(240, Math.Max(10, maxDurationMinutes));
         Summary = summary.Length > 5_000 ? summary[..5_000] : summary;
@@ -205,7 +205,7 @@ public static class LiveShowPolicy
 {
     public static bool CanStart(IReadOnlyList<MemberID> participants, IReadOnlySet<MemberID> enabled, LiveShowSettings config) =>
         participants.Distinct().Count(participant => enabled.Contains(participant)) >= 1 && config.MaxTurns >= 2
-        && config.TurnDelaySeconds >= 15 && config.MaxDurationMinutes >= 10;
+        && config.TurnDelaySeconds >= 0 && config.MaxDurationMinutes >= 10;
 
     public static MemberID? NextSpeaker(IReadOnlyList<MemberID> participants, MemberID? last)
     {

@@ -431,7 +431,7 @@ public sealed partial class LiveStagePage : Page
         var config = Model.LiveConfig();
 
         var options = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14 };
-        options.Children.Add(OptionPicker("輪間隔", new[] { 15, 30, 45, 60, 90, 120 },
+        options.Children.Add(OptionPicker("輪間隔", new[] { 0, 1, 3, 5, 10, 15, 30, 45, 60, 90, 120, 180 },
             config.TurnDelaySeconds, value => Model.UpdateLiveConfig(live => live.TurnDelaySeconds = value),
             value => $"{value} 秒", !Model.LiveActive));
         options.Children.Add(OptionPicker("輪數上限", new[] { 2, 10, 20, 40, 80, 120 },

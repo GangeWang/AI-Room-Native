@@ -62,10 +62,12 @@ public class LiveShowTests
         Assert.False(LiveShowPolicy.CanStart([], enabled, config));
         Assert.False(LiveShowPolicy.CanStart([Codex], new HashSet<MemberID> { Claude }, config)); // the enabled one is not present
         Assert.True(LiveShowPolicy.CanStart([Claude, Codex], enabled, config));
-        // The ctor clamps 5 s back to the floor; a hand-edited setting bypasses
-        // that, and the policy is the second gate before anything runs.
-        Assert.False(LiveShowPolicy.CanStart([Claude, Codex], enabled,
+        // The delay floor is 0 (the next line is written while this one is
+        // spoken), so even a hand-edited 5 s setting is legal.
+        Assert.True(LiveShowPolicy.CanStart([Claude, Codex], enabled,
             new LiveShowSettings { Topic = "主題", TurnDelaySeconds = 5 }));
+        Assert.True(LiveShowPolicy.CanStart([Claude, Codex], enabled,
+            new LiveShowSettings { Topic = "主題", TurnDelaySeconds = 0 }));
 
         var now = DateTimeOffset.Now;
         var started = now.AddMinutes(-30);
