@@ -80,10 +80,12 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
 
-                switch page {
-                case .members: connections
-                case .storage: storage
-                case .about: about
+                StudioTabContent(selection: page, order: [.members, .storage, .about]) { page in
+                    switch page {
+                    case .members: connections
+                    case .storage: storage
+                    case .about: about
+                    }
                 }
             }
             .padding(StudioMetrics.page)

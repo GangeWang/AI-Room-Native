@@ -99,10 +99,12 @@ struct FlowDetailView: View {
                         Text(t("看板", "Board")).tag(1)
                         Text(t("成員匯報", "Member reports")).tag(2)
                     }.pickerStyle(.segmented).labelsHidden().frame(width: 330)
-                    switch tab {
-                    case 1: FlowBoard(flow: flow)
-                    case 2: FlowReports(flow: flow)
-                    default: FlowRoom(flow: flow)
+                    StudioTabContent(selection: tab, order: [0, 1, 2]) { tab in
+                        switch tab {
+                        case 1: FlowBoard(flow: flow)
+                        case 2: FlowReports(flow: flow)
+                        default: FlowRoom(flow: flow)
+                        }
                     }
                 }.padding(18)
             }

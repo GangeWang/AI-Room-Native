@@ -575,3 +575,36 @@ struct StudioPressableStyle: ButtonStyle {
 extension ButtonStyle where Self == StudioPressableStyle {
     static var studioPressable: StudioPressableStyle { StudioPressableStyle() }
 }
+
+/// A page's own tabs (second-level views). The new view slides in from the side its tab
+/// sits on, so left and right keep their meaning; the old one just fades. Reduce Motion: fade only.
+struct StudioTabContent<Tab: Hashable, Content: View>: View {
+    let selection: Tab
+    /// The tabs in the order they appear in the control.
+    let order: [Tab]
+    @ViewBuilder var content: (Tab) -> Content
+    @State private var shown: Tab
+    @State private var forward = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(selection: Tab, order: [Tab], @ViewBuilder content: @escaping (Tab) -> Content) {
+        self.selection = selection
+        self.order = order
+        self.content = content
+        _shown = State(initialValue: selection)
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            content(shown)
+                .id(shown)
+                .transition(.asymmetric(
+                    insertion: reduceMotion ? .opacity : .opacity.combined(with: .offset(x: forward ? 28 : -28)),
+                    removal: .opacity))
+        }
+        .onChange(of: selection) { old, new in
+            forward = (order.firstIndex(of: new) ?? 0) >= (order.firstIndex(of: old) ?? 0)
+            withAnimation(StudioMotion.easeOut(0.22)) { shown = new }
+        }
+    }
+}

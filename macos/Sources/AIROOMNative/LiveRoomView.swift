@@ -14,7 +14,7 @@ struct LiveRoomView: View {
     private enum Tab: Hashable { case show, stage }
 
     var body: some View {
-        Group {
+        StudioTabContent(selection: tab, order: [.show, .stage]) { tab in
             switch tab {
             case .show: show
             case .stage: LiveStageView(stage: model.stage)
