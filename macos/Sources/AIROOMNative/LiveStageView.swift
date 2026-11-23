@@ -243,7 +243,7 @@ struct LiveStageView: View {
                         .foregroundStyle(speaker.studioColor)
                 }
             } else {
-                Text(live ? t("等待下一句", "Waiting for the next line") : t("直播尚未開始，到茶歇室開一場 AI 直播", "Not live. Start an AI live show in the Lounge"))
+                Text(live ? t("等待下一句", "Waiting for the next line") : t("直播尚未開始，到「直播」分頁開播", "Not live. Go live from the Show tab"))
                     .font(.callout).foregroundStyle(.white.opacity(0.75)).lineLimit(1)
             }
             Spacer(minLength: 8)

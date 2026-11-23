@@ -2,7 +2,7 @@ import SwiftUI
 import AIROOMCore
 
 private enum StudioRoute: Hashable {
-    case home, chat(MemberID), room, roundtable, projects, members, attention, quota, automation, stage, settings
+    case home, chat(MemberID), room, roundtable, projects, members, attention, quota, automation, live, settings
 }
 
 private enum SidebarItem: Hashable {
@@ -72,7 +72,7 @@ struct ContentView: View {
                     case .members: MembersView()
                     case .quota: StudioQuotaView()
                     case .automation: AutomationView()
-                    case .stage: LiveStageView(stage: model.stage)
+                    case .live: LiveRoomView()
                     case .attention: StudioAttentionView(onOpen: openAttention)
                     case .settings: SettingsView()
                     }
@@ -141,8 +141,10 @@ struct ContentView: View {
                     .badge(attentionCount)
                     .tag(SidebarItem.route(.attention))
                 Label(t("用量與額度", "Usage & Quotas"), systemImage: "chart.bar").tag(SidebarItem.route(.quota))
-                Label(t("排程與直播", "Automation & Live"), systemImage: "calendar.badge.clock").tag(SidebarItem.route(.automation))
-                Label(t("直播舞台", "Live Stage"), systemImage: "person.wave.2").tag(SidebarItem.route(.stage))
+                Label(t("直播間", "Live Room"), systemImage: "dot.radiowaves.left.and.right")
+                    .badge(model.liveActive ? Text("LIVE") : nil)
+                    .tag(SidebarItem.route(.live))
+                Label(t("排程與自動對話", "Schedules & Auto Chat"), systemImage: "calendar.badge.clock").tag(SidebarItem.route(.automation))
             }
             Section {
                 Label(t("專案工作區", "Project Workspace"), systemImage: "folder").tag(SidebarItem.route(.projects))
@@ -229,7 +231,8 @@ struct ContentView: View {
 
     private func openAttention(_ target: AttentionItem.Target) {
         switch target {
-        case .room(let id): model.selectRoom(id); route = .room
+        case .room(let id):
+            if model.liveRoom?.id == id { route = .live } else { model.selectRoom(id); route = .room }
         case .roundtable(let id): model.selectedRoundtableID = id; route = .roundtable
         case .project(let id):
             if model.archive.projectFlows.contains(where: { $0.id == id }) { model.selectedFlowID = id }
@@ -283,8 +286,8 @@ struct ContentView: View {
         case .members: return t("成員管理", "Members")
         case .quota: return t("用量與額度", "Usage & Quotas")
         case .attention: return t("待你處理", "Needs Attention")
-        case .automation: return t("排程與直播", "Automation & Live")
-        case .stage: return t("直播舞台", "Live Stage")
+        case .automation: return t("排程與自動對話", "Schedules")
+        case .live: return t("直播間", "Live Room")
         case .settings: return t("設定與連接", "Settings")
         }
     }
@@ -295,8 +298,9 @@ struct ContentView: View {
         else if key.contains("專案") || key.contains("project") { route = .projects }
         else if key.contains("茶") || key.contains("room") || key.contains("lounge") { route = .room }
         else if key.contains("圓") || key.contains("round") { route = .roundtable }
-        else if key.contains("舞台") || key.contains("vtube") || key.contains("stage") || key.contains("tts") { route = .stage }
-        else if key.contains("排程") || key.contains("schedule") || key.contains("live") { route = .automation }
+        else if key.contains("直播") || key.contains("舞台") || key.contains("vtube") || key.contains("stage")
+                    || key.contains("tts") || key.contains("live") { route = .live }
+        else if key.contains("排程") || key.contains("schedule") { route = .automation }
         else if key.contains("設定") || key.contains("setting") { route = .settings }
         else if key.contains("成員") || key.contains("member") { route = .members }
         else if key.contains("待") || key.contains("attention") { route = .attention }

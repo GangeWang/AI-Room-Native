@@ -51,6 +51,8 @@ final class WorkbenchModel: ObservableObject {
     @Published var liveSubtitle = ""
     @Published var liveAudienceDraft = ""
     @Published var liveAudienceName = "觀眾"
+    /// The host's cut-in line, typed in the live room (the lounge composer stays the lounge's).
+    @Published var liveHostDraft = ""
     @Published var liveLastSpeaker: MemberID?
     @Published var liveStartedAt: Date?
     /// TTS + VTube Studio performer for the live show (see LiveStageView).
@@ -662,6 +664,28 @@ final class WorkbenchModel: ObservableObject {
 
     var activeRoom: TeamRoom? { activeRoomIndex.map { archive.rooms[$0] } }
 
+    // MARK: Live room (直播間): the live show's own transcript, apart from the lounge topics.
+
+    var liveRoom: TeamRoom? { archive.rooms.first(where: \.isLiveRoom) }
+
+    /// The live room, made on first use. It starts with the members who are switched on.
+    @discardableResult
+    func ensureLiveRoom() -> Int? {
+        if let index = archive.rooms.firstIndex(where: \.isLiveRoom) { return index }
+        guard storageAvailable else { return nil }
+        let hosts = archive.members.filter(\.enabled).map(\.agent)
+        archive.rooms.append(TeamRoom(title: "直播間", participants: hosts, isLiveRoom: true))
+        persist()
+        return archive.rooms.count - 1
+    }
+
+    func setLiveParticipant(_ agent: MemberID, included: Bool) {
+        guard !liveActive, let index = ensureLiveRoom() else { return }
+        archive.rooms[index].participants.removeAll(where: { $0 == agent })
+        if included { archive.rooms[index].participants.append(agent) }
+        persist()
+    }
+
     func roomEntries() -> [RoomEntry] { activeRoom?.entries ?? [] }
 
     /// New topic. By default the previous topic's summary is carried over so
@@ -699,7 +723,8 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func selectRoom(_ id: UUID) {
-        guard !roomRunning, !liveActive, archive.rooms.contains(where: { $0.id == id }) else { return }
+        // Only lounge topics: the live show and roundtables have their own pages.
+        guard !roomRunning, archive.rooms.contains(where: { $0.id == id && $0.isLounge }) else { return }
         selectedRoomID = id
         roomTarget = nil
         roomDraft = ""
@@ -1311,7 +1336,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func setRoomParticipant(_ agent: MemberID, included: Bool) {
-        guard !roomRunning, !liveActive, let index = activeRoomIndex else { return }
+        guard !roomRunning, let index = activeRoomIndex else { return }
         archive.rooms[index].participants.removeAll(where: { $0 == agent })
         if included { archive.rooms[index].participants.append(agent) }
         if !included && roomTarget == agent { roomTarget = nil }
@@ -1378,7 +1403,7 @@ final class WorkbenchModel: ObservableObject {
         guard storageAvailable, liveActive,
               let roomID = archive.liveShow.roomID,
               let index = archive.rooms.firstIndex(where: { $0.id == roomID }) else { return }
-        let text = roomDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = liveHostDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.count <= 2_000 else {
             statusMessage = "直播中的插話限 1–2,000 字。"; return
         }
@@ -1387,7 +1412,7 @@ final class WorkbenchModel: ObservableObject {
         archive.rooms[index].entries.append(RoomEntry(
             speaker: .user, displayName: LiveShowPolicy.hostDisplayName(userName: archive.settings.userName), body: text))
         archive.rooms[index].updatedAt = .now
-        roomDraft = ""
+        liveHostDraft = ""
         liveHostCutIns += 1
         persist()
         statusMessage = "已插話，下一位發言的 AI 會先處理。"
@@ -1395,7 +1420,7 @@ final class WorkbenchModel: ObservableObject {
 
     func startLiveShow() {
         guard storageAvailable, !liveActive, !roomRunning,
-              let roomIndex = activeRoomIndex else { return }
+              let roomIndex = ensureLiveRoom() else { return }
         let room = archive.rooms[roomIndex]
         let enabled = Set(archive.members.filter(\.enabled).map(\.agent))
         var config = archive.liveShow
