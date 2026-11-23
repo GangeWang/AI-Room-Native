@@ -109,7 +109,7 @@ struct ContentView: View {
         .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
         .sheet(item: $memberSheet) { member in
             StudioMemberSheet(agent: member, onDesk: { route = .chat(member); memberSheet = nil },
-                              onManage: { route = .members; memberSheet = nil })
+                              onManage: { model.focusedMember = member; route = .members; memberSheet = nil })
                 .environmentObject(model)
                 .frame(minWidth: 420, idealWidth: 520, minHeight: 380)
         }
