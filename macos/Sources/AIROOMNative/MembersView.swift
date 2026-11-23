@@ -72,98 +72,102 @@ struct MembersView: View {
                     .disabled(!model.storageAvailable)
                 }
                 if let member = current {
-                    StudioPanel {
-                        VStack(alignment: .leading, spacing: 16) {
-                            HStack {
-                                StudioAvatar(agent: selected, size: 42)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(t("編輯人物卡", "Edit Member Card")).font(.headline)
-                                    Text(member.executor.rawValue).font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Button {
-                                    editingCrop = true
-                                } label: {
-                                    Label(t("調整頭像", "Adjust Avatar"), systemImage: "crop.rotate")
-                                }
-                                .disabled(!model.storageAvailable)
-                                Toggle(t("隱藏人物卡", "Hide card"), isOn: memberBinding(member).cardHidden)
-                                    .toggleStyle(.switch)
-                                    .help(t("只是不顯示在首頁和側欄；成員照常參與聊天和工作。", "Only leaves the card off the home page and sidebar; the member still takes part."))
-                                Toggle(t("啟用成員", "Enable Member"), isOn: memberBinding(member).enabled)
-                                    .toggleStyle(.switch)
-                            }
-                            Divider()
-                            HStack(alignment: .top, spacing: 14) {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(t("顯示名稱", "Display Name")).font(.subheadline.weight(.semibold))
-                                    TextField(t("顯示名稱", "Display Name"), text: memberBinding(member).name)
-                                        .textFieldStyle(.roundedBorder)
-                                }
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(t("怎麼稱呼你", "What they call you")).font(.subheadline.weight(.semibold))
-                                    TextField(t("留空就叫你「\(model.archive.settings.ownerName)」", "Empty: \(model.archive.settings.ownerName)"),
-                                              text: memberBinding(member).userTitle)
-                                        .textFieldStyle(.roundedBorder)
-                                }
-                            }
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(t("一句話介紹", "One-line intro")).font(.subheadline.weight(.semibold))
-                                TextField(t("會顯示在團隊卡片上", "Shown on the team cards"), text: memberBinding(member).motto)
-                                    .textFieldStyle(.roundedBorder)
-                            }
-                            MemberColorPicker(member: member, color: memberBinding(member).color)
-                            MemberExecutorPicker(member: member)
-                            VStack(alignment: .leading, spacing: 6) {
+                    // The editor's switches, segments and links take the member's own colour.
+                    Group {
+                        StudioPanel {
+                            VStack(alignment: .leading, spacing: 16) {
                                 HStack {
-                                    Text(t("人物性格與分工提示", "Persona & Role Instructions")).font(.subheadline.weight(.semibold))
+                                    StudioAvatar(agent: selected, size: 42)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(t("編輯人物卡", "Edit Member Card")).font(.headline)
+                                        Text(member.executor.rawValue).font(.caption).foregroundStyle(.secondary)
+                                    }
                                     Spacer()
                                     Button {
-                                        if let file = PersonaFile.read(for: member.executor) { personaFile = file }
-                                        else { model.statusMessage = t("沒有找到 \(PersonaFile.location(for: member.executor).path)，或檔案是空的。",
-                                                                       "\(PersonaFile.location(for: member.executor).path) was not found or is empty.") }
+                                        editingCrop = true
                                     } label: {
-                                        Label(t("從 \(PersonaFile.location(for: member.executor).lastPathComponent) 匯入…", "Import from \(PersonaFile.location(for: member.executor).lastPathComponent)…"),
-                                              systemImage: "square.and.arrow.down")
+                                        Label(t("調整頭像", "Adjust Avatar"), systemImage: "crop.rotate")
                                     }
-                                    .buttonStyle(.borderless).font(.caption)
+                                    .disabled(!model.storageAvailable)
+                                    Toggle(t("隱藏人物卡", "Hide card"), isOn: memberBinding(member).cardHidden)
+                                        .toggleStyle(.switch)
+                                        .help(t("只是不顯示在首頁和側欄；成員照常參與聊天和工作。", "Only leaves the card off the home page and sidebar; the member still takes part."))
+                                    Toggle(t("啟用成員", "Enable Member"), isOn: memberBinding(member).enabled)
+                                        .toggleStyle(.switch)
                                 }
-                                TextEditor(text: memberBinding(member).persona)
-                                    .frame(minHeight: 135)
-                                    .font(.body).scrollContentBackground(.hidden)
-                                    .padding(9)
-                                    .background(StudioTheme.secondary(scheme), in: RoundedRectangle(cornerRadius: 10))
-                            }
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(t("聊天時的發言傾向", "Speaking preference in chat")).font(.subheadline.weight(.semibold))
-                                Picker("", selection: Binding(get: { member.talkativeness },
-                                                              set: { value in model.updateLife(member.agent) { $0.talkativeness = value } })) {
-                                    ForEach(Talkativeness.allCases) { Text($0.title).tag($0) }
-                                }
-                                .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 280)
-                            }
-                            MemberDefaultsPicker(member: member)
-                            Divider()
-                            HStack {
-                                Button(role: .destructive) { confirmingReset = true } label: {
-                                    Label(t("恢復預設資料", "Restore defaults"), systemImage: "arrow.counterclockwise")
-                                }
-                                .disabled(!model.storageAvailable)
-                                if !member.agent.isBuiltIn {
-                                    Button(role: .destructive) { confirmingRemove = true } label: {
-                                        Label(t("刪除成員", "Remove member"), systemImage: "trash")
+                                Divider()
+                                HStack(alignment: .top, spacing: 14) {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(t("顯示名稱", "Display Name")).font(.subheadline.weight(.semibold))
+                                        TextField(t("顯示名稱", "Display Name"), text: memberBinding(member).name)
+                                            .textFieldStyle(.roundedBorder)
                                     }
-                                    .disabled(!model.storageAvailable || model.busyAgents.contains(member.agent))
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(t("怎麼稱呼你", "What they call you")).font(.subheadline.weight(.semibold))
+                                        TextField(t("留空就叫你「\(model.archive.settings.ownerName)」", "Empty: \(model.archive.settings.ownerName)"),
+                                                  text: memberBinding(member).userTitle)
+                                            .textFieldStyle(.roundedBorder)
+                                    }
                                 }
-                                Spacer()
-                                Text(t("修改會直接儲存，下一次呼叫生效。", "Changes save as you type and apply from the next call."))
-                                    .font(.caption).foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(t("一句話介紹", "One-line intro")).font(.subheadline.weight(.semibold))
+                                    TextField(t("會顯示在團隊卡片上", "Shown on the team cards"), text: memberBinding(member).motto)
+                                        .textFieldStyle(.roundedBorder)
+                                }
+                                MemberColorPicker(member: member, color: memberBinding(member).color)
+                                MemberExecutorPicker(member: member)
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        Text(t("人物性格與分工提示", "Persona & Role Instructions")).font(.subheadline.weight(.semibold))
+                                        Spacer()
+                                        Button {
+                                            if let file = PersonaFile.read(for: member.executor) { personaFile = file }
+                                            else { model.statusMessage = t("沒有找到 \(PersonaFile.location(for: member.executor).path)，或檔案是空的。",
+                                                                           "\(PersonaFile.location(for: member.executor).path) was not found or is empty.") }
+                                        } label: {
+                                            Label(t("從 \(PersonaFile.location(for: member.executor).lastPathComponent) 匯入…", "Import from \(PersonaFile.location(for: member.executor).lastPathComponent)…"),
+                                                  systemImage: "square.and.arrow.down")
+                                        }
+                                        .buttonStyle(.borderless).font(.caption)
+                                    }
+                                    TextEditor(text: memberBinding(member).persona)
+                                        .frame(minHeight: 135)
+                                        .font(.body).scrollContentBackground(.hidden)
+                                        .padding(9)
+                                        .background(StudioTheme.secondary(scheme), in: RoundedRectangle(cornerRadius: 10))
+                                }
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(t("聊天時的發言傾向", "Speaking preference in chat")).font(.subheadline.weight(.semibold))
+                                    Picker("", selection: Binding(get: { member.talkativeness },
+                                                                  set: { value in model.updateLife(member.agent) { $0.talkativeness = value } })) {
+                                        ForEach(Talkativeness.allCases) { Text($0.title).tag($0) }
+                                    }
+                                    .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 280)
+                                }
+                                MemberDefaultsPicker(member: member)
+                                Divider()
+                                HStack {
+                                    Button(role: .destructive) { confirmingReset = true } label: {
+                                        Label(t("恢復預設資料", "Restore defaults"), systemImage: "arrow.counterclockwise")
+                                    }
+                                    .disabled(!model.storageAvailable)
+                                    if !member.agent.isBuiltIn {
+                                        Button(role: .destructive) { confirmingRemove = true } label: {
+                                            Label(t("刪除成員", "Remove member"), systemImage: "trash")
+                                        }
+                                        .disabled(!model.storageAvailable || model.busyAgents.contains(member.agent))
+                                    }
+                                    Spacer()
+                                    Text(t("修改會直接儲存，下一次呼叫生效。", "Changes save as you type and apply from the next call."))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
                             }
                         }
+                        StudioPanel { MemberArtworkEditor(member: member, editingCrop: $editingCrop) }
+                        StudioPanel { MemoryEditor(member: member, importing: $importing) }
+                        StudioPanel { LifeEditor(member: member) }
                     }
-                    StudioPanel { MemberArtworkEditor(member: member, editingCrop: $editingCrop) }
-                    StudioPanel { MemoryEditor(member: member, importing: $importing) }
-                    StudioPanel { LifeEditor(member: member) }
+                    .tint(member.agent.studioColor)
                 }
             }
             .padding(StudioMetrics.page)
