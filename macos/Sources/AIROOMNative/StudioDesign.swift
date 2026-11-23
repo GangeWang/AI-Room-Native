@@ -57,6 +57,8 @@ enum StudioTheme {
 enum StudioMetrics {
     /// Outer padding of every scrolling page.
     static let page: CGFloat = 28
+    /// One reading column for conversation pages: header, transcript and composer share its edges.
+    static let column: CGFloat = 860
     static let radiusControl: CGFloat = 10
     static let radiusCard: CGFloat = 14
     static let radiusPanel: CGFloat = 16

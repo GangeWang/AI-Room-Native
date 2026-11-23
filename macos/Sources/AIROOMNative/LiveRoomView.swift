@@ -14,17 +14,20 @@ struct LiveRoomView: View {
     private enum Tab: Hashable { case show, stage }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("", selection: $tab) {
-                Text(t("直播", "Show")).tag(Tab.show)
-                Text(t("舞台設定", "Stage")).tag(Tab.stage)
-            }
-            .pickerStyle(.segmented).labelsHidden().frame(width: 240)
-            .padding(.vertical, 10)
-            Divider()
+        Group {
             switch tab {
             case .show: show
             case .stage: LiveStageView(stage: model.stage)
+            }
+        }
+        // The page's views sit in the window toolbar, like Mail's or Xcode's view switchers.
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker(t("檢視", "View"), selection: $tab) {
+                    Text(t("直播", "Show")).tag(Tab.show)
+                    Text(t("舞台設定", "Stage")).tag(Tab.stage)
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
             }
         }
         .onAppear { model.ensureLiveRoom() }
@@ -47,7 +50,7 @@ struct LiveRoomView: View {
 
     private var controls: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 onAirBadge
                 TextField(t("直播主題", "Show topic"), text: Binding(
                     get: { settings.topic },
@@ -67,37 +70,44 @@ struct LiveRoomView: View {
                     .help(model.roomRunning ? t("茶歇室正在進行，結束後才能開播", "Wait for the lounge to finish") : "")
                 }
             }
-            HStack(spacing: 14) {
-                Text(t("主持", "Hosts")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                ForEach(model.enabledMemberIDs) { agent in
-                    Toggle(isOn: Binding(get: { hosts.contains(agent) },
-                                         set: { model.setLiveParticipant(agent, included: $0) })) {
-                        HStack(spacing: 5) {
-                            StudioAvatar(agent: agent, size: 20, running: model.liveActive && model.stage.speaking == agent)
-                            Text(model.card(agent)?.name ?? agent.shortName).font(.caption)
+            // Labels in one column, values in the next: the rows line up like a form.
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
+                GridRow {
+                    Text(t("主持", "Hosts")).gridColumnAlignment(.trailing)
+                    HStack(spacing: 14) {
+                        ForEach(model.enabledMemberIDs) { agent in
+                            Toggle(isOn: Binding(get: { hosts.contains(agent) },
+                                                 set: { model.setLiveParticipant(agent, included: $0) })) {
+                                HStack(spacing: 5) {
+                                    StudioAvatar(agent: agent, size: 20, running: model.liveActive && model.stage.speaking == agent)
+                                    Text(model.card(agent)?.name ?? agent.shortName)
+                                }
+                            }
+                            .toggleStyle(.checkbox)
                         }
                     }
-                    .toggleStyle(.checkbox)
-                    .disabled(model.liveActive)
                 }
-                Spacer(minLength: 8)
-                Group {
-                    Stepper(t("間隔 \(settings.turnDelaySeconds) 秒", "Delay \(settings.turnDelaySeconds)s"),
-                            value: Binding(get: { settings.turnDelaySeconds },
-                                           set: { value in model.updateLiveConfig { $0.turnDelaySeconds = value } }),
-                            in: 0...180, step: 1)
-                    Stepper(t("最多 \(settings.maxTurns) 輪", "Up to \(settings.maxTurns) turns"),
-                            value: Binding(get: { settings.maxTurns },
-                                           set: { value in model.updateLiveConfig { $0.maxTurns = value } }),
-                            in: 2...300, step: 2)
-                    Stepper(t("最長 \(settings.maxDurationMinutes) 分鐘", "Up to \(settings.maxDurationMinutes) min"),
-                            value: Binding(get: { settings.maxDurationMinutes },
-                                           set: { value in model.updateLiveConfig { $0.maxDurationMinutes = value } }),
-                            in: 10...240, step: 10)
+                GridRow {
+                    Text(t("節奏", "Pacing")).gridColumnAlignment(.trailing)
+                    HStack(spacing: 18) {
+                        Stepper(t("間隔 \(settings.turnDelaySeconds) 秒", "Delay \(settings.turnDelaySeconds)s"),
+                                value: Binding(get: { settings.turnDelaySeconds },
+                                               set: { value in model.updateLiveConfig { $0.turnDelaySeconds = value } }),
+                                in: 0...180, step: 1)
+                        Stepper(t("最多 \(settings.maxTurns) 輪", "Up to \(settings.maxTurns) turns"),
+                                value: Binding(get: { settings.maxTurns },
+                                               set: { value in model.updateLiveConfig { $0.maxTurns = value } }),
+                                in: 2...300, step: 2)
+                        Stepper(t("最長 \(settings.maxDurationMinutes) 分鐘", "Up to \(settings.maxDurationMinutes) min"),
+                                value: Binding(get: { settings.maxDurationMinutes },
+                                               set: { value in model.updateLiveConfig { $0.maxDurationMinutes = value } }),
+                                in: 10...240, step: 10)
+                    }
+                    .monospacedDigit()
                 }
-                .font(.caption).monospacedDigit()
-                .disabled(model.liveActive)
             }
+            .font(.caption)
+            .disabled(model.liveActive)
             Text(model.archive.liveStage.performs
                  ? t("舞台已開啟：每句話會念出並驅動 VTube Studio，念完才輪到下一位。聲音與表情在「舞台設定」。",
                      "Stage is on: lines are spoken and drive VTube Studio; the next host waits for the voice. Voices and expressions are under Stage.")
@@ -105,7 +115,9 @@ struct LiveRoomView: View {
                      "Text only. Turn on voice and VTube Studio under Stage. Lines go to each host's vendor."))
                 .font(.caption).foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 20).padding(.vertical, 14)
+        .frame(maxWidth: StudioMetrics.column, alignment: .leading)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 24).padding(.vertical, 16)
         .background(.ultraThinMaterial)
     }
 
@@ -143,9 +155,10 @@ struct LiveRoomView: View {
                     }
                 }
                 .animation(reduceMotion ? StudioMotion.ease() : StudioMotion.settle, value: entries.count)
-                .padding(24)
-                .frame(maxWidth: 810)
+                .padding(.vertical, 24)
+                .frame(maxWidth: StudioMetrics.column)
                 .frame(maxWidth: .infinity)
+                .padding(.horizontal, 24)
             }
             .background(StudioRoomBackdrop())
             .onAppear { if let last = entries.last?.id { proxy.scrollTo(last, anchor: .bottom) } }
@@ -240,8 +253,9 @@ struct LiveRoomView: View {
             }
         }
         .textFieldStyle(.roundedBorder)
-        .padding(.horizontal, 20).padding(.vertical, 13)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: StudioMetrics.column, alignment: .leading)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 24).padding(.vertical, 13)
         .background(.regularMaterial)
     }
 }

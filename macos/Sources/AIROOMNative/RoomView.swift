@@ -18,17 +18,9 @@ struct RoomView: View {
         ZStack {
             StudioRoomBackdrop()
             VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 11) {
-                    HStack(spacing: 14) {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(t("共用上下文對話室", "Shared AI Conversation"))
-                                .font(.system(.title2, design: .rounded).weight(.bold))
-                                .foregroundStyle(StudioTheme.ink(scheme))
-                            Text(t("同一段歷史供所有成員閱讀；完成的回覆會接續傳給下一位。",
-                                   "All agents see the same transcript; each completed reply is available to the next."))
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 10) {
+                        // The topic is the heading: it is what this page is about, and where you switch.
                         Menu {
                             ForEach(model.loungeRooms) { room in
                                 Button {
@@ -45,7 +37,11 @@ struct RoomView: View {
                             Label(model.activeRoom?.title ?? t("討論室", "Discussion"), systemImage: "rectangle.stack")
                         }
                         .buttonStyle(.automatic)
+                        .fixedSize()
+                        .help(t("切換話題。同一段歷史供所有在場成員閱讀，完成的回覆會接續傳給下一位。",
+                                "Switch topics. Everyone present reads the same transcript; each finished reply goes to the next."))
                         .disabled(model.roomRunning)
+                        Spacer()
                         Menu {
                             Button(t("開新話題（帶入目前話題的摘要）", "New topic (carry over a summary)")) { model.createRoom(carryOver: true) }
                             Button(t("開新話題（不再延續）", "New topic (start fresh)")) { model.createRoom(carryOver: false) }
@@ -91,7 +87,9 @@ struct RoomView: View {
                         }
                     }
                 }
-                .padding(18)
+                .frame(maxWidth: StudioMetrics.column, alignment: .leading)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 24).padding(.vertical, 16)
                 .background(.ultraThinMaterial)
                 .background(StudioTheme.surface(scheme).opacity(0.55))
                 Rectangle().fill(StudioTheme.hairline(scheme)).frame(height: 1)
@@ -176,9 +174,10 @@ struct RoomView: View {
                         }
                         // New lines rise into place as they arrive.
                         .animation(reduceMotion ? StudioMotion.ease() : StudioMotion.settle, value: model.roomEntries().count)
-                        .padding(24)
-                        .frame(maxWidth: 810)
+                        .padding(.vertical, 24)
+                        .frame(maxWidth: StudioMetrics.column)
                         .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 24)
                     }
                     .onChange(of: model.roomEntries().count) { _, _ in
                         if let last = model.roomEntries().last?.id {
@@ -232,7 +231,9 @@ struct RoomView: View {
                                   || model.roomDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
-                .padding(.horizontal, 21).padding(.vertical, 13)
+                .frame(maxWidth: StudioMetrics.column, alignment: .leading)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 24).padding(.vertical, 13)
                 .background(.regularMaterial)
                 .background(StudioTheme.secondary(scheme).opacity(0.5))
             }
