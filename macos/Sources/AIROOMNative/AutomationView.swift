@@ -42,7 +42,7 @@ struct AutomationView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                StudioPageHeading(eyebrow: "AUTOMATION", title: t("排程與自動對話", "Schedules & Auto Chat"),
+                StudioPageHeading(title: t("排程與自動對話", "Schedules & Auto Chat"),
                     subtitle: t("只有 App 執行時才檢查（關掉視窗後在選單列仍會執行）；錯過的觸發不補發。", "Checked only while the app runs (the menu bar keeps it running); missed triggers are never replayed."))
                 StudioPanel {
                     VStack(alignment: .leading, spacing: 13) {

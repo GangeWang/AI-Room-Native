@@ -25,8 +25,7 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                StudioPageHeading(eyebrow: "SETTINGS",
-                    title: t("設定與連接", "Settings & Connections"),
+                StudioPageHeading(title: t("設定與連接", "Settings & Connections"),
                     subtitle: t("官方執行端、本機資料與介面偏好。", "Official CLI connections, local data and display preferences."))
                 StudioPanel {
                     VStack(alignment: .leading, spacing: 0) {

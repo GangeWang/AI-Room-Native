@@ -27,7 +27,7 @@ struct StudioQuotaView: View {
         TimelineView(.periodic(from: .now, by: 30)) { tick in
           ScrollView {
             VStack(alignment: .leading, spacing: 17) {
-                StudioPageHeading(eyebrow: "USAGE", title: t("用量與額度", "Usage & Quotas"),
+                StudioPageHeading(title: t("用量與額度", "Usage & Quotas"),
                     subtitle: t("直接查詢官方執行端回報的訂閱限制。不是 Token 推算，也不是 ChatGPT／Claude App 的帳單。", "Subscription limits from official executable reports, not estimates derived from tokens or billing."))
                 ForEach(Executor.allCases) { agent in
                     StudioPanel {

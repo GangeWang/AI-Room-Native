@@ -16,7 +16,7 @@ struct RoomImagesStrip: View {
                 Button { viewing = image } label: {
                     RoomImageView(image: image).frame(maxWidth: images.count == 1 ? 320 : 160, maxHeight: images.count == 1 ? 320 : 160)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.studioPressable)
                 .help(image.revisedPrompt ?? image.attachment.fileName)
             }
         }

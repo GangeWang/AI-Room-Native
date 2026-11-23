@@ -11,7 +11,7 @@ struct ProjectsView: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
-                StudioPageHeading(eyebrow: "PROJECTS", title: t("專案工作區"),
+                StudioPageHeading(title: t("專案工作區"),
                     subtitle: t("先在副本執行，逐檔驗收後才能寫回原資料夾。"))
                 TextField(t("專案名稱"), text: $model.projectTitleDraft)
                 HStack {

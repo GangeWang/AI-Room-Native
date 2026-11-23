@@ -18,9 +18,6 @@ enum StudioTheme {
     static let rose = Color(red: 0.86, green: 0.36, blue: 0.50)
     static let plum = Color(red: 0.62, green: 0.38, blue: 0.74)
     static let slate = Color(red: 0.47, green: 0.46, blue: 0.50)
-    /// The lamplight accent: used for primary buttons, the brand mark and selection.
-    static let accentGradient = LinearGradient(colors: [Color(red: 0.93, green: 0.58, blue: 0.27), orange],
-                                               startPoint: .topLeading, endPoint: .bottomTrailing)
 
     static func background(_ scheme: ColorScheme) -> Color {
         scheme == .dark ? Color(red: 0.095, green: 0.082, blue: 0.074) : Color(red: 0.962, green: 0.938, blue: 0.902)
@@ -67,9 +64,8 @@ enum StudioMetrics {
 
 /// Type roles. Rounded display faces for headings, the system face for reading.
 enum StudioType {
-    static let eyebrow = Font.system(size: 11, weight: .bold, design: .rounded)
-    static let pageTitle = Font.system(size: 28, weight: .bold, design: .rounded)
-    static let heroTitle = Font.system(size: 34, weight: .bold, design: .rounded)
+    static let pageTitle = Font.system(size: 26, weight: .semibold, design: .rounded)
+    static let heroTitle = Font.system(size: 32, weight: .semibold, design: .rounded)
     static let sectionTitle = Font.system(size: 15, weight: .semibold, design: .rounded)
 }
 
@@ -166,25 +162,25 @@ struct StudioPanel<Content: View>: View {
 
 private struct StudioCardModifier: ViewModifier {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.colorSchemeContrast) private var contrast
     var radius: CGFloat
     var fill: Color?
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         content
             .background {
+                // A flat surface with a hairline edge; only a whisper of shadow in light mode.
                 shape.fill(fill ?? StudioTheme.surface(scheme))
-                    // A faint lamplight wash from the top edge gives the panel some depth.
-                    .overlay(shape.fill(LinearGradient(
-                        colors: [Color.white.opacity(scheme == .dark ? 0.025 : 0.5), .clear],
-                        startPoint: .top, endPoint: .center)))
-                    .shadow(color: StudioTheme.shadow(scheme), radius: scheme == .dark ? 6 : 10, y: scheme == .dark ? 2 : 4)
+                    .shadow(color: StudioTheme.shadow(scheme).opacity(scheme == .dark ? 0 : 0.8), radius: 3, y: 1)
             }
-            .overlay(shape.strokeBorder(StudioTheme.border(scheme), lineWidth: 1))
+            // Increase Contrast: a firmer edge, as system controls do.
+            .overlay(shape.strokeBorder(contrast == .increased ? StudioTheme.ink(scheme).opacity(0.45) : StudioTheme.border(scheme),
+                                        lineWidth: 1))
     }
 }
 
 extension View {
-    /// Surface + border + shadow, the shared look of panels and cards.
+    /// Surface + hairline border, the shared look of panels and cards.
     func studioCard(radius: CGFloat = StudioMetrics.radiusCard, fill: Color? = nil) -> some View {
         modifier(StudioCardModifier(radius: radius, fill: fill))
     }
@@ -213,18 +209,18 @@ struct StudioPrimaryButtonStyle: ButtonStyle {
             .foregroundStyle(.white)
             .padding(.horizontal, small ? 9 : 13).padding(.vertical, small ? 3.5 : 6)
             .background {
+                // Solid tint, like a default push button: it follows the place's colour
+                // (a member's own colour in their editor).
                 if configuration.role == .destructive {
-                    shape.fill(Color.red.opacity(0.85))
+                    shape.fill(Color.red)
                 } else {
-                    shape.fill(StudioTheme.accentGradient)
+                    shape.fill(.tint)
                 }
             }
-            .overlay(shape.strokeBorder(Color.white.opacity(0.16), lineWidth: 1))
-            .shadow(color: StudioTheme.orange.opacity(enabled ? 0.22 : 0), radius: 4, y: 1.5)
-            .brightness(configuration.isPressed ? -0.07 : 0)
+            .brightness(configuration.isPressed ? -0.08 : 0)
             .opacity(enabled ? 1 : 0.42)
             .contentShape(shape)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .animation(StudioMotion.press, value: configuration.isPressed)
     }
 }
 
@@ -242,7 +238,7 @@ struct StudioSecondaryButtonStyle: ButtonStyle {
             .foregroundStyle(configuration.role == .destructive ? Color.red : StudioTheme.ink(scheme))
             .padding(.horizontal, small ? 9 : 12).padding(.vertical, small ? 3.5 : 6)
             .background(shape.fill(StudioTheme.elevated(scheme)))
-            .overlay(shape.fill(configuration.isPressed ? StudioTheme.subtleFill(scheme) : .clear))
+            .overlay(shape.fill(configuration.isPressed ? StudioTheme.ink(scheme).opacity(0.08) : .clear))
             .overlay(shape.strokeBorder(StudioTheme.border(scheme), lineWidth: 1))
             .opacity(enabled ? 1 : 0.45)
             .contentShape(shape)
@@ -263,34 +259,6 @@ extension ButtonStyle where Self == StudioPrimaryButtonStyle {
 }
 extension ButtonStyle where Self == StudioSecondaryButtonStyle {
     static var studioSecondary: StudioSecondaryButtonStyle { StudioSecondaryButtonStyle() }
-}
-
-struct StudioBrandMark: View {
-    var size: CGFloat = 36
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-                .fill(LinearGradient(colors: [Color(red: 0.29, green: 0.22, blue: 0.18), Color(red: 0.17, green: 0.13, blue: 0.11)],
-                                     startPoint: .top, endPoint: .bottom))
-            RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
-            // A soft lamp glow behind the three members.
-            Circle().fill(StudioTheme.amber.opacity(0.35)).blur(radius: size * 0.16)
-                .frame(width: size * 0.62, height: size * 0.62)
-            Circle().fill(StudioTheme.orange)
-                .frame(width: size * 0.27, height: size * 0.27)
-                .offset(x: -size * 0.19, y: size * 0.14)
-            Circle().fill(StudioTheme.violet)
-                .frame(width: size * 0.27, height: size * 0.27)
-                .offset(x: size * 0.19, y: size * 0.14)
-            Circle().fill(Color(red: 0.30, green: 0.50, blue: 0.88))
-                .frame(width: size * 0.27, height: size * 0.27)
-                .offset(y: -size * 0.18)
-        }
-        .frame(width: size, height: size)
-        .shadow(color: .black.opacity(0.18), radius: 3, y: 1.5)
-        .accessibilityLabel("AIROOM")
-    }
 }
 
 /// Face crop shared by the sidebar, member card, chat bubbles and room participants.
@@ -412,12 +380,10 @@ struct StudioAvatar: View {
 
 struct StudioPageHeading: View {
     @Environment(\.colorScheme) private var scheme
-    var eyebrow: String
     var title: String
     var subtitle: String
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            StudioEyebrow(text: eyebrow)
             Text(title)
                 .font(StudioType.pageTitle)
                 .foregroundStyle(StudioTheme.ink(scheme))
@@ -431,44 +397,8 @@ struct StudioPageHeading: View {
     }
 }
 
-/// Small spaced capitals above a title, led by a short lamplight rule.
-struct StudioEyebrow: View {
-    var text: String
-    var body: some View {
-        HStack(spacing: 8) {
-            Capsule().fill(StudioTheme.accentGradient).frame(width: 16, height: 3)
-            Text(text.uppercased())
-                .font(StudioType.eyebrow)
-                .tracking(1.8)
-                .foregroundStyle(StudioTheme.warning)
-        }
-    }
-}
 
-/// A filled, glossy app-icon style tile: each place in the app gets its own hue,
-/// like the rows of macOS System Settings.
-struct StudioIconTile: View {
-    var symbol: String
-    var tint: Color
-    var size: CGFloat = 26
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
-        Image(systemName: symbol)
-            .font(.system(size: size * 0.48, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: size, height: size)
-            .background {
-                shape.fill(LinearGradient(colors: [tint.opacity(0.88), tint], startPoint: .top, endPoint: .bottom))
-                    .overlay(shape.fill(LinearGradient(colors: [.white.opacity(0.28), .clear],
-                                                       startPoint: .top, endPoint: .center)))
-            }
-            .overlay(shape.strokeBorder(.black.opacity(0.08), lineWidth: 0.5))
-            .shadow(color: tint.opacity(0.35), radius: 2.5, y: 1)
-            .accessibilityHidden(true)
-    }
-}
-
-/// Title row of a panel: a tinted icon tile and a rounded heading.
+/// Title row of a panel: a tinted symbol and a rounded heading.
 struct StudioSectionTitle: View {
     @Environment(\.colorScheme) private var scheme
     var title: String
@@ -480,10 +410,9 @@ struct StudioSectionTitle: View {
     var body: some View {
         HStack(spacing: 9) {
             Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(tint)
-                .frame(width: 26, height: 26)
-                .background(tint.opacity(0.13), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .frame(width: 18)
             Text(title).font(StudioType.sectionTitle).foregroundStyle(StudioTheme.ink(scheme))
         }
         .accessibilityElement(children: .combine)
@@ -544,18 +473,8 @@ struct StudioEmptyState: View {
     var title: String
     var detail: String
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 30, weight: .medium))
-                .foregroundStyle(StudioTheme.accentGradient)
-                .frame(width: 68, height: 68)
-                .background(StudioTheme.amber.opacity(0.12), in: Circle())
-                .overlay(Circle().strokeBorder(StudioTheme.amber.opacity(0.25), lineWidth: 1))
-            Text(title).font(.system(.title3, design: .rounded).weight(.semibold))
-            Text(detail).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-        }
-        .padding(30)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The system's own empty-state view: same type, spacing and symbol weight as other Mac apps.
+        ContentUnavailableView(title, systemImage: icon, description: Text(detail))
     }
 }
 
@@ -592,4 +511,31 @@ struct RichText: View {
         }
         return result
     }
+}
+
+/// Motion tokens. Curves from Emil Kowalski's design-engineering notes (via the SwiftUI port
+/// emil-design-swiftui, MIT); springs for anything people can interrupt.
+enum StudioMotion {
+    /// Strong ease-out for things that enter or answer a press. cubic-bezier(0.23, 1, 0.32, 1)
+    static func easeOut(_ duration: TimeInterval = 0.2) -> Animation { .timingCurve(0.23, 1, 0.32, 1, duration: duration) }
+    /// Colour and highlight changes. CSS `ease`.
+    static func ease(_ duration: TimeInterval = 0.2) -> Animation { .timingCurve(0.25, 0.1, 0.25, 1, duration: duration) }
+    /// Press feedback: 160 ms strong ease-out, starting on mouse-down.
+    static let press = easeOut(0.16)
+}
+
+/// Press feedback for custom clickable cards and tiles: a slight give on mouse-down
+/// (HIG: Buttons — always include a press state for a custom button). Reduce Motion dims instead.
+struct StudioPressableStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .opacity(configuration.isPressed && reduceMotion ? 0.75 : 1)
+            .animation(StudioMotion.press, value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == StudioPressableStyle {
+    static var studioPressable: StudioPressableStyle { StudioPressableStyle() }
 }

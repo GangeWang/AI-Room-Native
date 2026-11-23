@@ -3,39 +3,10 @@ import AIROOMCore
 
 private enum StudioRoute: Hashable {
     case home, chat(MemberID), room, roundtable, projects, members, attention, quota, automation, stage, settings
+}
 
-    /// Each place keeps one hue: its sidebar tile, selection line and breadcrumb.
-    var hue: Color {
-        switch self {
-        case .home: return StudioTheme.orange
-        case .chat(let agent): return agent.studioColor
-        case .room: return StudioTheme.amber
-        case .roundtable: return StudioTheme.violet
-        case .projects: return StudioTheme.sky
-        case .members: return StudioTheme.plum
-        case .attention: return StudioTheme.orange
-        case .quota: return StudioTheme.moss
-        case .automation: return StudioTheme.teal
-        case .stage: return StudioTheme.rose
-        case .settings: return StudioTheme.slate
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .home: return "house.fill"
-        case .chat: return "bubble.left.fill"
-        case .room: return "cup.and.saucer.fill"
-        case .roundtable: return "person.3.fill"
-        case .projects: return "folder.fill"
-        case .members: return "person.crop.rectangle.stack.fill"
-        case .attention: return "checklist"
-        case .quota: return "chart.bar.fill"
-        case .automation: return "calendar.badge.clock"
-        case .stage: return "person.wave.2.fill"
-        case .settings: return "gearshape.fill"
-        }
-    }
+private enum SidebarItem: Hashable {
+    case route(StudioRoute), project(UUID)
 }
 
 struct ContentView: View {
@@ -47,6 +18,8 @@ struct ContentView: View {
     @State private var memberSheet: MemberID?
     @State private var searchVisible = false
     @State private var searchText = ""
+    @FocusState private var searchFocused: Bool
+    @State private var sidebarSelection: SidebarItem? = .route(.home)
     private var lang: InterfaceLanguage { model.archive.settings.language }
     private func t(_ zh: String, _ en: String) -> String { StudioI18n.t(zh, en, lang) }
 
@@ -68,15 +41,14 @@ struct ContentView: View {
     }
 
     private var workbench: some View {
-        HStack(spacing: 0) {
-            sidebar.frame(width: 263)
-            Rectangle().fill(StudioTheme.border(scheme)).frame(width: 1)
+        NavigationSplitView {
+            sidebar
+                .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 340)
+        } detail: {
             VStack(spacing: 0) {
-                topBar
-                Divider().overlay(StudioTheme.border(scheme))
                 if let release = model.availableUpdate {
                     UpdateBanner(release: release)
-                    Divider().overlay(StudioTheme.border(scheme))
+                    Divider()
                 }
                 Group {
                     switch route {
@@ -100,17 +72,29 @@ struct ContentView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .buttonStyle(.studioSecondary)
             }
             .background(StudioTheme.background(scheme))
+            // The studio's warm accent lives in the content; the sidebar keeps the accent
+            // colour people chose in System Settings (HIG: Sidebars, Color › App accent colors).
+            .tint(StudioTheme.orange)
+            // The window's title names the place, never the app (HIG: Toolbars › Titles).
+            .navigationTitle(routeTitle)
+            .toolbar { toolbarItems }
         }
-        .background(StudioTheme.background(scheme))
-        .tint(StudioTheme.orange)
-        .buttonStyle(.studioSecondary)
         .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
+        .onChange(of: route) { _, new in
+            // Keep the sidebar in step when a page is opened from elsewhere (home, search, attention).
+            if case .project = sidebarSelection, new == .projects { return }
+            sidebarSelection = .route(new)
+        }
+        .onChange(of: model.settingsRequest) { _, _ in route = .settings }
         .sheet(item: $memberSheet) { member in
             StudioMemberSheet(agent: member, onDesk: { route = .chat(member); memberSheet = nil },
                               onManage: { model.focusedMember = member; route = .members; memberSheet = nil })
                 .environmentObject(model)
+                .tint(StudioTheme.orange)
+                .buttonStyle(.studioSecondary)
                 .frame(minWidth: 420, idealWidth: 520, minHeight: 380)
         }
         .alert(t("工作台提醒", "Workbench Notice"), isPresented: Binding(
@@ -123,120 +107,109 @@ struct ContentView: View {
         }
     }
 
+    /// A standard source list: system material, accent-coloured symbols, native selection and badges.
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button { route = .home } label: {
-                HStack(spacing: 11) {
-                    StudioBrandMark(size: 36)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("AIROOM").font(.system(size: 17, weight: .heavy, design: .rounded)).tracking(1.6)
-                            .foregroundStyle(StudioTheme.ink(scheme))
-                        Text(t("我們的 AI 工作室", "Our AI Studio")).font(.caption2).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 14)
-                    .studioSidebarHitTarget()
-            }.buttonStyle(.plain)
-            Rectangle().fill(StudioTheme.hairline(scheme)).frame(height: 1).padding(.horizontal, 16)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
-                    groupHeading(t("團隊", "TEAM"), action: { route = .members }, icon: "person.crop.rectangle.stack")
-                    ForEach(model.visibleAgents) { agent in
-                        let member = model.archive.members.first(where: { $0.agent == agent })
-                        HStack(spacing: 0) {
-                            Button { memberSheet = agent } label: {
-                                HStack(spacing: 9) {
-                                    StudioAvatar(agent: agent, size: 33, running: model.busyAgents.contains(agent))
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(member?.name ?? agent.shortName).font(.subheadline.weight(.semibold))
-                                            .lineLimit(1)
-                                        // Idle members show their routine for this part of the day (a setting, not real work).
-                                        TimelineView(.periodic(from: .now, by: 300)) { context in
-                                            Text(model.busyAgents.contains(agent)
-                                                 ? t("正在工作", "Working")
-                                                 : (member?.enabled == false ? t("已停用", "Disabled")
-                                                    : member.flatMap { MemberLife.status($0, at: context.date) } ?? t("空閒中", "Available")))
-                                                .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                                        }
-                                    }
-                                    Spacer(minLength: 0)
-                                    StudioQuotaCompact(quota: model.quota(of: agent))
-                                }
-                                .studioSidebarHitTarget()
-                            }.buttonStyle(.plain)
-                            Button { route = .chat(agent) } label: {
-                                Image(systemName: "bubble.left").font(.system(size: 13))
-                                    .frame(width: 27, height: 30)
-                                    // A plain button only takes clicks on drawn pixels: without this,
-                                    // a click inside the bubble's empty middle did nothing.
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .help(t("前往成員工位", "Open member desk"))
-                            .accessibilityLabel(t("開啟", "Open") + " \(agent.shortName)")
-                        }
-                        // Room between the selection line at the left edge and the avatar.
-                        .padding(.leading, 9)
-                        .studioSelected(route == .chat(agent), accent: agent.studioColor, scheme: scheme)
-                    }
-                    sidebarDivider
-                    navRow(.room, title: t("茶歇室", "Lounge"), subtitle: t("大家一起聊聊", "Team conversation"), icon: "cup.and.saucer.fill")
-                    navRow(.roundtable, title: t("圓桌", "Roundtable"), subtitle: t("獨立比稿與比較", "Independent proposals"), icon: "person.3.fill")
-                    navRow(.quota, title: t("用量與額度", "Usage & Quotas"), subtitle: t("官方訂閱配額", "Official subscription limits"), icon: "chart.bar.fill")
-                    navRow(.automation, title: t("排程與直播", "Automation & Live"), subtitle: t("定時任務與連續對話", "Schedules and co-hosting"), icon: "calendar.badge.clock")
-                    navRow(.stage, title: t("直播舞台", "Live Stage"), subtitle: t("語音與 VTube Studio", "Voice & VTube Studio"), icon: "person.wave.2.fill")
-                    navRow(.attention, title: t("待你處理", "Needs Attention"), subtitle: attentionCount > 0 ? "\(attentionCount) \(t("項待確認", "items"))" : t("目前沒有待辦", "All clear"), icon: "checklist", badge: attentionCount)
-                    sidebarDivider
-                    groupHeading(t("專案", "PROJECTS"), action: { route = .projects }, icon: "plus")
-                    navRow(.projects, title: t("專案工作區", "Project Workspace"), subtitle: t("查看全部專案", "All projects"), icon: "folder.fill")
-                    ForEach(model.archive.projectFlows.prefix(8)) { project in
-                        Button { model.selectedFlowID = project.id; selectedProjectID = project.id; route = .projects } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "folder.fill").foregroundStyle(StudioTheme.amber).font(.caption)
-                                Text(project.title).font(.subheadline).lineLimit(1)
-                                Spacer()
-                                // Orange dot: the project is waiting for you (plan, next round or acceptance).
-                                Circle().fill(model.attentionItems.contains { $0.target == .project(project.id) } ? StudioTheme.orange : .clear)
-                                    .frame(width: 6, height: 6)
-                            }.padding(.horizontal, 12).padding(.vertical, 7)
-                                .studioSidebarHitTarget()
-                        }.buttonStyle(.plain)
-                    }
+        List(selection: sidebarBinding) {
+            Label(t("首頁", "Home"), systemImage: "house").tag(SidebarItem.route(.home))
+            Section {
+                ForEach(model.visibleAgents) { agent in
+                    memberRow(agent).tag(SidebarItem.route(.chat(agent)))
                 }
-                .padding(.horizontal, 11).padding(.vertical, 10)
+            } header: {
+                sectionHeader(t("團隊", "Team"), action: { route = .members },
+                              icon: "person.crop.rectangle.stack", help: t("管理人物卡", "Manage members"))
             }
-            Rectangle().fill(StudioTheme.hairline(scheme)).frame(height: 1)
-            VStack(spacing: 3) {
-                navRow(.members, title: t("管理人物卡", "Manage Members"), subtitle: "", icon: "person.crop.rectangle.stack.fill")
-                navRow(.settings, title: t("設定與連接", "Settings & Connections"), subtitle: "", icon: "gearshape.fill")
-            }.padding(.horizontal, 11).padding(.vertical, 8)
-            HStack(spacing: 7) {
-                Circle().fill(model.storageAvailable ? StudioTheme.moss : .red).frame(width: 7, height: 7)
-                    .shadow(color: (model.storageAvailable ? StudioTheme.moss : .red).opacity(0.6), radius: 3)
-                Text(model.storageAvailable ? t("本機資料已加密", "Local data encrypted") : t("儲存功能受限", "Storage unavailable"))
-                Spacer()
-                Text("ARM64").font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .padding(.horizontal, 5).padding(.vertical, 2)
-                    .background(StudioTheme.subtleFill(scheme), in: Capsule())
+            Section {
+                Label(t("茶歇室", "Lounge"), systemImage: "cup.and.saucer").tag(SidebarItem.route(.room))
+                Label(t("圓桌", "Roundtable"), systemImage: "bubble.left.and.bubble.right").tag(SidebarItem.route(.roundtable))
+                Label(t("待你處理", "Needs Attention"), systemImage: "checklist")
+                    .badge(attentionCount)
+                    .tag(SidebarItem.route(.attention))
+                Label(t("用量與額度", "Usage & Quotas"), systemImage: "chart.bar").tag(SidebarItem.route(.quota))
+                Label(t("排程與直播", "Automation & Live"), systemImage: "calendar.badge.clock").tag(SidebarItem.route(.automation))
+                Label(t("直播舞台", "Live Stage"), systemImage: "person.wave.2").tag(SidebarItem.route(.stage))
             }
-            .font(.caption2).foregroundStyle(.secondary)
-            .padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 12)
+            Section {
+                Label(t("專案工作區", "Project Workspace"), systemImage: "folder").tag(SidebarItem.route(.projects))
+                ForEach(model.archive.projectFlows.prefix(8)) { project in
+                    HStack(spacing: 6) {
+                        Label(project.title, systemImage: "doc.text").lineLimit(1)
+                        Spacer(minLength: 0)
+                        // The project is waiting for you (plan, next round or acceptance).
+                        if model.attentionItems.contains(where: { $0.target == .project(project.id) }) {
+                            Circle().fill(.tint).frame(width: 6, height: 6)
+                                .accessibilityLabel(t("待你處理", "Needs you"))
+                        }
+                    }
+                    .tag(SidebarItem.project(project.id))
+                }
+            } header: {
+                sectionHeader(t("專案", "Projects"), action: { route = .projects },
+                              icon: "plus", help: t("新增或開啟專案", "New or open a project"))
+            }
+            Section {
+                Label(t("管理人物卡", "Manage Members"), systemImage: "person.crop.rectangle.stack").tag(SidebarItem.route(.members))
+                Label(t("設定與連接", "Settings & Connections"), systemImage: "gearshape").tag(SidebarItem.route(.settings))
+            }
         }
-        .background {
-            // Lamplight pooling at the top of the sidebar.
-            ZStack(alignment: .top) {
-                StudioTheme.sidebar(scheme)
-                RadialGradient(colors: [StudioTheme.amber.opacity(scheme == .dark ? 0.10 : 0.14), .clear],
-                               center: .topLeading, startRadius: 10, endRadius: 320)
+        .listStyle(.sidebar)
+    }
+
+    private func memberRow(_ agent: MemberID) -> some View {
+        let member = model.archive.members.first(where: { $0.agent == agent })
+        let busy = model.busyAgents.contains(agent)
+        return HStack(spacing: 8) {
+            StudioAvatar(agent: agent, size: 28, running: busy)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(member?.name ?? agent.shortName).lineLimit(1)
+                // Idle members show their routine for this part of the day (a setting, not real work).
+                TimelineView(.periodic(from: .now, by: 300)) { context in
+                    Text(busy ? t("正在工作", "Working")
+                         : (member?.enabled == false ? t("已停用", "Disabled")
+                            : member.flatMap { MemberLife.status($0, at: context.date) } ?? t("空閒中", "Available")))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
+            Spacer(minLength: 0)
+            StudioQuotaCompact(quota: model.quota(of: agent))
+            Button { memberSheet = agent } label: {
+                Image(systemName: "person.text.rectangle")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help(t("人物卡", "Member card"))
+            .accessibilityLabel(t("\(agent.shortName) 的人物卡", "\(agent.shortName)'s card"))
+        }
+        .contextMenu {
+            Button(t("前往成員工位", "Open Member Desk")) { route = .chat(agent) }
+            Button(t("人物卡…", "Member Card…")) { memberSheet = agent }
+        }
+    }
+
+    private func sectionHeader(_ title: String, action: @escaping () -> Void, icon: String, help: String) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Button(action: action) { Image(systemName: icon) }
+                .buttonStyle(.borderless)
+                .help(help)
+                .accessibilityLabel(help)
         }
     }
 
     private var attentionCount: Int { model.attentionItems.count }
 
-    private var sidebarDivider: some View {
-        Rectangle().fill(StudioTheme.hairline(scheme)).frame(height: 1)
-            .padding(.vertical, 9).padding(.horizontal, 9)
+    /// Sidebar rows are either a place or one project.
+    private var sidebarBinding: Binding<SidebarItem?> {
+        Binding(get: { sidebarSelection }, set: { item in
+            guard let item else { return }
+            sidebarSelection = item
+            switch item {
+            case .route(let destination): route = destination
+            case .project(let id):
+                model.selectedFlowID = id; selectedProjectID = id; route = .projects
+            }
+        })
     }
 
     private func openAttention(_ target: AttentionItem.Target) {
@@ -252,77 +225,38 @@ struct ContentView: View {
         }
     }
 
-    private func groupHeading(_ title: String, action: @escaping () -> Void, icon: String) -> some View {
-        HStack {
-            Text(title).font(.system(size: 10.5, weight: .bold, design: .rounded)).tracking(1.6).foregroundStyle(.secondary)
-            Spacer()
-            Button(action: action) {
-                Image(systemName: icon).font(.system(size: 11))
-                    .frame(width: 22, height: 22).contentShape(Rectangle())
-            }
-                .buttonStyle(.plain).foregroundStyle(.secondary)
-        }.padding(.horizontal, 9).padding(.top, 12).padding(.bottom, 5)
-    }
-
-    private func navRow(_ destination: StudioRoute, title: String, subtitle: String, icon: String, badge: Int = 0) -> some View {
-        Button { route = destination } label: {
-            HStack(spacing: 10) {
-                StudioIconTile(symbol: icon, tint: destination.hue, size: 26)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.subheadline.weight(route == destination ? .semibold : .medium))
-                        .foregroundStyle(StudioTheme.ink(scheme))
-                    if !subtitle.isEmpty { Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
-                }
-                Spacer(minLength: 0)
-                if badge > 0 {
-                    Text("\(badge)")
-                        .font(.system(size: 10, weight: .bold, design: .rounded)).monospacedDigit()
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6).frame(minWidth: 18, minHeight: 18)
-                        .background(StudioTheme.accentGradient, in: Capsule())
-                }
-            }.padding(.horizontal, 8).padding(.vertical, subtitle.isEmpty ? 5 : 6)
-                .studioSidebarHitTarget()
-        }
-        .buttonStyle(.plain)
-        .studioSelected(route == destination, accent: destination.hue, scheme: scheme)
-    }
-
-    private var topBar: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "house").foregroundStyle(.secondary)
-            Text(t("AI 工作室", "AI Studio")).foregroundStyle(.secondary)
-            Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(.tertiary)
-            StudioIconTile(symbol: route.symbol, tint: route.hue, size: 20)
-            Text(routeTitle).font(.system(.subheadline, design: .rounded).weight(.semibold))
-                .foregroundStyle(StudioTheme.ink(scheme))
-            Spacer()
+    /// Plain system toolbar items: borderless symbols with tooltips (HIG: Toolbars).
+    @ToolbarContentBuilder private var toolbarItems: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
             if searchVisible {
-                TextField(t("搜尋導覽", "Find a view"), text: $searchText)
+                TextField(t("前往…", "Go to…"), text: $searchText)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 165)
+                    .frame(width: 180)
+                    .focused($searchFocused)
                     .onSubmit { jumpToSearch() }
-                Button { searchVisible = false; searchText = "" } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.plain)
+                    .onExitCommand { closeSearch() }
+                    .onAppear { searchFocused = true }
+                Button { closeSearch() } label: { Label(t("關閉", "Close"), systemImage: "xmark.circle.fill") }
+                    .help(t("關閉快速導覽", "Close quick navigation"))
             } else {
                 Button { searchVisible = true } label: {
-                    Image(systemName: "magnifyingglass")
-                        .frame(width: 28, height: 28)
-                        .background(StudioTheme.subtleFill(scheme), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .contentShape(Rectangle())
+                    Label(t("快速導覽", "Quick Navigation"), systemImage: "magnifyingglass")
                 }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut("k", modifiers: .command)
-                    .help(t("快速導覽 (⌘K)", "Quick navigation (⌘K)"))
+                .keyboardShortcut("k", modifiers: .command)
+                .help(t("快速導覽 (⌘K)", "Quick navigation (⌘K)"))
             }
-            Divider().frame(height: 17)
-            Image(systemName: "lock.shield.fill").foregroundStyle(StudioTheme.moss)
-                .help(t("加密儲存與機密檔案保護", "Encrypted storage and sensitive file protection"))
         }
-        .font(.subheadline)
-        .padding(.horizontal, 22).frame(height: 52)
-        .background(StudioTheme.surface(scheme).opacity(scheme == .dark ? 0.7 : 0.85))
+        ToolbarItem(placement: .primaryAction) {
+            Image(systemName: model.storageAvailable ? "lock.shield" : "exclamationmark.lock")
+                .foregroundStyle(model.storageAvailable ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.red))
+                .help(model.storageAvailable
+                      ? t("本機資料已加密；機密檔案受保護", "Local data is encrypted; sensitive files are protected")
+                      : t("儲存功能受限：資料不會寫入", "Storage unavailable: nothing is being saved"))
+                .accessibilityLabel(model.storageAvailable ? t("本機資料已加密", "Local data encrypted") : t("儲存功能受限", "Storage unavailable"))
+        }
     }
+
+    private func closeSearch() { searchVisible = false; searchText = "" }
 
     private var routeTitle: String {
         switch route {
@@ -352,40 +286,6 @@ struct ContentView: View {
         else if key.contains("成員") || key.contains("member") { route = .members }
         else if key.contains("待") || key.contains("attention") { route = .attention }
         else { route = .home }
-        searchVisible = false
-        searchText = ""
-    }
-}
-
-private struct StudioSelectionModifier: ViewModifier {
-    var selected: Bool
-    var accent: Color
-    var scheme: ColorScheme
-    func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
-        content
-            .background {
-                if selected {
-                    shape.fill(StudioTheme.surface(scheme))
-                        .shadow(color: StudioTheme.shadow(scheme), radius: 4, y: 1.5)
-                        .overlay(shape.strokeBorder(StudioTheme.border(scheme).opacity(0.8), lineWidth: 1))
-                }
-            }
-            .overlay(alignment: .leading) {
-                if selected { Capsule().fill(accent).frame(width: 3, height: 20).offset(x: -1).allowsHitTesting(false) }
-            }
-    }
-}
-
-private extension View {
-    /// In a plain-style Button, transparent spacers do not receive clicks by default.
-    /// Expand the label to the sidebar width and make its entire rectangle hittable.
-    func studioSidebarHitTarget() -> some View {
-        frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-    }
-
-    func studioSelected(_ selected: Bool, accent: Color, scheme: ColorScheme) -> some View {
-        modifier(StudioSelectionModifier(selected: selected, accent: accent, scheme: scheme))
+        closeSearch()
     }
 }

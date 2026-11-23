@@ -4,6 +4,7 @@ import AIROOMCore
 struct RoomView: View {
     @EnvironmentObject private var model: WorkbenchModel
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var confirmClear = false
     /// An open image request: its text and reference pictures.
     @State private var imageRequest: ImageRequestDraft?
@@ -253,7 +254,7 @@ struct RoomView: View {
                     }
                     .onChange(of: model.roomEntries().count) { _, _ in
                         if let last = model.roomEntries().last?.id {
-                            withAnimation { proxy.scrollTo(last, anchor: .bottom) }
+                            withAnimation(reduceMotion ? nil : StudioMotion.easeOut(0.25)) { proxy.scrollTo(last, anchor: .bottom) }
                         }
                     }
                 }

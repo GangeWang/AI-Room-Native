@@ -36,6 +36,8 @@ final class WorkbenchModel: ObservableObject {
     @Published var proposingMemory: Set<UUID> = []
     /// Member card to open on the members page (from a needs-attention item).
     @Published var focusedMember: MemberID?
+    /// Bumped by Settings… (⌘,) in the app menu; the window then shows the settings page.
+    @Published var settingsRequest = 0
     /// Pending lounge question the human is answering with the next message.
     @Published var answeringQuestionID: UUID?
     /// Inline lounge progress (summaries etc.), shown without a modal alert.

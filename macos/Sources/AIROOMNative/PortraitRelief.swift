@@ -39,7 +39,7 @@ final class PortraitCutouts: ObservableObject {
             guard let cut = PortraitMasks.cutout(cg, baked: baked, cacheFile: cacheFile) else { return }
             await MainActor.run {
                 let image = NSImage(cgImage: cut, size: size)
-                withAnimation(.easeOut(duration: 0.35)) { self.images[key] = image }
+                withAnimation(StudioMotion.easeOut(0.3)) { self.images[key] = image }
             }
         }
         return nil
