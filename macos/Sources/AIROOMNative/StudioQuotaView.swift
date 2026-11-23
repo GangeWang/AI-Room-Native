@@ -33,12 +33,9 @@ struct StudioQuotaView: View {
                     StudioPanel {
                         VStack(alignment: .leading, spacing: 13) {
                             HStack(spacing: 10) {
-                                Image(systemName: agent.symbol)
-                                    .font(.system(size: 17, weight: .semibold))
-                                    .frame(width: 37, height: 37)
-                                    .background(.quaternary, in: Circle())
+                                ExecutorLogo(executor: agent, size: 37)
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(agent.rawValue).font(.headline)
+                                    Text(agent.rawValue).font(StudioType.sectionTitle)
                                     let names = model.archive.members.filter { $0.executor == agent }.map(\.name)
                                     if !names.isEmpty {
                                         Text(t("成員：", "Members: ") + names.joined(separator: "、")).font(.caption).foregroundStyle(.secondary)
@@ -109,7 +106,7 @@ struct StudioQuotaView: View {
                     "資料只暫存於本次執行期間，超過 15 分鐘標示過期。這項查詢不會傳送聊天室內容，也不讀取 Token；Claude 只有在確認 /usage 為內建命令後才會呼叫。",
                     "Samples are kept in memory and expire after 15 minutes. No chat transcript or token is read; Claude runs /usage only after verifying it is a built-in command."))
             }
-            .padding(26)
+            .padding(StudioMetrics.page)
             .frame(maxWidth: 960)
             .frame(maxWidth: .infinity)
           }

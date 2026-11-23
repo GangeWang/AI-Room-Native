@@ -63,6 +63,8 @@ final class WorkbenchModel: ObservableObject {
 
     private func t(_ key: String) -> String { LocalizedUI.text(key, language: archive.settings.language) }
     private var persistence: LocalStateStore?
+    /// Where this app keeps its data (Application Support/AIROOMNative), if storage is available.
+    var stateRoot: URL? { persistence?.root }
     private let runner = CLIProcessRunner()
     private let quotaReader = AccountQuotaReader()
     private var activeRuns: [MemberID: UUID] = [:]

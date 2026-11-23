@@ -93,7 +93,7 @@ struct AutomationView: View {
                                 model.saveSchedule(id: editing, name: title, text: text, kind: kind, hour: hour, minute: minute,
                                                    onceAt: onceAt, intervalMinutes: interval, action: action, target: target)
                                 resetForm()
-                            }.buttonStyle(.borderedProminent).disabled(title.isEmpty || text.isEmpty)
+                            }.buttonStyle(.studioPrimary).disabled(title.isEmpty || text.isEmpty)
                         }
                         if action == .roomMessage {
                             Text(t("「讓 AI 在聊天室回應」會送到建立時所在的茶歇室話題，並使用成員額度。", "AI room messages go to the lounge topic open when the schedule is made, and use member quota."))
@@ -192,7 +192,7 @@ struct AutomationView: View {
                     }
                 }
             }
-            .padding(24)
+            .padding(StudioMetrics.page)
             .frame(maxWidth: 1000)
             .frame(maxWidth: .infinity)
         }

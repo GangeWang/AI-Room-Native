@@ -144,7 +144,7 @@ struct AvatarCropEditor: View {
                     onSave(draft == source.fitted(source.defaultAnchor) ? nil : draft)
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.studioPrimary)
                 .disabled(artwork == nil || !model.storageAvailable)
             }
         }
