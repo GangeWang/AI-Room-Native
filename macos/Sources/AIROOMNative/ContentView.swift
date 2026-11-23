@@ -46,6 +46,10 @@ struct ContentView: View {
             sidebar
                 .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 340)
         } detail: {
+            // Laid out at exactly the column's size. Without this, expanding a DisclosureGroup
+            // in a page made NavigationSplitView grow to the page's full height, pushing the
+            // whole window's content past its edges (reproduced; an HStack shell did not do it).
+            GeometryReader { column in
             VStack(spacing: 0) {
                 if let release = model.availableUpdate {
                     UpdateBanner(release: release)
@@ -82,6 +86,8 @@ struct ContentView: View {
                 }
                 .animation(StudioMotion.easeOut(0.22), value: route)
                 .clipped()
+            }
+            .frame(width: column.size.width, height: column.size.height)
             }
             .background(StudioTheme.background(scheme))
             // The studio's warm accent lives in the content; the sidebar keeps the accent
