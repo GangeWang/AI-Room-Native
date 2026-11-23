@@ -23,13 +23,19 @@ struct StudioDashboard: View {
                           alignment: .leading, spacing: 15) {
                     ForEach(model.visibleAgents) { agent in
                         let card = model.archive.members.first(where: { $0.agent == agent })
+                        StudioHoverReader { hovering in
                         VStack(alignment: .leading, spacing: 0) {
                             // Card face in relief: cut-out figure over its own pressed silhouette.
-                            StudioReliefPortrait(agent: agent)
-                            .frame(height: 232)
-                            .clipped()
-                            // Clipping only hides overflow; this also keeps it from taking clicks.
-                            .contentShape(Rectangle())
+                            // The face opens the member card; under the pointer the figure lifts off the stock.
+                            Button { onMemberCard(agent) } label: {
+                                StudioReliefPortrait(agent: agent, lifted: hovering)
+                                    .frame(height: 232)
+                                    .clipped()
+                                    // Clipping only hides overflow; this also keeps it from taking clicks.
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.studioPressable)
+                            .accessibilityLabel(t("\(card?.name ?? agent.shortName) 的人物卡", "\(card?.name ?? agent.shortName)'s card"))
                             .overlay(alignment: .bottom) {
                                 Rectangle().fill(StudioTheme.hairline(scheme)).frame(height: 1)
                             }
@@ -78,7 +84,11 @@ struct StudioDashboard: View {
                         .clipShape(RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous))
                         .studioCard(radius: StudioMetrics.radiusPanel)
                         .studioBevel(radius: StudioMetrics.radiusPanel)
+                        .overlay(RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous)
+                            .strokeBorder(agent.studioColor.opacity(hovering ? 0.7 : 0), lineWidth: 1.5)
+                            .allowsHitTesting(false))
                         .frame(maxWidth: .infinity)
+                        }
                     }
                 }
 
@@ -178,6 +188,9 @@ struct StudioDashboard: View {
                 .frame(width: 16)
                 .accessibilityHidden(true)
             Text("\(value)").font(.system(size: 17, weight: .semibold, design: .rounded)).monospacedDigit()
+                // Counts roll to their new value instead of jumping.
+                .contentTransition(.numericText(value: Double(value)))
+                .animation(StudioMotion.settle, value: value)
                 .foregroundStyle(StudioTheme.ink(scheme))
             Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }

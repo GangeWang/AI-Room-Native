@@ -34,8 +34,9 @@ struct MembersView: View {
                     ForEach(model.memberIDs) { agent in
                         let name = model.archive.members.first(where: { $0.agent == agent })?.name ?? agent.shortName
                         Button { selected = agent } label: {
+                            StudioHoverReader { hovering in
                             VStack(alignment: .leading, spacing: 8) {
-                                StudioReliefPortrait(agent: agent, topInset: 10)
+                                StudioReliefPortrait(agent: agent, topInset: 10, lifted: hovering)
                                     .frame(height: 200)
                                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                                     .contentShape(Rectangle())
@@ -51,7 +52,9 @@ struct MembersView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .studioCard(radius: StudioMetrics.radiusPanel)
                             .overlay(RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous)
-                                .strokeBorder(selected == agent ? agent.studioColor : .clear, lineWidth: 2))
+                                .strokeBorder(selected == agent ? agent.studioColor
+                                              : agent.studioColor.opacity(hovering ? 0.5 : 0), lineWidth: 2))
+                            }
                         }
                         .buttonStyle(.studioPressable)
                     }

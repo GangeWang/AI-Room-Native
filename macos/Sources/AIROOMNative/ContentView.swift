@@ -12,6 +12,7 @@ private enum SidebarItem: Hashable {
 struct ContentView: View {
     @EnvironmentObject private var model: WorkbenchModel
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("airoom.ui.appearance") private var appearance = "system"
     @State private var route: StudioRoute = .home
     @State private var selectedProjectID: UUID?
@@ -50,7 +51,8 @@ struct ContentView: View {
                     UpdateBanner(release: release)
                     Divider()
                 }
-                Group {
+                ZStack {
+                    Group {
                     switch route {
                     case .home:
                         StudioDashboard(onChat: { route = .chat($0) },
@@ -70,9 +72,16 @@ struct ContentView: View {
                     case .attention: StudioAttentionView(onOpen: openAttention)
                     case .settings: SettingsView()
                     }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .buttonStyle(.studioSecondary)
+                    // A new page fades up into place; the old one just fades (exit faster than entry).
+                    .id(route)
+                    .transition(.asymmetric(insertion: reduceMotion ? .opacity : .opacity.combined(with: .offset(y: 8)),
+                                            removal: .opacity))
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .buttonStyle(.studioSecondary)
+                .animation(StudioMotion.easeOut(0.22), value: route)
+                .clipped()
             }
             .background(StudioTheme.background(scheme))
             // The studio's warm accent lives in the content; the sidebar keeps the accent
@@ -159,7 +168,7 @@ struct ContentView: View {
         let member = model.archive.members.first(where: { $0.agent == agent })
         let busy = model.busyAgents.contains(agent)
         return HStack(spacing: 8) {
-            StudioAvatar(agent: agent, size: 28, running: busy)
+            StudioAvatar(agent: agent, size: 28, running: busy, pulses: true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(member?.name ?? agent.shortName).lineLimit(1)
                 // Idle members show their routine for this part of the day (a setting, not real work).
@@ -273,8 +282,8 @@ struct ContentView: View {
         case .settings: return t("設定與連接", "Settings")
         }
     }
-    private func jumpToSearch() {
-        let key = searchText.lowercased()
+    private func navigate(to text: String) {
+        let key = text.lowercased()
         if key.contains("claude") { route = .chat(.claude) }
         else if key.contains("codex") { route = .chat(.codex) }
         else if key.contains("專案") || key.contains("project") { route = .projects }
@@ -287,5 +296,12 @@ struct ContentView: View {
         else if key.contains("待") || key.contains("attention") { route = .attention }
         else { route = .home }
         closeSearch()
+    }
+
+    /// Keyboard navigation is instant: it repeats too often to wait on motion.
+    private func jumpToSearch() {
+        var instant = Transaction()
+        instant.disablesAnimations = true
+        withTransaction(instant) { navigate(to: searchText) }
     }
 }

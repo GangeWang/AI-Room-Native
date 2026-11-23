@@ -361,6 +361,9 @@ struct StudioAvatar: View {
     let agent: MemberID
     var size: CGFloat = 40
     var running = false
+    /// Breathe the status dot while the member works (only where one avatar stands for the member).
+    var pulses = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             Circle().fill(agent.studioColor.opacity(0.15))
@@ -371,7 +374,17 @@ struct StudioAvatar: View {
             Circle()
                 .fill(running ? StudioTheme.amber : StudioTheme.moss)
                 .frame(width: size * 0.23, height: size * 0.23)
+                .background {
+                    if running && pulses && !reduceMotion {
+                        // A ring that widens and fades, over and over, for as long as the work runs.
+                        Circle().fill(StudioTheme.amber)
+                            .phaseAnimator([false, true]) { ring, out in
+                                ring.scaleEffect(out ? 2.4 : 1).opacity(out ? 0 : 0.6)
+                            } animation: { out in out ? .easeOut(duration: 1.1) : .linear(duration: 0) }
+                    }
+                }
                 .overlay(Circle().strokeBorder(.background, lineWidth: 2))
+                .animation(StudioMotion.ease(), value: running)
         }
         .frame(width: size, height: size)
         .accessibilityLabel(agent.shortName)
@@ -522,6 +535,27 @@ enum StudioMotion {
     static func ease(_ duration: TimeInterval = 0.2) -> Animation { .timingCurve(0.25, 0.1, 0.25, 1, duration: duration) }
     /// Press feedback: 160 ms strong ease-out, starting on mouse-down.
     static let press = easeOut(0.16)
+    /// Things the pointer or new content moves: critically damped, so nothing wobbles.
+    static let settle = Animation.spring(response: 0.32, dampingFraction: 0.9)
+    /// A new message arriving: rises a little into place. Reduce Motion: fades only.
+    static func arrival(_ reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .offset(y: 12))
+    }
+}
+
+/// Hover state that cannot get stuck: an inactive window never shows hover
+/// (SwiftUI may miss the exit when the window loses focus under the pointer).
+struct StudioHoverReader<Content: View>: View {
+    @State private var hovering = false
+    @Environment(\.controlActiveState) private var active
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ViewBuilder var content: (Bool) -> Content
+    var body: some View {
+        content(hovering && active != .inactive)
+            .onHover { inside in
+                withAnimation(reduceMotion ? StudioMotion.ease(0.15) : StudioMotion.settle) { hovering = inside }
+            }
+    }
 }
 
 /// Press feedback for custom clickable cards and tiles: a slight give on mouse-down

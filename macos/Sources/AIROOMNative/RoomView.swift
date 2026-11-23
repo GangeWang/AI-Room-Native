@@ -182,6 +182,7 @@ struct RoomView: View {
                                     .padding(.top, 65)
                             }
                             ForEach(groupedEntries(model.roomEntries()), id: \.entry.id) { item in
+                                Group {
                                 let entry = item.entry
                                 if entry.speaker == .system {
                                     Text(entry.body).font(.caption).foregroundStyle(.secondary)
@@ -246,8 +247,12 @@ struct RoomView: View {
                                 }
                                 .id(entry.id)
                                 }
+                                }
+                                .transition(StudioMotion.arrival(reduceMotion))
                             }
                         }
+                        // New lines rise into place as they arrive.
+                        .animation(reduceMotion ? StudioMotion.ease() : StudioMotion.settle, value: model.roomEntries().count)
                         .padding(24)
                         .frame(maxWidth: 810)
                         .frame(maxWidth: .infinity)

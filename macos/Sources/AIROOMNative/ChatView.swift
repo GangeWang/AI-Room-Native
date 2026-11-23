@@ -207,8 +207,13 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(spacing: 18) {
                     if model.messages(for: agent).isEmpty { emptyState }
-                    ForEach(model.messages(for: agent)) { message in messageRow(message).id(message.id) }
+                    ForEach(model.messages(for: agent)) { message in
+                        messageRow(message).id(message.id)
+                            .transition(StudioMotion.arrival(reduceMotion))
+                    }
                 }
+                // New messages rise into place as they arrive.
+                .animation(reduceMotion ? StudioMotion.ease() : StudioMotion.settle, value: model.messages(for: agent).count)
                 .padding(.horizontal, 25).padding(.vertical, 22)
                 .frame(maxWidth: 940)
                 .frame(maxWidth: .infinity)
