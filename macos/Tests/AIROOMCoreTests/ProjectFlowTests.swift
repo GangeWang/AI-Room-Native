@@ -31,21 +31,24 @@ final class ProjectFlowTests: XCTestCase {
     func testDependenciesGateTheNextTask() throws {
         var parsed = try ProjectFlowEngine.parsePlan(plan, members: both)
         let first = parsed.rounds[0]
-        XCTAssertEqual(ProjectFlowEngine.nextTask(in: first, plan: parsed)?.key, "t1")
+        func ready(_ active: Set<UUID> = []) -> [String] {
+            ProjectFlowEngine.readyTasks(in: first, plan: parsed, active: active, maxParallel: 3).map(\.key)
+        }
+        XCTAssertEqual(ready(), ["t1"], "t2 depends on t1")
         parsed.tasks[0].status = .running
-        XCTAssertNil(ProjectFlowEngine.nextTask(in: first, plan: parsed), "t2 waits for t1")
+        XCTAssertEqual(ready([parsed.tasks[0].id]), [], "t2 waits for t1")
         parsed.tasks[0].status = .done
-        XCTAssertEqual(ProjectFlowEngine.nextTask(in: first, plan: parsed)?.key, "t2")
+        XCTAssertEqual(ready(), ["t2"])
     }
 
     func testReviewerIsAnotherMemberAndVerdictsParse() {
         let task = FlowTask(key: "t", roundKey: "r", title: "x", member: .claude, goal: "")
         XCTAssertEqual(ProjectFlowEngine.reviewer(for: task, lead: .claude, members: both), .codex)
         XCTAssertEqual(ProjectFlowEngine.reviewer(for: task, lead: .codex, members: both), .codex)
-        let changes = ProjectFlowEngine.parseVerdict(#"{"verdict":"changes","findings":[{"severity":"blocking","location":"index.html","request":"補標題"}]}"#)
+        let changes = ProjectFlowEngine.parseReview(#"{"verdict":"changes","findings":[{"severity":"blocking","location":"index.html","request":"補標題"}]}"#)
         XCTAssertFalse(changes.pass)
-        XCTAssertTrue(changes.findings.contains("補標題"))
-        XCTAssertTrue(ProjectFlowEngine.parseVerdict(#"{"verdict":"pass","summary":"ok"}"#).pass)
+        XCTAssertTrue(changes.text.contains("補標題"))
+        XCTAssertTrue(ProjectFlowEngine.parseReview(#"{"verdict":"pass","summary":"ok"}"#).pass)
     }
 }
 

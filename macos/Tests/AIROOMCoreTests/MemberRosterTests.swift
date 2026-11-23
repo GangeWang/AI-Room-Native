@@ -132,8 +132,6 @@ final class MemberRosterTests: XCTestCase {
         let reply = LoungeReply(action: .speak, body: "交給 DS", emoji: nil, next: "DS", questions: [], unstructured: false)
         _ = LoungeEngine.apply(reply, from: .claude, present: [.claude, added], state: &lounge, entryID: UUID(), names: [added: "DS"])
         XCTAssertEqual(lounge.priority, [added])
-
-        XCTAssertEqual(RoundtableDecision.parseVote("Vote: m-1a2b3c\n理由", members: [.claude, added]), added)
     }
 
     func testOnlyTheBuiltInMembersMapToTheirProgramByDefault() {

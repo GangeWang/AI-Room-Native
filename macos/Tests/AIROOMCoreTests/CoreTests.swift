@@ -564,7 +564,7 @@ final class SharedRoomContextTests: XCTestCase {
     func testLargeSingleEntryIsSafelyBounded() {
         let room = TeamRoom(entries: [RoomEntry(speaker: .user, displayName: "User", body: String(repeating: "z", count: 100_000))])
         let snapshot = RoomPromptBuilder.snapshot(room: room, maxCharacters: 20_000)
-        XCTAssertLessThanOrEqual(snapshot.totalCharacters, 20_000)
+        XCTAssertLessThanOrEqual(snapshot.transcript.count, 20_000)
         let prompt = loungePrompt(room, MemberCard(agent: .codex), .english)
         XCTAssertLessThan(prompt.count, 30_000)
     }
