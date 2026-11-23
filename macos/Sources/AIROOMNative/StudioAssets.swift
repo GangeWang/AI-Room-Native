@@ -6,16 +6,18 @@ import AIROOMCore
 /// The UI remains usable with SF Symbol placeholders before the opt-in download.
 enum StudioAsset {
     static func image(_ name: String) -> NSImage? {
+        url(name).flatMap(NSImage.init(contentsOf:))
+    }
+    /// The packaged file, else the SwiftPM resource (for `swift run`).
+    static func url(_ name: String) -> URL? {
         let file = (name as NSString).lastPathComponent
         guard !file.contains(".."), !file.isEmpty else { return nil }
         if let bundled = Bundle.main.resourceURL?.appendingPathComponent("Assets", isDirectory: true)
-            .appendingPathComponent(file), let result = NSImage(contentsOf: bundled) {
-            return result
+            .appendingPathComponent(file), FileManager.default.fileExists(atPath: bundled.path) {
+            return bundled
         }
-        if let url = Bundle.module.url(forResource: (file as NSString).deletingPathExtension,
-                                       withExtension: (file as NSString).pathExtension),
-           let result = NSImage(contentsOf: url) { return result }
-        return nil
+        return Bundle.module.url(forResource: (file as NSString).deletingPathExtension,
+                                 withExtension: (file as NSString).pathExtension)
     }
     static func backdrop(for date: Date) -> String {
         switch Calendar.current.component(.hour, from: date) {

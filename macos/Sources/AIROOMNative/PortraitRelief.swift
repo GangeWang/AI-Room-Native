@@ -2,11 +2,19 @@ import SwiftUI
 import AppKit
 import Vision
 import CoreImage
+import CryptoKit
 import AIROOMCore
 
-/// Portraits with their background lifted off, made on this Mac with Vision's subject
-/// lifting (the same engine as Finder's "Remove Background"). Kept in memory only;
-/// nothing is written to disk and the saved portrait is never changed.
+/// Portraits with their background lifted off, for the relief card faces.
+///
+/// A cut-out is the portrait (at most 720 px high) through a subject mask:
+/// - Built-in portraits use the masks baked into the app (`Scripts/bake-portrait-masks.swift`),
+///   so showing them never loads Vision.
+/// - Uploaded portraits get their mask from Vision's subject lifting (the same engine as
+///   Finder's "Remove Background") the first time, and the mask is kept, sealed with the
+///   app's Keychain key like the uploads themselves, in Application Support/AIROOMNative/
+///   portrait-masks. A missing, damaged or out-of-date mask file is simply made again.
+/// The saved portrait itself is never changed.
 @MainActor
 final class PortraitCutouts: ObservableObject {
     static let shared = PortraitCutouts()
@@ -14,14 +22,21 @@ final class PortraitCutouts: ObservableObject {
     private var started: Set<String> = []
 
     /// The cut-out for this portrait, or nil while it is being made (or if no subject was found).
-    func image(for key: String, source: NSImage) -> NSImage? {
+    func image(for key: String, source: NSImage, stateRoot: URL?) -> NSImage? {
         if let done = images[key] { return done }
         guard !started.contains(key),
               let cg = source.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
         started.insert(key)
         let size = source.size
-        Task.detached(priority: .utility) {
-            guard let cut = Self.liftSubject(cg) else { return }
+        var baked: URL?
+        var cacheFile: URL?
+        if key.hasPrefix("art:") {
+            baked = StudioAsset.url(PortraitMasks.bakedName(forArt: String(key.dropFirst(4))))
+        } else if key.hasPrefix("upload:"), let root = stateRoot {
+            cacheFile = PortraitMasks.cacheFile(in: root, id: String(key.dropFirst(7)))
+        }
+        Task.detached(priority: .utility) { [baked, cacheFile] in
+            guard let cut = PortraitMasks.cutout(cg, baked: baked, cacheFile: cacheFile) else { return }
             await MainActor.run {
                 let image = NSImage(cgImage: cut, size: size)
                 withAnimation(.easeOut(duration: 0.35)) { self.images[key] = image }
@@ -29,21 +44,104 @@ final class PortraitCutouts: ObservableObject {
         }
         return nil
     }
+}
 
-    /// Same pixel size as the source, so a member's saved framing still lines up.
-    nonisolated private static func liftSubject(_ image: CGImage) -> CGImage? {
+/// Making, keeping and applying subject masks. Everything here runs off the main thread.
+enum PortraitMasks {
+    /// Cut-outs and masks are kept at most this many pixels high; the cards show about 230 pt.
+    static let maxHeight: CGFloat = 720
+    private static let magic = Data("AIROOMMASK1\n".utf8)
+    private static let context = CIContext(options: [.cacheIntermediates: false])
+
+    static func bakedName(forArt art: String) -> String {
+        ((art as NSString).lastPathComponent as NSString).deletingPathExtension + "-mask.png"
+    }
+
+    static func cacheFile(in root: URL, id: String) -> URL? {
+        guard let uuid = UUID(uuidString: id) else { return nil }
+        return root.appendingPathComponent("portrait-masks", isDirectory: true)
+            .appendingPathComponent(uuid.uuidString + ".aesgcm")
+    }
+
+    static func cutout(_ image: CGImage, baked: URL?, cacheFile: URL?) -> CGImage? {
+        let mask: CIImage
+        if let baked, let found = CIImage(contentsOf: baked), fits(found, image) {
+            mask = found
+        } else if let cacheFile {
+            let digest = Data(SHA256.hash(data: (image.dataProvider?.data as Data?) ?? Data()))
+            if let kept = load(cacheFile, digest: digest), fits(kept, image) {
+                mask = kept
+            } else {
+                guard let png = lift(image), let made = CIImage(data: png) else { return nil }
+                store(png, digest: digest, to: cacheFile)
+                mask = made
+            }
+        } else {
+            guard let png = lift(image), let made = CIImage(data: png) else { return nil }
+            mask = made
+        }
+        return apply(mask, to: image)
+    }
+
+    /// A mask made for another picture (e.g. after the artwork was replaced) is not used.
+    private static func fits(_ mask: CIImage, _ image: CGImage) -> Bool {
+        guard mask.extent.height > 0, image.height > 0 else { return false }
+        let a = mask.extent.width / mask.extent.height, b = CGFloat(image.width) / CGFloat(image.height)
+        return abs(a - b) < 0.01
+    }
+
+    /// Vision's subject mask as an 8-bit grayscale PNG, at most `maxHeight` high.
+    private static func lift(_ image: CGImage) -> Data? {
         let request = VNGenerateForegroundInstanceMaskRequest()
         let handler = VNImageRequestHandler(cgImage: image)
         do {
             try handler.perform([request])
             guard let result = request.results?.first, !result.allInstances.isEmpty else { return nil }
-            let buffer = try result.generateMaskedImage(ofInstances: result.allInstances, from: handler,
-                                                        croppedToInstancesExtent: false)
-            let ci = CIImage(cvPixelBuffer: buffer)
-            return CIContext().createCGImage(ci, from: ci.extent)
+            let buffer = try result.generateScaledMaskForImage(forInstances: result.allInstances, from: handler)
+            var mask = CIImage(cvPixelBuffer: buffer)
+            let scale = min(1, maxHeight / mask.extent.height)
+            mask = mask.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            return context.pngRepresentation(of: mask, format: .L8, colorSpace: CGColorSpace(name: CGColorSpace.linearGray)!)
         } catch {
             return nil
         }
+    }
+
+    /// The picture, scaled down to at most `maxHeight`, with everything outside the mask cleared.
+    private static func apply(_ mask: CIImage, to image: CGImage) -> CGImage? {
+        var picture = CIImage(cgImage: image)
+        let scale = min(1, maxHeight / picture.extent.height)
+        if scale < 1 {
+            picture = picture.applyingFilter("CILanczosScaleTransform",
+                                             parameters: [kCIInputScaleKey: scale, kCIInputAspectRatioKey: 1])
+        }
+        let target = CGRect(x: 0, y: 0, width: max(1, picture.extent.width.rounded(.down)),
+                            height: max(1, picture.extent.height.rounded(.down)))
+        let fitted = mask.transformed(by: CGAffineTransform(scaleX: target.width / mask.extent.width,
+                                                            y: target.height / mask.extent.height))
+        let cut = picture.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: CIImage.empty(),
+                                                                          kCIInputMaskImageKey: fitted])
+        return context.createCGImage(cut, from: target)
+    }
+
+    /// File: magic, then (SHA-256 of the portrait's pixels + mask PNG) sealed with the app's key.
+    private static func load(_ file: URL, digest: Data) -> CIImage? {
+        guard let data = try? Data(contentsOf: file), data.starts(with: magic),
+              let plain = try? KeychainStateProtector().open(Data(data.dropFirst(magic.count))),
+              plain.count > digest.count, plain.prefix(digest.count) == digest else { return nil }
+        return CIImage(data: Data(plain.dropFirst(digest.count)))
+    }
+
+    /// Best effort: if the mask can't be kept it is just made again next launch. Never written unsealed.
+    private static func store(_ png: Data, digest: Data, to file: URL) {
+        let folder = file.deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
+                                                    attributes: [.posixPermissions: 0o700])
+            let sealed = try KeychainStateProtector().seal(digest + png)
+            try (magic + sealed).write(to: file, options: [.atomic])
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        } catch {}
     }
 }
 
@@ -69,7 +167,7 @@ struct StudioReliefPortrait: View {
     var body: some View {
         let color = agent.studioColor
         let source = model.portraitImage(agent)
-        let cut = source.flatMap { cutouts.image(for: model.portraitKey(agent), source: $0) }
+        let cut = source.flatMap { cutouts.image(for: model.portraitKey(agent), source: $0, stateRoot: model.stateRoot) }
         ZStack {
             stock(color)
             if let cut {
