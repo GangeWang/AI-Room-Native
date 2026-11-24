@@ -23,13 +23,19 @@ struct StudioDashboard: View {
                           alignment: .leading, spacing: 15) {
                     ForEach(model.visibleAgents) { agent in
                         let card = model.archive.members.first(where: { $0.agent == agent })
+                        StudioHoverReader { hovering in
                         VStack(alignment: .leading, spacing: 0) {
                             // Card face in relief: cut-out figure over its own pressed silhouette.
-                            StudioReliefPortrait(agent: agent)
-                            .frame(height: 232)
-                            .clipped()
-                            // Clipping only hides overflow; this also keeps it from taking clicks.
-                            .contentShape(Rectangle())
+                            // The face opens the member card; under the pointer the figure lifts off the stock.
+                            Button { onMemberCard(agent) } label: {
+                                StudioReliefPortrait(agent: agent, lifted: hovering)
+                                    .frame(height: 232)
+                                    .clipped()
+                                    // Clipping only hides overflow; this also keeps it from taking clicks.
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.studioPressable)
+                            .accessibilityLabel(t("\(card?.name ?? agent.shortName) 的人物卡", "\(card?.name ?? agent.shortName)'s card"))
                             .overlay(alignment: .bottom) {
                                 Rectangle().fill(StudioTheme.hairline(scheme)).frame(height: 1)
                             }
@@ -78,7 +84,11 @@ struct StudioDashboard: View {
                         .clipShape(RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous))
                         .studioCard(radius: StudioMetrics.radiusPanel)
                         .studioBevel(radius: StudioMetrics.radiusPanel)
+                        .overlay(RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous)
+                            .strokeBorder(agent.studioColor.opacity(hovering ? 0.7 : 0), lineWidth: 1.5)
+                            .allowsHitTesting(false))
                         .frame(maxWidth: .infinity)
+                        }
                     }
                 }
 
@@ -112,7 +122,7 @@ struct StudioDashboard: View {
     private var hero: some View {
         let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
         return VStack(alignment: .leading, spacing: 14) {
-            StudioEyebrow(text: greeting + t(" · 我們一起工作的房間", " · A place to work together"))
+            Text(greeting).font(.headline).foregroundStyle(.secondary)
             Text(t("歡迎來到 AIROOM。", "Welcome to AIROOM."))
                 .font(StudioType.heroTitle)
                 .foregroundStyle(StudioTheme.ink(scheme))
@@ -156,8 +166,6 @@ struct StudioDashboard: View {
                         .init(color: StudioTheme.surface(scheme).opacity(0.35), location: 0.78),
                         .init(color: StudioTheme.surface(scheme).opacity(0.15), location: 1)
                     ], startPoint: .leading, endPoint: .trailing)
-                    RadialGradient(colors: [StudioTheme.amber.opacity(0.18), .clear],
-                                   center: .topLeading, startRadius: 0, endRadius: 420)
                 }
                 .accessibilityHidden(true)
                 .allowsHitTesting(false)
@@ -165,7 +173,6 @@ struct StudioDashboard: View {
         }
         .clipShape(shape)
         .overlay(shape.strokeBorder(StudioTheme.border(scheme), lineWidth: 1))
-        .shadow(color: StudioTheme.shadow(scheme), radius: 16, y: 6)
     }
 
     @ViewBuilder private var statChips: some View {
@@ -177,12 +184,17 @@ struct StudioDashboard: View {
 
     private func statChip(value: Int, label: String, icon: String, tint: Color) -> some View {
         HStack(spacing: 8) {
-            StudioIconTile(symbol: icon, tint: tint, size: 22)
-            Text("\(value)").font(.system(size: 17, weight: .bold, design: .rounded)).monospacedDigit()
+            Image(systemName: icon).font(.system(size: 12, weight: .medium)).foregroundStyle(tint)
+                .frame(width: 16)
+                .accessibilityHidden(true)
+            Text("\(value)").font(.system(size: 17, weight: .semibold, design: .rounded)).monospacedDigit()
+                // Counts roll to their new value instead of jumping.
+                .contentTransition(.numericText(value: Double(value)))
+                .animation(StudioMotion.settle, value: value)
                 .foregroundStyle(StudioTheme.ink(scheme))
             Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
-        .padding(.leading, 6).padding(.trailing, 12).padding(.vertical, 6)
+        .padding(.leading, 10).padding(.trailing, 12).padding(.vertical, 6)
         .background(.regularMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(StudioTheme.border(scheme).opacity(0.7), lineWidth: 1))
         .accessibilityElement(children: .combine)
@@ -329,7 +341,7 @@ struct StudioAttentionView: View {
         let items = model.attentionItems
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                StudioPageHeading(eyebrow: "ATTENTION", title: t("待你處理", "Needs Attention"),
+                StudioPageHeading(title: t("待你處理", "Needs Attention"),
                     subtitle: t("成員在等你回答、需要你點名或登入、有結果要核對、有成品等你驗收，都會列在這裡。", "Questions for you, picks, sign-ins, results to check and work to accept."))
                 if items.isEmpty {
                     StudioEmptyState(icon: "checkmark.circle", title: t("目前沒有待辦", "All clear"),

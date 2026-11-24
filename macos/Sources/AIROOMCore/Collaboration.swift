@@ -240,11 +240,14 @@ public struct TeamRoom: Identifiable, Codable, Equatable, Sendable {
     public var readFolder: String
     /// Each member's own CLI conversation in this room, and the last entry it has seen.
     public var sessions: [String: RoomSession]
+    /// The AI live show's own room (the 直播間), kept apart from the lounge topics.
+    public var isLiveRoom: Bool
 
     public init(id: UUID = UUID(), title: String = "茶歇室", entries: [RoomEntry] = [], participants: [MemberID] = MemberID.builtIn,
                 updatedAt: Date = .now, lounge: LoungeState = LoungeState(), summary: String = "",
                 summaryThroughEntryID: UUID? = nil, carriedSummary: String = "",
-                roundtableID: UUID? = nil, briefing: String = "", projectID: UUID? = nil, readFolder: String = "") {
+                roundtableID: UUID? = nil, briefing: String = "", projectID: UUID? = nil, readFolder: String = "",
+                isLiveRoom: Bool = false) {
         self.id = id; self.title = title; self.entries = entries; self.participants = participants; self.updatedAt = updatedAt
         self.lounge = lounge; self.summary = summary; self.summaryThroughEntryID = summaryThroughEntryID
         self.carriedSummary = carriedSummary
@@ -253,11 +256,12 @@ public struct TeamRoom: Identifiable, Codable, Equatable, Sendable {
         self.projectID = projectID
         self.readFolder = readFolder
         self.sessions = [:]
+        self.isLiveRoom = isLiveRoom
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, title, entries, participants, updatedAt, lounge, summary, summaryThroughEntryID, carriedSummary,
-             roundtableID, briefing, projectID, readFolder, sessions
+             roundtableID, briefing, projectID, readFolder, sessions, isLiveRoom
     }
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
@@ -275,10 +279,12 @@ public struct TeamRoom: Identifiable, Codable, Equatable, Sendable {
         projectID = try box.decodeIfPresent(UUID.self, forKey: .projectID)
         readFolder = try box.decodeIfPresent(String.self, forKey: .readFolder) ?? ""
         sessions = (try? box.decodeIfPresent([String: RoomSession].self, forKey: .sessions)) ?? [:]
+        // Saved before the live room existed: every room was a lounge, roundtable or project room.
+        isLiveRoom = try box.decodeIfPresent(Bool.self, forKey: .isLiveRoom) ?? false
     }
 
-    /// Hidden from the lounge: roundtable and project rooms live in their own pages.
-    public var isLounge: Bool { roundtableID == nil && projectID == nil }
+    /// Hidden from the lounge: roundtable, project and live rooms live in their own pages.
+    public var isLounge: Bool { roundtableID == nil && projectID == nil && !isLiveRoom }
 }
 
 public enum ProjectPhase: String, Codable, Sendable {

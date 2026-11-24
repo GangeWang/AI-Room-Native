@@ -39,7 +39,7 @@ final class PortraitCutouts: ObservableObject {
             guard let cut = PortraitMasks.cutout(cg, baked: baked, cacheFile: cacheFile) else { return }
             await MainActor.run {
                 let image = NSImage(cgImage: cut, size: size)
-                withAnimation(.easeOut(duration: 0.35)) { self.images[key] = image }
+                withAnimation(StudioMotion.easeOut(0.3)) { self.images[key] = image }
             }
         }
         return nil
@@ -163,6 +163,8 @@ struct StudioReliefPortrait: View {
     let agent: MemberID
     /// Space above the figure's head.
     var topInset: CGFloat = 14
+    /// Under the pointer: the figure rises off the card and its pressed shadow opens a little.
+    var lifted = false
 
     var body: some View {
         let color = agent.studioColor
@@ -180,7 +182,8 @@ struct StudioReliefPortrait: View {
                     StudioPortrait(agent: agent, image: cut)
                         // Rim light in the member's colour, then a drop shadow onto the card.
                         .shadow(color: color.opacity(scheme == .dark ? 0.55 : 0.4), radius: 10)
-                        .shadow(color: .black.opacity(scheme == .dark ? 0.5 : 0.28), radius: 8, x: 3, y: 7)
+                        .shadow(color: .black.opacity(scheme == .dark ? 0.5 : 0.28), radius: lifted ? 12 : 8, x: 3, y: lifted ? 11 : 7)
+                        .offset(y: lifted ? -4 : 0)
                         .transition(.opacity)
                 } else {
                     StudioPortrait(agent: agent)
@@ -219,7 +222,7 @@ struct StudioReliefPortrait: View {
         let base = LinearGradient(colors: [color.opacity(scheme == .dark ? 0.32 : 0.26), color.opacity(scheme == .dark ? 0.22 : 0.16)],
                                   startPoint: .top, endPoint: .bottom)
         // The character fills roughly two thirds of the picture's width, so an eighth of her body ≈ 0.08 of it.
-        let shift: CGFloat = 0.08
+        let shift: CGFloat = lifted ? 0.095 : 0.08
         func echo(_ style: some ShapeStyle) -> some View {
             StudioPortrait(agent: agent, image: cut, silhouette: AnyShapeStyle(style), shift: shift)
         }

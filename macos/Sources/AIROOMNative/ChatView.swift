@@ -5,6 +5,7 @@ import AIROOMCore
 struct ChatView: View {
     @EnvironmentObject private var model: WorkbenchModel
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let agent: MemberID
     @State private var importing = false
     @State private var renaming = false
@@ -206,15 +207,21 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(spacing: 18) {
                     if model.messages(for: agent).isEmpty { emptyState }
-                    ForEach(model.messages(for: agent)) { message in messageRow(message).id(message.id) }
+                    ForEach(model.messages(for: agent)) { message in
+                        messageRow(message).id(message.id)
+                            .transition(StudioMotion.arrival(reduceMotion))
+                    }
                 }
+                // New messages rise into place as they arrive.
+                .animation(reduceMotion ? StudioMotion.ease() : StudioMotion.settle, value: model.messages(for: agent).count)
                 .padding(.horizontal, 25).padding(.vertical, 22)
                 .frame(maxWidth: 940)
                 .frame(maxWidth: .infinity)
             }
             .onChange(of: model.messages(for: agent).count) { _, _ in
                 if let last = model.messages(for: agent).last?.id {
-                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last, anchor: .bottom) }
+                    // A short glide shows where the new message came from; Reduce Motion jumps.
+                    withAnimation(reduceMotion ? nil : StudioMotion.easeOut(0.25)) { proxy.scrollTo(last, anchor: .bottom) }
                 }
             }
         }

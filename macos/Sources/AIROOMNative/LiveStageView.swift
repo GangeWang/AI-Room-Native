@@ -17,7 +17,7 @@ struct LiveStageView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                StudioPageHeading(eyebrow: "LIVE STAGE", title: t("直播舞台", "Live Stage"),
+                StudioPageHeading(title: t("直播舞台", "Live Stage"),
                     subtitle: t("把 AI 直播的每一句話念出來，並用 VTube Studio 驅動 Live2D 表情與嘴型。一位說完才輪到下一位。",
                                 "Speak every co-host line and drive Live2D expressions and lip sync through VTube Studio. One speaker at a time."))
                 onAirStrip
@@ -39,11 +39,8 @@ struct LiveStageView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Toggle(isOn: Binding(get: { settings.speechEnabled },
                                      set: { value in model.updateLiveStage { $0.speechEnabled = value } })) {
-                    HStack(spacing: 10) {
-                        StudioIconTile(symbol: "waveform", tint: StudioTheme.sky, size: 28)
-                        Text(t("直播時用語音念出發言（macOS 內建 TTS）", "Speak lines aloud (built-in macOS TTS)"))
-                            .font(StudioType.sectionTitle)
-                    }
+                    Text(t("直播時用語音念出發言（macOS 內建 TTS）", "Speak lines aloud (built-in macOS TTS)"))
+                        .font(StudioType.sectionTitle)
                 }
                 Text(t("想要更自然的中文聲音：系統設定 → 輔助使用 → 朗讀內容 → 系統聲音 → 管理聲音，下載「美佳（加強版）」等高品質語音後，回到這裡選擇。",
                        "For better voices: System Settings → Accessibility → Spoken Content → System Voice → Manage Voices, download an Enhanced/Premium voice, then pick it below."))
@@ -57,11 +54,8 @@ struct LiveStageView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Toggle(isOn: Binding(get: { settings.vtsEnabled },
                                      set: { value in model.updateLiveStage { $0.vtsEnabled = value } })) {
-                    HStack(spacing: 10) {
-                        StudioIconTile(symbol: "person.crop.square.badge.camera", tint: StudioTheme.rose, size: 28)
-                        Text(t("連接 VTube Studio（Live2D）", "Connect VTube Studio (Live2D)"))
-                            .font(StudioType.sectionTitle)
-                    }
+                    Text(t("連接 VTube Studio（Live2D）", "Connect VTube Studio (Live2D)"))
+                        .font(StudioType.sectionTitle)
                 }
                 Text(t("每位成員各用一個原生版 VTube Studio（不需要 Steam）。按「開啟 VTube Studio」會依連接埠由小到大一個一個開，開好就自動連線並換上各自的模型。連接埠和 NDI 名稱都依開啟順序決定：先開的是 8001／Live2D Camera NDI5，後開的是 8002／Live2D Camera NDI5 2。第一次要在 VTS 設定開啟「Start API」，兩個實例共用設定，開一次即可。",
                        "Each co-host uses its own native VTube Studio (no Steam needed). \"Open VTube Studio\" starts them one by one, lowest port first, then connects each and puts on its model. Ports and NDI names follow start order: first is 8001 / Live2D Camera NDI5, second is 8002 / Live2D Camera NDI5 2. Turn on \"Start API\" in VTS once; both instances share settings."))
@@ -219,7 +213,7 @@ struct LiveStageView: View {
             LinearGradient(colors: [agent.studioColor.opacity(stage.speaking == agent ? 0.3 : 0.17), .clear],
                            startPoint: .top, endPoint: .bottom)
                 .frame(height: 96)
-                .animation(.easeInOut(duration: 0.3), value: stage.speaking == agent)
+                .animation(StudioMotion.ease(0.2), value: stage.speaking == agent)
         }
         .clipShape(shape)
         .studioCard(radius: StudioMetrics.radiusPanel)
@@ -233,14 +227,13 @@ struct LiveStageView: View {
         let avatars = model.enabledMemberIDs.filter { settings.character($0).drivesAvatar }.count
         return HStack(spacing: 14) {
             HStack(spacing: 7) {
-                Circle().fill(live ? Color.red : Color.white.opacity(0.35)).frame(width: 9, height: 9)
-                    .shadow(color: live ? .red : .clear, radius: 5)
+                Circle().fill(live ? Color.white : Color.white.opacity(0.35)).frame(width: 8, height: 8)
                 Text(live ? "ON AIR" : "OFF AIR")
-                    .font(.system(size: 12, weight: .heavy, design: .rounded)).tracking(1.6)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded)).tracking(1)
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 11).padding(.vertical, 6)
-            .background(live ? Color.red.opacity(0.75) : Color.white.opacity(0.12), in: Capsule())
+            .background(live ? Color.red : Color.white.opacity(0.12), in: Capsule())
             if let speaker = stage.speaking {
                 HStack(spacing: 7) {
                     StudioAvatar(agent: speaker, size: 24)
@@ -250,7 +243,7 @@ struct LiveStageView: View {
                         .foregroundStyle(speaker.studioColor)
                 }
             } else {
-                Text(live ? t("等待下一句", "Waiting for the next line") : t("直播尚未開始，到茶歇室開一場 AI 直播", "Not live. Start an AI live show in the Lounge"))
+                Text(live ? t("等待下一句", "Waiting for the next line") : t("直播尚未開始，到「直播」分頁開播", "Not live. Go live from the Show tab"))
                     .font(.callout).foregroundStyle(.white.opacity(0.75)).lineLimit(1)
             }
             Spacer(minLength: 8)
@@ -260,14 +253,7 @@ struct LiveStageView: View {
         .padding(.horizontal, 16).padding(.vertical, 13)
         .background {
             RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous)
-                .fill(LinearGradient(colors: [Color(red: 0.16, green: 0.11, blue: 0.14), Color(red: 0.10, green: 0.08, blue: 0.11)],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing))
-                .overlay(alignment: .leading) {
-                    RadialGradient(colors: [StudioTheme.rose.opacity(live ? 0.45 : 0.22), .clear],
-                                   center: .leading, startRadius: 0, endRadius: 260)
-                        .clipShape(RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous))
-                }
-                .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+                .fill(Color(red: 0.12, green: 0.10, blue: 0.11))
         }
         .overlay(RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous)
             .strokeBorder(Color.white.opacity(0.08), lineWidth: 1))

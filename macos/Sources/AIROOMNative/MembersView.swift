@@ -27,16 +27,16 @@ struct MembersView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 21) {
-                StudioPageHeading(eyebrow: "MEMBERS",
-                    title: t("團隊與人物卡", "Team & Member Cards"),
+                StudioPageHeading(title: t("團隊與人物卡", "Team & Member Cards"),
                     subtitle: t("人物形象與個性在這裡設定；登入資料由官方 CLI 管理。", "Customize each member's appearance and persona. Authentication remains with the official CLI."))
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 260), spacing: 16, alignment: .top)],
                           alignment: .leading, spacing: 16) {
                     ForEach(model.memberIDs) { agent in
                         let name = model.archive.members.first(where: { $0.agent == agent })?.name ?? agent.shortName
                         Button { selected = agent } label: {
+                            StudioHoverReader { hovering in
                             VStack(alignment: .leading, spacing: 8) {
-                                StudioReliefPortrait(agent: agent, topInset: 10)
+                                StudioReliefPortrait(agent: agent, topInset: 10, lifted: hovering)
                                     .frame(height: 200)
                                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                                     .contentShape(Rectangle())
@@ -52,9 +52,11 @@ struct MembersView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .studioCard(radius: StudioMetrics.radiusPanel)
                             .overlay(RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous)
-                                .strokeBorder(selected == agent ? agent.studioColor : .clear, lineWidth: 2))
+                                .strokeBorder(selected == agent ? agent.studioColor
+                                              : agent.studioColor.opacity(hovering ? 0.5 : 0), lineWidth: 2))
+                            }
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.studioPressable)
                     }
                     Button { adding = true } label: {
                         VStack(spacing: 10) {
@@ -68,7 +70,7 @@ struct MembersView: View {
                         .background(StudioTheme.surface(scheme).opacity(0.6), in: RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous).strokeBorder(StudioTheme.amber.opacity(0.45), style: StrokeStyle(lineWidth: 1.2, dash: [5, 4])))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.studioPressable)
                     .disabled(!model.storageAvailable)
                 }
                 if let member = current {
@@ -525,7 +527,7 @@ private struct MemberColorPicker: View {
                         Circle().fill(Color(hex: hex) ?? .gray).frame(width: 22, height: 22)
                             .overlay(Circle().strokeBorder(.primary.opacity(color.lowercased() == hex ? 0.8 : 0), lineWidth: 2).padding(-3))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.studioPressable)
                     .accessibilityLabel(t("代表色 \(hex)", "Color \(hex)"))
                 }
                 ColorPicker("", selection: Binding(get: { member.agent.studioColor },
@@ -828,6 +830,6 @@ struct AddMemberSheet: View {
             .background(StudioTheme.surface(scheme), in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(chosen ? color : StudioTheme.border(scheme), lineWidth: chosen ? 2 : 1))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.studioPressable)
     }
 }
