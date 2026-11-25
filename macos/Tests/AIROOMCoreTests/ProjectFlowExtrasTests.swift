@@ -120,6 +120,16 @@ final class ProjectFlowExtrasTests: XCTestCase {
         XCTAssertTrue(withNotes.contains("附言：只改 a.txt") && withNotes.contains("意見：結尾要換行"), "the reviewer checks the owner's notes too")
     }
 
+    func testTaskPromptsStayOnFileTools() {
+        // AGY headless refuses `command` and then ends the turn with no reply (agy 1.5.1).
+        let flow = ProjectFlow(title: "網站", folder: "/tmp", members: [.claude, .codex])
+        let task = FlowTask(key: "t1", roundKey: "r", title: "A", member: .claude, goal: "", files: ["a.txt"])
+        let prompt = ProjectFlowEngine.taskPrompt(task, flow: flow, round: FlowRound(key: "r", title: "r", goal: ""), names: [:], ownerName: "小明")
+        XCTAssertTrue(prompt.contains("只用檔案工具") && prompt.contains("不要用終端機指令"))
+        XCTAssertFalse(ProjectFlowEngine.taskReviewPrompt(task, reviewer: .codex, names: [:], ownerName: "小明").contains("不要用終端機指令"),
+                       "review prompts stay as they were, like Windows")
+    }
+
     func testQuotaSignals() {
         XCTAssertTrue(QuotaSignal.isQuotaFailure("Codex 額度已用完：You’ve hit your usage limit."))
         XCTAssertTrue(QuotaSignal.isQuotaFailure("Claude AI usage limit reached|1900000000"))

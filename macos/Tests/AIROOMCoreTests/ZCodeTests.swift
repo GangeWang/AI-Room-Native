@@ -129,6 +129,61 @@ final class ZCodeTests: XCTestCase {
         XCTAssertEqual(ZCode.turnResult(["messages": [earlier, user, done]]).text, "收到")
     }
 
+    // Ported from windows/AIROOMCore.Tests/ZCodeTests.cs (ZCodeTurn).
+    private func user(_ created: Int) -> [String: Any] {
+        ["info": ["role": "user", "time": ["created": created]], "parts": [["type": "text", "text": "hi"]]]
+    }
+    private func assistantText(_ created: Int, _ completed: Int?, _ body: String) -> [String: Any] {
+        var time: [String: Any] = ["created": created]
+        if let completed { time["completed"] = completed }
+        return ["info": ["role": "assistant", "time": time], "parts": [["type": "text", "text": body]]]
+    }
+    private func exitPlan(_ created: Int, _ completed: Int, _ plan: String) -> [String: Any] {
+        ["info": ["role": "assistant", "time": ["created": created, "completed": completed]],
+         "parts": [["type": "tool-ExitPlanMode", "state": "output-available", "input": ["plan": plan]]]]
+    }
+
+    func testAPlainTextReplyCompletesTheTurn() {
+        let result = ZCode.turnResult(["messages": [user(1), assistantText(2, 3, "收到")]])
+        XCTAssertTrue(result.done)
+        XCTAssertEqual(result.text, "收到")
+    }
+
+    func testNarrationBeforeToolCallsNeverCompletesTheTurnEarly() {
+        let toolStep: [String: Any] = ["info": ["role": "assistant", "time": ["created": 4, "completed": 5]],
+                                       "parts": [["type": "tool-read", "state": "output-available", "input": ["path": "a.txt"]]]]
+        XCTAssertFalse(ZCode.turnResult(["messages": [user(1), assistantText(2, 3, "我先查看檔案"), toolStep]]).done)
+    }
+
+    func testAPlanArrivingThroughExitPlanModeCompletesTheTurn() {
+        let result = ZCode.turnResult(["messages": [user(1), exitPlan(6, 7, #"{"objective":"把佔位首頁改成最小可用","rounds":[]}"#)]])
+        XCTAssertTrue(result.done)
+        XCTAssertTrue(result.text.contains("objective"))
+    }
+
+    func testAnUncompletedFinalMessageKeepsTheTurnWaiting() {
+        XCTAssertFalse(ZCode.turnResult(["messages": [user(1), assistantText(2, nil, "還在想")]]).done)
+    }
+
+    func testThePlanOutranksTheNarrationAfterIt() {
+        let result = ZCode.turnResult(["messages": [user(1), exitPlan(2, 3, #"{"objective":"方案本體"}"#), assistantText(4, 5, "工作區已核實，方案已交。")]])
+        XCTAssertTrue(result.done)
+        XCTAssertTrue(result.text.contains("方案本體"))
+    }
+
+    func testAPlanFromAnEarlierTurnIsNotThisTurnsReply() {
+        // Unlike Windows FinalText, only this turn's messages count.
+        let result = ZCode.turnResult(["messages": [user(1), exitPlan(2, 3, "舊方案"), user(10), assistantText(11, 12, "新回覆")]])
+        XCTAssertTrue(result.done)
+        XCTAssertEqual(result.text, "新回覆")
+    }
+
+    func testAPlanOnThePartItselfOrNamedByToolNameIsFound() {
+        XCTAssertEqual(ZCode.toolPlan(["parts": [["type": "tool-call", "toolName": "ExitPlanMode", "plan": "直接"]]]), "直接")
+        XCTAssertEqual(ZCode.toolPlan(["parts": [["type": "dynamic", "toolName": "ExitPlanMode", "input": ["plan": "具名"]]]]), "具名")
+        XCTAssertNil(ZCode.toolPlan(["parts": [["type": "text", "text": "只有文字"]]]))
+    }
+
     func testZCodeSessionIDsCanBeResumed() {
         XCTAssertEqual(SessionPlan(resumeID: "sess_3bf321fc-2447-4548-b571", fallbackPrompt: "").resumeID, "sess_3bf321fc-2447-4548-b571")
         XCTAssertNil(SessionPlan(resumeID: "--x", fallbackPrompt: "").resumeID)
