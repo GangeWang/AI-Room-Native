@@ -200,29 +200,48 @@ public enum ZCode {
 
     // MARK: Turn messages
 
-    /// The reply of the turn: an assistant message created after the turn's own user
-    /// message, with a completion time and some text. This server build never sends
-    /// `turn.completed`, so the message list is the completion signal.
+    /// The reply of the turn, read from the message list (this server build never sends
+    /// `turn.completed`). Only assistant messages created after the turn's own user
+    /// message count, and only the LAST one decides whether the turn is done: a
+    /// narration before tool calls is not the reply and must not end the turn early.
+    /// A reply takes two shapes: plain text, or (ZCode's plan mode) the plan handed to
+    /// the ExitPlanMode tool call with no text at all. A handed plan outranks the
+    /// narration that follows it.
     static func turnResult(_ snapshot: [String: Any]) -> (done: Bool, text: String) {
         let messages = snapshot["messages"] as? [[String: Any]] ?? []
+        func created(_ info: [String: Any]?) -> Int64? { ((info?["time"] as? [String: Any])?["created"] as? NSNumber)?.int64Value }
         var lastUser = Int64.min
         for message in messages {
             let info = message["info"] as? [String: Any]
-            if info?["role"] as? String == "user", let created = ((info?["time"] as? [String: Any])?["created"] as? NSNumber)?.int64Value {
-                lastUser = max(lastUser, created)
-            }
+            if info?["role"] as? String == "user", let at = created(info) { lastUser = max(lastUser, at) }
         }
-        var done = false, text = ""
+        var final: [String: Any]?
+        var plan: String?
         for message in messages {
-            guard let info = message["info"] as? [String: Any], info["role"] as? String == "assistant" else { continue }
-            let time = info["time"] as? [String: Any]
-            let created = (time?["created"] as? NSNumber)?.int64Value ?? .min
-            let body = textParts(message)
-            guard created > lastUser, !body.isEmpty else { continue }
-            text = body
-            done = time?["completed"] is NSNumber
+            guard let info = message["info"] as? [String: Any], info["role"] as? String == "assistant",
+                  (created(info) ?? .min) > lastUser else { continue }
+            final = message
+            if let handed = toolPlan(message), !handed.isEmpty { plan = handed }
         }
-        return (done, text)
+        guard let final else { return (false, "") }
+        let body = textParts(final)
+        let completed = ((final["info"] as? [String: Any])?["time"] as? [String: Any])?["completed"] is NSNumber
+        guard completed else { return (false, body) }
+        if let plan { return (true, plan) }
+        return (!body.isEmpty, body)
+    }
+
+    /// The plan a plan-mode model hands to ExitPlanMode. Tool parts are named
+    /// `tool-<name>` (other shapes carry `toolName`); the plan travels as the call's
+    /// `input.plan`, or sits on the part itself.
+    static func toolPlan(_ message: [String: Any]) -> String? {
+        for part in message["parts"] as? [[String: Any]] ?? [] {
+            guard let kind = part["type"] as? String else { continue }
+            guard kind.hasPrefix("tool-") || part["toolName"] as? String == "ExitPlanMode" else { continue }
+            if let plan = (part["input"] as? [String: Any])?["plan"] as? String { return plan }
+            if let plan = part["plan"] as? String { return plan }
+        }
+        return nil
     }
 
     static func textParts(_ message: [String: Any]) -> String {
