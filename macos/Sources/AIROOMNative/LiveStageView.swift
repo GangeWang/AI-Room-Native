@@ -44,8 +44,8 @@ struct LiveStageView: View {
                     Text(t("讓 agent 自己操控身體和聲音", "Agents drive their own body and voice"))
                         .font(StudioType.sectionTitle)
                 }
-                Text(t("開播後，每位成員的 agent 從頭到尾都在場，用自己的工具（say、pose、expression）說話、擺動作；別人說話時也聽得到、可以自己反應。AI Room 只負責輪流交出發言權。目前支援 Claude Code 和 Codex 成員；在場有其他成員時，改回由 AI Room 代演。每位成員每聽到一句話都會想一次要不要動，額度消耗會比較多。",
-                       "During a show each member's agent stays on from start to end and speaks and moves with its own tools (say, pose, expression); it also hears the others and may react. AI Room only passes the floor. Works for Claude Code and Codex members; with any other member present, AI Room performs instead. Every line heard is one more agent turn, so it uses more quota."))
+                Text(t("開播後，每位成員的 agent 從頭到尾都在場，用自己的工具（say、pose、expression、motion）說話、擺動作；別人說話時也聽得到、可以自己反應。AI Room 只負責輪流交出發言權。目前支援 Claude Code 和 Codex 成員；在場有其他成員時，改回由 AI Room 代演。每位成員每聽到一句話都會想一次要不要動，額度消耗會比較多。",
+                       "During a show each member's agent stays on from start to end and speaks and moves with its own tools (say, pose, expression, motion); it also hears the others and may react. AI Room only passes the floor. Works for Claude Code and Codex members; with any other member present, AI Room performs instead. Every line heard is one more agent turn, so it uses more quota."))
                     .font(.caption).foregroundStyle(.secondary)
                 ForEach(model.enabledMemberIDs.filter { model.liveBodyNotes[$0] != nil }) { agent in
                     Text("\(model.memberName(agent))：\(model.liveBodyNotes[agent] ?? "")")

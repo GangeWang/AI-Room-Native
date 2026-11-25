@@ -86,7 +86,12 @@ final class Body {
     var connected = false
     var modelName = ""
     var hotkeys: [VTSHotkey] = []
-    var animator = LivePoseAnimator(idle: false)
+    var expressions: [VTSExpression] = []
+    /// Blinks by itself; everything else moves only when the agent moves it.
+    var animator = LivePoseAnimator(idle: false, blinks: true)
+    /// While a motion plays (until this time) the head and arms are left to it.
+    var motionUntil: TimeInterval = 0
+    var motionName = ""
     let clock = Date()
     var floor = false
     var speaking = false
@@ -165,7 +170,10 @@ final class Body {
         for (name, text) in zip(config.arms, explain) {
             try? await vts.createParameter(name, explanation: text, min: -1, max: 1, defaultValue: 0)
         }
+        try? await vts.createParameter(browInput, explanation: "AI Room: brow angle (-1 angry, 1 worried)",
+                                       min: -1, max: 1, defaultValue: 0)
         hotkeys = (try? await vts.hotkeys()) ?? []
+        expressions = (try? await vts.expressions()) ?? []
         room?.send(LiveBodyMessage(kind: .status, member: member.rawValue,
                                    text: t("身體已連上 VTube Studio（\(modelName)）", "Body connected to VTube Studio (\(modelName))")))
     }
@@ -181,8 +189,54 @@ final class Body {
                 inputs.elbowL = config.arms[2]; inputs.elbowR = config.arms[3]
                 return inputs
             }() : nil
-            await vts.inject(animator.frame(at: now, mouthParameter: config.mouthParameter, arms: arms))
+            var frame = animator.frame(at: now, mouthParameter: config.mouthParameter, arms: arms, browAngle: browInput)
+            if now < motionUntil { frame = LivePoseAnimator.yieldingToMotion(frame, arms: arms) }
+            await vts.inject(frame)
         }
+    }
+
+    var browInput: String { LivePoseAnimator.browAngleInput(member: member) }
+
+    /// Switches `wanted` on (and every other expression off) or off.
+    func setExpression(_ wanted: String, on: Bool) async -> (String, Bool) {
+        if let fresh = try? await vts.expressions() { expressions = fresh }
+        if hotkeys.isEmpty { hotkeys = (try? await vts.hotkeys()) ?? [] }
+        guard let target = LiveBodyTools.expression(named: wanted, in: expressions, hotkeys: hotkeys) else {
+            let names = expressions.map(\.name)
+            return (t("找不到這個表情。可用的：", "No such expression. Available: ")
+                    + (names.isEmpty ? t("（無）", "(none)") : names.joined(separator: ", ")), true)
+        }
+        do {
+            if on {
+                for other in expressions where other.active && other.file != target.file {
+                    try await vts.setExpression(file: other.file, active: false)
+                }
+            }
+            try await vts.setExpression(file: target.file, active: on)
+        } catch {
+            return (error.localizedDescription, true)
+        }
+        if let fresh = try? await vts.expressions() { expressions = fresh }
+        return on ? (t("已打開「\(target.name)」，其他表情已關掉。", "\"\(target.name)\" is on; the others are off."), false)
+                  : (t("已關掉「\(target.name)」。", "\"\(target.name)\" is off."), false)
+    }
+
+    func playMotion(_ wanted: String, seconds: Double) async -> (String, Bool) {
+        if hotkeys.isEmpty { hotkeys = (try? await vts.hotkeys()) ?? [] }
+        guard let hotkey = LiveBodyTools.motion(named: wanted, in: hotkeys) else {
+            let names = hotkeys.filter(\.playsAnimation).map(\.name)
+            return (t("找不到這個動作。可用的：", "No such motion. Available: ")
+                    + (names.isEmpty ? t("（無）", "(none)") : names.joined(separator: ", ")), true)
+        }
+        do {
+            try await vts.trigger(hotkeyID: hotkey.id)
+        } catch {
+            return (error.localizedDescription, true)
+        }
+        motionUntil = now + seconds
+        motionName = hotkey.name
+        return (t("正在播「\(hotkey.name)」；接下來 \(Int(seconds)) 秒頭和手交給動作，之後回到你最後擺的姿勢。",
+                  "Playing \"\(hotkey.name)\"; for \(Int(seconds)) s the motion moves your head and arms, then your last pose returns."), false)
     }
 
     // MARK: Tools
@@ -196,20 +250,15 @@ final class Body {
             animator.apply(pose, at: now)
             return (connected ? t("好，正在擺這個姿勢。", "OK, moving into the pose.")
                               : t("已記下姿勢，但身體還沒連上 VTube Studio，看不到。", "Pose kept, but VTube Studio is not connected, so it is not visible."), false)
-        case .success(.expression(let wanted)):
+        case .success(.expression(let wanted, let on)):
             guard connected else { return (t("身體還沒連上 VTube Studio。", "VTube Studio is not connected."), true) }
-            if hotkeys.isEmpty { hotkeys = (try? await vts.hotkeys()) ?? [] }
-            guard let hotkey = LiveBodyTools.hotkey(named: wanted, in: hotkeys) else {
-                return (t("找不到這個表情。可用的：", "No such expression. Available: ") + hotkeys.map(\.name).joined(separator: ", "), true)
-            }
-            do {
-                try await vts.trigger(hotkeyID: hotkey.id)
-                return (t("已觸發「\(hotkey.name)」", "Triggered \"\(hotkey.name)\"")
-                        + (hotkey.toggles ? t("；再觸發一次會關掉。", "; trigger again to turn it off.") : "。"), false)
-            } catch {
-                return (error.localizedDescription, true)
-            }
-        case .success(.describe): return (describe(), false)
+            return await setExpression(wanted, on: on)
+        case .success(.motion(let wanted, let seconds)):
+            guard connected else { return (t("身體還沒連上 VTube Studio。", "VTube Studio is not connected."), true) }
+            return await playMotion(wanted, seconds: seconds)
+        case .success(.describe):
+            if connected, let fresh = try? await vts.expressions() { expressions = fresh }
+            return (describe(), false)
         }
     }
 
@@ -248,7 +297,18 @@ final class Body {
             lines.append(t("VTube Studio：尚未連上", "VTube Studio: not connected") + (vtsNote.isEmpty ? "" : "（\(vtsNote)）"))
         }
         lines.append(t("發言權：", "Floor: ") + (floor ? t("在你手上，可以 say。", "yours; you may say.") : t("不在你手上，say 會被拒絕；動作照樣可以做。", "not yours; say is refused, moving is fine.")))
-        lines.append(t("表情熱鍵：", "Expression hotkeys: ") + (hotkeys.isEmpty ? t("（無）", "(none)") : hotkeys.map(\.name).joined(separator: ", ")))
+        let none = t("（無）", "(none)")
+        lines.append(t("表情（expression）：", "Expressions (expression): ")
+                     + (expressions.isEmpty ? none : expressions.map(\.name).joined(separator: ", ")))
+        let on = expressions.filter(\.active).map(\.name)
+        lines.append(t("目前開著的表情：", "Expressions on now: ") + (on.isEmpty ? none : on.joined(separator: ", ")))
+        let motions = hotkeys.filter(\.playsAnimation).map(\.name)
+        lines.append(t("動作（motion）：", "Motions (motion): ") + (motions.isEmpty ? none : motions.joined(separator: ", ")))
+        if now < motionUntil {
+            lines.append(t("正在播動作「\(motionName)」，頭和手暫時交給它。", "Motion \"\(motionName)\" is playing; it has your head and arms for now."))
+        }
+        lines.append(t("眨眼會自己來；眉毛角度（brow_angle）要在模型參數設定把 \(browInput) 接到眉毛角度才會動。",
+                       "You blink by yourself. brow_angle moves only if the model maps \(browInput) to its brow-angle parameters."))
         lines.append(t("目前姿勢：", "Current pose: ") + pose)
         lines.append(t("手臂：", "Arms: ") + ((config?.arms.count ?? 0) == 4 ? t("可以用 arm_left/arm_right/elbow_left/elbow_right。", "use arm_left/arm_right/elbow_left/elbow_right.") : t("這個模型沒有設定手臂。", "not set up on this model.")))
         lines.append(t("不是每個模型都做了所有部位的形變；擺了沒動，就是這個模型沒做那個部位。", "Not every model is rigged for every part; if a pose shows nothing, that part is not rigged."))

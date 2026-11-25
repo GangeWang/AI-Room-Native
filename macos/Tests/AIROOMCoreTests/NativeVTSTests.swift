@@ -31,6 +31,8 @@ private final class FakeInstance: VTSTransport, @unchecked Sendable {
     private var closed = false
     private(set) var types: [String] = []
     var loadedModel = "akari"
+    /// Expression file → on/off, as the loaded model has them.
+    var expressionsOn: [String: Bool] = ["AIROOM_happy.exp3.json": false, "AIROOM_sad.exp3.json": true]
 
     init(grants: SharedGrants) { self.grants = grants }
 
@@ -54,6 +56,19 @@ private final class FakeInstance: VTSTransport, @unchecked Sendable {
             data = ["availableModels": .array(["akari", "hiyori"].map {
                 .object(["modelName": .string($0), "modelID": .string("id-" + $0), "modelLoaded": .bool($0 == loadedModel)])
             })]
+        case "ExpressionStateRequest":
+            type = "ExpressionStateResponse"
+            lock.lock(); let states = expressionsOn; lock.unlock()
+            data = ["modelLoaded": .bool(true), "expressions": .array(states.keys.sorted().map { file in
+                .object(["name": .string(String(file.dropLast(10))), "file": .string(file), "active": .bool(states[file]!)])
+            })]
+        case "ExpressionActivationRequest":
+            let file = request.data?["expressionFile"]?.string ?? ""
+            lock.lock(); let known = expressionsOn[file] != nil
+            if known { expressionsOn[file] = request.data?["active"]?.bool ?? false }
+            lock.unlock()
+            if known { type = "ExpressionActivationResponse"; data = [:] }
+            else { type = "APIError"; data = ["errorID": .number(400), "message": .string("no such expression")] }
         case "ModelLoadRequest":
             loadedModel = String((request.data?["modelID"]?.string ?? "").dropFirst(3))
             type = "ModelLoadResponse"; data = ["modelID": request.data?["modelID"] ?? .null]
@@ -129,6 +144,42 @@ final class NativeVTSTests: XCTestCase {
             XCTFail("expected needsApproval")
         } catch { XCTAssertEqual(error as? VTSError, .needsApproval) }
         XCTAssertFalse(instance.sentTypes.contains("AuthenticationTokenRequest"))
+    }
+
+    func testExpressionsAreReadAndSwitchedExplicitly() async throws {
+        let instance = FakeInstance(grants: SharedGrants())
+        let client = VTubeStudioClient(makeTransport: { _ in instance })
+        _ = try await client.connect(port: 8001, token: "", plugin: "AIROOM Native (claude)")
+        do {
+            try await client.setExpression(file: "AIROOM_happy.exp3.json", active: true)
+            XCTFail("files must come from expressions() first")
+        } catch { XCTAssertEqual(error as? VTSError, .unknownHotkey("AIROOM_happy.exp3.json")) }
+        let list = try await client.expressions()
+        XCTAssertEqual(list.map(\.file), ["AIROOM_happy.exp3.json", "AIROOM_sad.exp3.json"])
+        XCTAssertEqual(list.filter(\.active).map(\.name), ["AIROOM_sad"])
+        try await client.setExpression(file: "AIROOM_happy.exp3.json", active: true)
+        try await client.setExpression(file: "AIROOM_happy.exp3.json", active: true)
+        let after = try await client.expressions()
+        XCTAssertEqual(after.first { $0.file == "AIROOM_happy.exp3.json" }?.active, true, "on twice stays on")
+        do {
+            try await client.setExpression(file: "../evil.exp3.json", active: true)
+            XCTFail("unknown files are refused")
+        } catch { XCTAssertEqual(error as? VTSError, .unknownHotkey("../evil.exp3.json")) }
+        XCTAssertFalse(instance.sentTypes.contains("HotkeyTriggerRequest"))
+    }
+
+    func testExpressionRequestsAndHotkeyFiles() throws {
+        let on = VTSProtocol.expressionActivation(id: "1", file: "AIROOM_shy.exp3.json", active: true, fadeTime: 9)
+        XCTAssertEqual(on.messageType, "ExpressionActivationRequest")
+        XCTAssertEqual(on.data?["expressionFile"]?.string, "AIROOM_shy.exp3.json")
+        XCTAssertEqual(on.data?["active"]?.bool, true)
+        XCTAssertEqual(on.data?["fadeTime"]?.number, 2, "clamped")
+        let keys = VTSProtocol.parseHotkeys(.object(["availableHotkeys": .array([
+            .object(["hotkeyID": .string("w"), "name": .string("揮手打招呼 wave"), "type": .string("TriggerAnimation"),
+                     "file": .string("02_Wave.motion3.json")])])]))
+        XCTAssertEqual(keys.first?.file, "02_Wave.motion3.json")
+        XCTAssertEqual(keys.first?.playsAnimation, true)
+        XCTAssertEqual(keys.first?.toggles, false)
     }
 
     func testModelsAreListedAndLoaded() async throws {
