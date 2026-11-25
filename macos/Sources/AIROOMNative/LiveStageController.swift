@@ -109,8 +109,22 @@ final class LiveStageController: ObservableObject {
 
     func drivesRig(_ agent: MemberID) -> Bool { rigTasks[agent] != nil }
 
+    /// Members whose own agent drives their avatar through its body right now;
+    /// the stage sends nothing for them, so the two never fight over a parameter.
+    private var handedOver: Set<MemberID> = []
+
+    func handOver(_ agent: MemberID) {
+        handedOver.insert(agent)
+        stopRig(agent)
+    }
+
+    func takeBack(_ agent: MemberID) {
+        guard handedOver.remove(agent) != nil else { return }
+        if links[agent]?.aiRig == true && isConnected(agent) { startRig(agent) }
+    }
+
     private func startRig(_ agent: MemberID) {
-        guard rigTasks[agent] == nil, let client = clients[agent] else { return }
+        guard rigTasks[agent] == nil, !handedOver.contains(agent), let client = clients[agent] else { return }
         if animators[agent] == nil { animators[agent] = LivePoseAnimator() }
         rigTasks[agent] = Task { [weak self] in
             var tick = 0

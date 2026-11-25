@@ -1,11 +1,11 @@
+#if canImport(AVFoundation)
 import AVFoundation
-import AIROOMCore
 
 /// Synthesises each line to PCM first so the mouth follows real loudness, then
 /// plays it on the default output device (OBS picks it up as desktop audio).
 @MainActor
-final class SpeechPlayer {
-    static let mouthFrameRate = 30.0
+public final class SpeechPlayer {
+    public static let mouthFrameRate = 30.0
 
     private let synthesizer = AVSpeechSynthesizer()
     private let engine = AVAudioEngine()
@@ -15,15 +15,15 @@ final class SpeechPlayer {
     /// Ends whichever phase (synthesis or playback) is waiting, exactly once.
     private var interrupt: (() -> Void)?
 
-    init() { engine.attach(player) }
+    public init() { engine.attach(player) }
 
-    static func voices() -> [AVSpeechSynthesisVoice] {
+    public static func voices() -> [AVSpeechSynthesisVoice] {
         AVSpeechSynthesisVoice.speechVoices()
             .filter { ["zh", "en", "ja"].contains(where: $0.language.hasPrefix) }
             .sorted { ($0.language, $0.name) < ($1.language, $1.name) }
     }
 
-    func stop() {
+    public func stop() {
         generation += 1
         synthesizer.stopSpeaking(at: .immediate)
         player.stop()
@@ -32,7 +32,7 @@ final class SpeechPlayer {
 
     /// Returns once playback finishes or `stop()` is called. `onMouth` receives
     /// 0...1 openness at ~30 Hz and a final 0.
-    func speak(_ text: String, character: LiveCharacterStage, language: InterfaceLanguage,
+    public func speak(_ text: String, character: LiveCharacterStage, language: InterfaceLanguage,
                onMouth: @escaping (Double) async -> Void) async {
         let spoken = LiveSpeechText.speakable(text)
         guard !spoken.isEmpty else { return }
@@ -178,3 +178,4 @@ private final class OnceFlag: @unchecked Sendable {
         action()
     }
 }
+#endif

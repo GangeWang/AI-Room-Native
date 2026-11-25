@@ -356,10 +356,15 @@ public struct LiveStageSettings: Codable, Equatable, Sendable {
     public var speechEnabled: Bool
     public var vtsEnabled: Bool
     public var characters: [LiveCharacterStage]
+    /// Members on Claude Code or Codex speak and move through their own body
+    /// tools during a show; AI Room only manages the floor.
+    public var agentBodies: Bool
 
-    public init(speechEnabled: Bool = false, vtsEnabled: Bool = false, characters: [LiveCharacterStage] = []) {
+    public init(speechEnabled: Bool = false, vtsEnabled: Bool = false, characters: [LiveCharacterStage] = [],
+                agentBodies: Bool = true) {
         self.speechEnabled = speechEnabled
         self.vtsEnabled = vtsEnabled
+        self.agentBodies = agentBodies
         var unique: [LiveCharacterStage] = []
         for item in characters where !unique.contains(where: { $0.agent == item.agent }) { unique.append(item) }
         for agent in MemberID.builtIn where !unique.contains(where: { $0.agent == agent }) {
@@ -368,12 +373,13 @@ public struct LiveStageSettings: Codable, Equatable, Sendable {
         self.characters = unique
     }
 
-    private enum CodingKeys: String, CodingKey { case speechEnabled, vtsEnabled, characters }
+    private enum CodingKeys: String, CodingKey { case speechEnabled, vtsEnabled, characters, agentBodies }
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
         self.init(speechEnabled: try box.decodeIfPresent(Bool.self, forKey: .speechEnabled) ?? false,
                   vtsEnabled: try box.decodeIfPresent(Bool.self, forKey: .vtsEnabled) ?? false,
-                  characters: try box.decodeIfPresent([LiveCharacterStage].self, forKey: .characters) ?? [])
+                  characters: try box.decodeIfPresent([LiveCharacterStage].self, forKey: .characters) ?? [],
+                  agentBodies: try box.decodeIfPresent(Bool.self, forKey: .agentBodies) ?? true)
     }
 
     public var performs: Bool { speechEnabled || vtsEnabled }

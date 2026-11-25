@@ -9,10 +9,13 @@ let baseTargets: [Target] = [
 #if os(macOS)
 let products: [Product] = [
     .library(name: "AIROOMCore", targets: ["AIROOMCore"]),
-    .executable(name: "AIROOMNative", targets: ["AIROOMNative"])
+    .executable(name: "AIROOMNative", targets: ["AIROOMNative"]),
+    .executable(name: "airoom-body", targets: ["AIROOMBody"])
 ]
 let targets = baseTargets + [
-    .executableTarget(name: "AIROOMNative", dependencies: ["AIROOMCore"], resources: [.process("Resources")])
+    .executableTarget(name: "AIROOMNative", dependencies: ["AIROOMCore"], resources: [.process("Resources")]),
+    // A member's body during a live show: the MCP server its own agent CLI runs.
+    .executableTarget(name: "AIROOMBody", dependencies: ["AIROOMCore"])
 ]
 #else
 let products: [Product] = [.library(name: "AIROOMCore", targets: ["AIROOMCore"])]

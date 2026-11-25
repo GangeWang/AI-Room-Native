@@ -29,8 +29,11 @@ if ! ./Scripts/fetch-original-assets.sh; then
 fi
 
 swift build -c release --product AIROOMNative
+swift build -c release --product airoom-body
 BIN="$(swift build -c release --show-bin-path)/AIROOMNative"
+BODY_BIN="$(swift build -c release --show-bin-path)/airoom-body"
 if [[ ! -x "$BIN" ]]; then echo "Missing build product: $BIN" >&2; exit 1; fi
+if [[ ! -x "$BODY_BIN" ]]; then echo "Missing build product: $BODY_BIN" >&2; exit 1; fi
 ARCHS="$(/usr/bin/lipo -archs "$BIN")"
 if [[ "$ARCHS" != "arm64" ]]; then
   echo "ERROR: Expected an arm64-only binary, got: $ARCHS" >&2
@@ -79,6 +82,9 @@ for nested_bundle in "$APP"/Contents/MacOS/*.bundle; do
 done
 cp "$BIN" "$APP/Contents/MacOS/AIROOMNative"
 chmod 755 "$APP/Contents/MacOS/AIROOMNative"
+# A member's body during a live show: the MCP server its own agent CLI starts.
+cp "$BODY_BIN" "$APP/Contents/MacOS/airoom-body"
+chmod 755 "$APP/Contents/MacOS/airoom-body"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -117,10 +123,13 @@ BUILD_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 # still keys on the binary's cdhash and asks again after every build.
 IDENTITY="${AIROOM_SIGN_IDENTITY:-$(/usr/bin/security find-identity -p codesigning 2>/dev/null | /usr/bin/awk '/"Apple Development:/ {print $2; exit}')}"
 IDENTITY="${IDENTITY:-$(/usr/bin/security find-identity -p codesigning 2>/dev/null | /usr/bin/awk '/"AIROOM Local Signing"/ {print $2; exit}')}"
+# Nested executables are signed first, then the app around them.
 if [[ -n "$IDENTITY" ]]; then
+  /usr/bin/codesign --force --sign "$IDENTITY" "$APP/Contents/MacOS/airoom-body"
   /usr/bin/codesign --force --sign "$IDENTITY" "$APP"
 else
   echo "WARNING: no 'AIROOM Local Signing' identity; using ad-hoc signing (Keychain will ask again after each update)." >&2
+  /usr/bin/codesign --force --sign - "$APP/Contents/MacOS/airoom-body"
   /usr/bin/codesign --force --sign - "$APP"
 fi
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP"

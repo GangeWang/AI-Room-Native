@@ -20,6 +20,7 @@ struct LiveStageView: View {
                 StudioPageHeading(eyebrow: "LIVE STAGE", title: t("直播舞台", "Live Stage"),
                     subtitle: t("把 AI 直播的每一句話念出來，並用 VTube Studio 驅動 Live2D 表情與嘴型。一位說完才輪到下一位。",
                                 "Speak every co-host line and drive Live2D expressions and lip sync through VTube Studio. One speaker at a time."))
+                bodyPanel
                 speechPanel
                 vtsPanel
                 ForEach(model.enabledMemberIDs) { agent in characterPanel(agent) }
@@ -30,6 +31,26 @@ struct LiveStageView: View {
             .frame(maxWidth: 980, alignment: .leading)
         }
         .onAppear { if voices.isEmpty { voices = SpeechPlayer.voices() } }
+    }
+
+    /// The agents speak and move themselves; AI Room only passes the floor.
+    private var bodyPanel: some View {
+        StudioPanel {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle(isOn: Binding(get: { settings.agentBodies },
+                                     set: { value in model.updateLiveStage { $0.agentBodies = value } })) {
+                    Label(t("讓 agent 自己操控身體和聲音", "Agents drive their own body and voice"),
+                          systemImage: "figure.wave").font(.headline)
+                }
+                Text(t("開播後，每位成員的 agent 從頭到尾都在場，用自己的工具（say、pose、expression）說話、擺動作；別人說話時也聽得到、可以自己反應。AI Room 只負責輪流交出發言權。目前支援 Claude Code 和 Codex 成員；在場有其他成員時，改回由 AI Room 代演。每位成員每聽到一句話都會想一次要不要動，額度消耗會比較多。",
+                       "During a show each member's agent stays on from start to end and speaks and moves with its own tools (say, pose, expression); it also hears the others and may react. AI Room only passes the floor. Works for Claude Code and Codex members; with any other member present, AI Room performs instead. Every line heard is one more agent turn, so it uses more quota."))
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(model.enabledMemberIDs.filter { model.liveBodyNotes[$0] != nil }) { agent in
+                    Text("\(model.memberName(agent))：\(model.liveBodyNotes[agent] ?? "")")
+                        .font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+            }
+        }
     }
 
     private var speechPanel: some View {
