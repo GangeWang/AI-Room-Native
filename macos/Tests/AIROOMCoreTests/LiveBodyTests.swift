@@ -4,7 +4,7 @@ import XCTest
 final class LiveBodyToolTests: XCTestCase {
     func testToolListIsTheBodyOnly() {
         let names = LiveBodyTools.definitions(english: false).compactMap { $0["name"] as? String }
-        XCTAssertEqual(names, ["say", "pose", "expression", "describe_body"])
+        XCTAssertEqual(names, ["say", "pose", "expression", "motion", "describe_body"])
         for english in [true, false] {
             for tool in LiveBodyTools.definitions(english: english) {
                 XCTAssertNotNil(tool["inputSchema"] as? [String: Any])
@@ -36,7 +36,7 @@ final class LiveBodyToolTests: XCTestCase {
         let long = String(repeating: "啊", count: 2_000)
         XCTAssertEqual(LiveBodyTools.command(name: "say", arguments: ["text": long]),
                        .success(.say(String(repeating: "啊", count: LiveBodyTools.maxLine))))
-        XCTAssertEqual(LiveBodyTools.command(name: "expression", arguments: ["name": "開心"]), .success(.expression("開心")))
+        XCTAssertEqual(LiveBodyTools.command(name: "expression", arguments: ["name": "開心"]), .success(.expression("開心", on: true)))
         XCTAssertEqual(LiveBodyTools.command(name: "describe_body", arguments: [:]), .success(.describe))
         XCTAssertEqual(LiveBodyTools.command(name: "run_shell", arguments: [:]), .failure(.unknownTool("run_shell")))
     }
@@ -48,6 +48,55 @@ final class LiveBodyToolTests: XCTestCase {
         XCTAssertEqual(LiveBodyTools.hotkey(named: "happy", in: keys)?.id, "a1", "partial match")
         XCTAssertEqual(LiveBodyTools.hotkey(named: "a1", in: keys)?.id, "a1", "by id")
         XCTAssertNil(LiveBodyTools.hotkey(named: "angry", in: keys))
+    }
+
+    func testExpressionOnOffAndMotionArguments() throws {
+        func args(_ json: String) throws -> [String: Any] {
+            try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+        }
+        XCTAssertEqual(LiveBodyTools.command(name: "expression", arguments: try args(#"{"name":"happy","on":false}"#)),
+                       .success(.expression("happy", on: false)))
+        XCTAssertEqual(LiveBodyTools.command(name: "expression", arguments: try args(#"{"name":"happy","on":true}"#)),
+                       .success(.expression("happy", on: true)))
+        XCTAssertEqual(LiveBodyTools.command(name: "expression", arguments: ["name": "happy", "on": "off"]),
+                       .success(.expression("happy", on: false)))
+        XCTAssertEqual(LiveBodyTools.command(name: "motion", arguments: ["name": " wave "]),
+                       .success(.motion("wave", seconds: LiveBodyTools.defaultMotionSeconds)))
+        XCTAssertEqual(LiveBodyTools.command(name: "motion", arguments: try args(#"{"name":"nod","seconds":60}"#)),
+                       .success(.motion("nod", seconds: 10)), "clamped")
+        XCTAssertEqual(LiveBodyTools.command(name: "motion", arguments: [:]), .failure(.badArguments("name is empty")))
+    }
+
+    func testPoseTakesBrowAngle() throws {
+        let args = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(#"{"brow_angle":-3}"#.utf8)) as? [String: Any])
+        guard case .success(.pose(let pose)) = LiveBodyTools.command(name: "pose", arguments: args) else { return XCTFail() }
+        XCTAssertEqual(pose.browAngle, -1, "clamped")
+        XCTAssertFalse(pose.isEmpty, "brow angle alone makes a pose")
+    }
+
+    /// Names and files as the OrangeBlossom (claude) model has them.
+    func testExpressionLookupByNameFileOrHotkey() {
+        let expressions = ["happy", "sad", "shy"].map {
+            VTSExpression(name: "AIROOM_\($0)", file: "AIROOM_\($0).exp3.json", active: $0 == "sad")
+        }
+        let keys = [VTSHotkey(id: "h", name: "開心 happy", type: "ToggleExpression", file: "AIROOM_happy.exp3.json"),
+                    VTSHotkey(id: "w", name: "揮手打招呼 wave", type: "TriggerAnimation", file: "02_Wave.motion3.json")]
+        XCTAssertEqual(LiveBodyTools.expression(named: "AIROOM_shy.exp3.json", in: expressions)?.file, "AIROOM_shy.exp3.json")
+        XCTAssertEqual(LiveBodyTools.expression(named: "airoom_sad", in: expressions)?.file, "AIROOM_sad.exp3.json")
+        XCTAssertEqual(LiveBodyTools.expression(named: "開心", in: expressions, hotkeys: keys)?.file, "AIROOM_happy.exp3.json",
+                       "through the hotkey's name")
+        XCTAssertEqual(LiveBodyTools.expression(named: "shy", in: expressions)?.file, "AIROOM_shy.exp3.json", "partial")
+        XCTAssertNil(LiveBodyTools.expression(named: "wave", in: expressions, hotkeys: keys), "a motion is not an expression")
+        XCTAssertNil(LiveBodyTools.expression(named: "angry", in: expressions, hotkeys: keys))
+    }
+
+    func testMotionLookupOnlyFindsAnimations() {
+        let keys = [VTSHotkey(id: "h", name: "開心 happy", type: "ToggleExpression"),
+                    VTSHotkey(id: "w", name: "揮手打招呼 wave", type: "TriggerAnimation"),
+                    VTSHotkey(id: "n", name: "點頭 nod", type: "TriggerAnimation")]
+        XCTAssertEqual(LiveBodyTools.motion(named: "wave", in: keys)?.id, "w")
+        XCTAssertEqual(LiveBodyTools.motion(named: "點頭", in: keys)?.id, "n")
+        XCTAssertNil(LiveBodyTools.motion(named: "happy", in: keys))
     }
 
     func testMCPFraming() throws {
