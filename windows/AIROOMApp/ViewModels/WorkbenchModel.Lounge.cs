@@ -204,10 +204,30 @@ public sealed partial class WorkbenchModel
         List<MemberID> mentions;
         List<MemberID> present;
         Guid entryID;
+        bool liveRoom;
         lock (Archive)
         {
             var room = FindRoom(roomID);
             if (room is null) return;
+            liveRoom = liveActive && Archive.LiveShow?.RoomID == roomID;
+            if (liveRoom)
+            {
+                // A host cut-in: the live loop answers it and, if a line was
+                // already written ahead, drops and rewrites that line.
+                entryID = Guid.NewGuid();
+                room.Entries.Add(new RoomEntry
+                {
+                    Speaker = Speaker.User,
+                    DisplayName = LiveShowPolicy.HostDisplayName(Archive.Settings.UserName),
+                    Body = question,
+                });
+                room.UpdatedAt = DateTimeOffset.Now;
+                PersistRooms();
+                liveHostCutIns++;
+                StatusMessage = "已插話，下一位發言的 AI 會先處理。";
+                BumpRooms();
+                return;
+            }
             var members = PresentMembers(room);
             if (members.Count == 0) { StatusMessage = "請先啟用至少一位成員"; return; }
             entryID = Guid.NewGuid();

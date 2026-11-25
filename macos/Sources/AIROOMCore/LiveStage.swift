@@ -421,12 +421,6 @@ public enum LiveHotkeyMatcher {
 // MARK: Lip sync envelope
 
 public enum LipSync {
-    /// Converts per-window RMS loudness into 0...1 mouth openness. Normalised to
-    /// the utterance's own peak so quiet and loud voices animate similarly.
-    public static func mouthCurve(rms: [Float], gate: Float = 0.08) -> [Double] {
-        let peak = rms.max() ?? 0
-        return rms.map { mouth(level: $0, peak: peak, gate: gate) }
-    }
 
     /// One window's openness against the loudest window heard so far (used
     /// while audio is still streaming in and the final peak is unknown).

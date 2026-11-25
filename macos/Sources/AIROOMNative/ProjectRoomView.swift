@@ -99,10 +99,12 @@ struct FlowDetailView: View {
                         Text(t("看板", "Board")).tag(1)
                         Text(t("成員匯報", "Member reports")).tag(2)
                     }.pickerStyle(.segmented).labelsHidden().frame(width: 330)
-                    switch tab {
-                    case 1: FlowBoard(flow: flow)
-                    case 2: FlowReports(flow: flow)
-                    default: FlowRoom(flow: flow)
+                    StudioTabContent(selection: tab, order: [0, 1, 2]) { tab in
+                        switch tab {
+                        case 1: FlowBoard(flow: flow)
+                        case 2: FlowReports(flow: flow)
+                        default: FlowRoom(flow: flow)
+                        }
                     }
                 }.padding(18)
             }
@@ -219,7 +221,7 @@ struct FlowDetailView: View {
             HStack {
                 TextField(t("給第一輪的附言（可留空）", "Note for the first round (optional)"), text: $note).textFieldStyle(.roundedBorder)
                 Button(t("確認方案，開工", "Confirm plan and start")) { model.confirmPlan(flow.id, reviewLevel: level, note: note); note = "" }
-                    .buttonStyle(.borderedProminent).disabled(busy)
+                    .buttonStyle(.studioPrimary).disabled(busy)
             }
             HStack {
                 TextField(t("要改一下：寫下要負責人改什麼", "Request changes to the plan"), text: $opinion).textFieldStyle(.roundedBorder)
@@ -241,7 +243,7 @@ struct FlowDetailView: View {
                 HStack {
                     TextField(t("附言（可留空）", "Note (optional)"), text: $note).textFieldStyle(.roundedBorder)
                     Button(t("按原計劃開始", "Start as planned")) { model.startRound(flow.id, note: note); note = "" }
-                        .buttonStyle(.borderedProminent).disabled(busy)
+                        .buttonStyle(.studioPrimary).disabled(busy)
                     Button(t("要求修改方案", "Request plan changes")) { model.requestPlanChange(flow.id, note: note); note = "" }
                         .disabled(busy || note.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
@@ -303,7 +305,7 @@ struct FlowDetailView: View {
             Text(t("通過後才會寫進你的專案資料夾；寫入前會檢查衝突。", "Only a pass writes into your project folder, after a conflict check."))
                 .font(.caption2).foregroundStyle(.secondary)
             HStack {
-                Button(t("通過", "Accept")) { model.acceptRound(flow.id) }.buttonStyle(.borderedProminent).disabled(busy)
+                Button(t("通過", "Accept")) { model.acceptRound(flow.id) }.buttonStyle(.studioPrimary).disabled(busy)
                 TextField(t("駁回意見：哪裡要改", "What needs to change"), text: $opinion).textFieldStyle(.roundedBorder)
                 Button(t("駁回", "Return")) { model.returnRound(flow.id, opinion: opinion); opinion = "" }
                     .disabled(busy || opinion.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -345,7 +347,7 @@ struct DisputeRulingCard: View {
                         }.pickerStyle(.segmented).labelsHidden().frame(width: 220)
                     }
                     .padding(8).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                    .background(StudioWell(), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
             if !task.summary.isEmpty {
@@ -358,7 +360,7 @@ struct DisputeRulingCard: View {
                 Button(t("維持全部複核意見", "Uphold all")) { rule(.review) }
                 Spacer()
                 Button(t("提交逐條裁定", "Submit rulings")) { model.ruleDisputes(flow.id, taskID: task.id, verdicts: verdicts) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.studioPrimary)
                     .disabled(task.disputes.contains { verdicts[$0.findingID] == nil })
             }
         }
@@ -398,7 +400,7 @@ struct FlowQuotaBanner: View {
                 .font(.caption2).foregroundStyle(.secondary)
             HStack {
                 Button(t("接著做", "Continue")) { model.resumeFlow(flow.id) }
-                    .buttonStyle(.borderedProminent).disabled(model.flowRunning)
+                    .buttonStyle(.studioPrimary).disabled(model.flowRunning)
                 ForEach(flow.members.filter { $0 != wait.agent }, id: \.self) { other in
                     Button(t("交給 \(model.memberName(other)) 接手", "Hand to \(model.memberName(other))")) {
                         model.handOverQuotaWork(flow.id, from: wait.agent, to: other)
@@ -515,7 +517,7 @@ struct FlowBoard: View {
                             }
                         }
                         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                        .background(StudioWell(), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
                 }.frame(maxWidth: .infinity, alignment: .topLeading)
             }
@@ -621,7 +623,7 @@ struct NewFlowSheet: View {
                     model.createFlow(title: title, folder: folder, members: Array(members), reviewLevel: level)
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent).disabled(members.count < 2 || folder.isEmpty)
+                .buttonStyle(.studioPrimary).disabled(members.count < 2 || folder.isEmpty)
             }
         }
         .padding(20).frame(width: 600)

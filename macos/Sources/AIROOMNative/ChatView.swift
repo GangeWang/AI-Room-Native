@@ -5,6 +5,7 @@ import AIROOMCore
 struct ChatView: View {
     @EnvironmentObject private var model: WorkbenchModel
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let agent: MemberID
     @State private var importing = false
     @State private var renaming = false
@@ -39,9 +40,9 @@ struct ChatView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            Rectangle().fill(StudioTheme.hairline(scheme)).frame(height: 1)
             transcript
-            Divider()
+            Rectangle().fill(StudioTheme.hairline(scheme)).frame(height: 1)
             composer
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.image, .pdf, .text, .sourceCode, .json, .data],
@@ -69,7 +70,7 @@ struct ChatView: View {
         HStack(spacing: 12) {
             StudioAvatar(agent: agent, size: 40, running: busy)
             VStack(alignment: .leading, spacing: 3) {
-                Text(memberName).font(.headline)
+                Text(memberName).font(.system(.title3, design: .rounded).weight(.bold))
                 Text(t("成員工位 · ", "Member Desk · ") + agent.executor.rawValue)
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -78,13 +79,20 @@ struct ChatView: View {
             folderMenu
             topicMenu
             Button { model.openVendorDesktop(for: agent) } label: {
-                Label(vendorButtonTitle, systemImage: "arrow.up.forward.app")
+                Label(vendorButtonTitle, systemImage: "arrow.up.forward.app").lineLimit(1)
             }
+            .fixedSize()
             .help(t("僅開啟官方桌面 App；不傳送 AIROOM 對話、Token 或工作紀錄。若設定了工作目錄，將交由 App 自行確認存取。", "Opens the official desktop app only. Does not copy AIROOM conversations or credentials. An explicitly configured workspace may be offered to the app."))
             Button { model.newTopic(for: agent) } label: { Label(t("開新話題", "New Topic"), systemImage: "plus.bubble") }
+                .fixedSize()
                 .disabled(busy)
         }
         .padding(.horizontal, 21).padding(.vertical, 13)
+        // The member's color lights the desk header from the left.
+        .background {
+            LinearGradient(colors: [agent.studioColor.opacity(scheme == .dark ? 0.16 : 0.13), agent.studioColor.opacity(0.0)],
+                           startPoint: .leading, endPoint: .trailing)
+        }
     }
 
     private var topicMenu: some View {
@@ -110,6 +118,7 @@ struct ChatView: View {
             Label(topic?.title ?? TopicNaming.defaultTitle, systemImage: "text.bubble")
                 .lineLimit(1).frame(maxWidth: 220)
         }
+        .buttonStyle(.automatic)
         .disabled(busy)
     }
 
@@ -132,6 +141,7 @@ struct ChatView: View {
                   systemImage: folder.isEmpty ? "person.crop.square" : "folder")
                 .lineLimit(1).frame(maxWidth: 170)
         }
+        .buttonStyle(.automatic)
         .disabled(busy)
         .help(folder.isEmpty ? t("成員的私人空間，改動直接保存", "The member's own space; edits are saved directly")
                              : t("成員在任務副本裡修改，原資料夾在你套用前不會變動：", "Edits happen in a task copy; the original stays untouched until you apply: ") + folder)
@@ -171,7 +181,7 @@ struct ChatView: View {
                     Spacer()
                     if !topic.workFolder.isEmpty && !changes.isEmpty {
                         Button(t("應用到原資料夾", "Apply to original")) { model.applyDeskChanges(agent) }
-                            .buttonStyle(.borderedProminent).controlSize(.small)
+                            .buttonStyle(.studioPrimary).controlSize(.small)
                     }
                     if undoable {
                         Button(t("撤銷最近一輪", "Undo last round")) { model.undoDeskRound(agent) }
@@ -197,15 +207,21 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(spacing: 18) {
                     if model.messages(for: agent).isEmpty { emptyState }
-                    ForEach(model.messages(for: agent)) { message in messageRow(message).id(message.id) }
+                    ForEach(model.messages(for: agent)) { message in
+                        messageRow(message).id(message.id)
+                            .transition(StudioMotion.arrival(reduceMotion))
+                    }
                 }
+                // New messages rise into place as they arrive.
+                .animation(reduceMotion ? StudioMotion.ease() : StudioMotion.settle, value: model.messages(for: agent).count)
                 .padding(.horizontal, 25).padding(.vertical, 22)
                 .frame(maxWidth: 940)
                 .frame(maxWidth: .infinity)
             }
             .onChange(of: model.messages(for: agent).count) { _, _ in
                 if let last = model.messages(for: agent).last?.id {
-                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last, anchor: .bottom) }
+                    // A short glide shows where the new message came from; Reduce Motion jumps.
+                    withAnimation(reduceMotion ? nil : StudioMotion.easeOut(0.25)) { proxy.scrollTo(last, anchor: .bottom) }
                 }
             }
         }
@@ -215,7 +231,7 @@ struct ChatView: View {
         VStack(spacing: 16) {
             StudioAvatar(agent: agent, size: 66)
             Text(t("找 \(memberName) 聊聊吧", "Start a conversation with \(memberName)"))
-                .font(.title2.bold())
+                .font(.system(.title2, design: .rounded).weight(.bold))
             Text(t("可以附上圖片、PDF 或文字檔，也能直接把檔案拖進來。對話在本機加密保存。",
                    "Attach images, PDFs or text files, or drag them in. History is encrypted on this device."))
                 .foregroundStyle(.secondary)
@@ -235,7 +251,7 @@ struct ChatView: View {
                     if let used = message.modelUsed {
                         Text(used).font(.caption2.monospaced()).foregroundStyle(.secondary)
                             .padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(.secondary.opacity(0.12), in: Capsule())
+                            .background(StudioTheme.subtleFill(scheme), in: Capsule())
                             .help(t("這一輪實際使用的模型", "Model actually used for this reply"))
                     }
                     Spacer()
@@ -251,11 +267,12 @@ struct ChatView: View {
             }
             .padding(14)
             .frame(maxWidth: 660, alignment: .leading)
-            .background(message.role == .user
-                ? agent.studioColor.opacity(0.12) : StudioTheme.surface(scheme),
-                in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14)
-                .strokeBorder(StudioTheme.border(scheme).opacity(0.85)))
+            .studioCard(radius: StudioMetrics.radiusCard,
+                        fill: message.role == .user ? nil : StudioTheme.surface(scheme))
+            // Your own lines carry the member's color as a wash, like a reply slip.
+            .overlay(RoundedRectangle(cornerRadius: StudioMetrics.radiusCard, style: .continuous)
+                .fill(message.role == .user ? agent.studioColor.opacity(0.11) : .clear)
+                .allowsHitTesting(false))
             if message.role == .assistant { Spacer(minLength: 42) }
         }
     }
@@ -283,9 +300,9 @@ struct ChatView: View {
                 .frame(minHeight: 72, maxHeight: 130)
                 .scrollContentBackground(.hidden)
                 .padding(8)
-                .background(StudioTheme.surface(scheme), in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(dropTargeted ? agent.studioColor : StudioTheme.border(scheme), lineWidth: dropTargeted ? 2 : 1))
+                .studioCard(radius: 12)
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(dropTargeted ? agent.studioColor : .clear, lineWidth: 2))
             HStack(spacing: 10) {
                 Button { importing = true } label: { Image(systemName: "plus.circle") }
                     .buttonStyle(.borderless).disabled(busy)
@@ -304,7 +321,7 @@ struct ChatView: View {
                     Label(t("傳送", "Send"), systemImage: "arrow.up")
                 }
                 .keyboardShortcut(.return, modifiers: .command)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.studioPrimary)
                 .disabled(!canSend)
             }
         }
@@ -394,7 +411,7 @@ private struct AttachmentChip: View {
         }
         .padding(.horizontal, 8).padding(.vertical, 5)
         .frame(maxWidth: 220, alignment: .leading)
-        .background(.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 9))
+        .background(StudioWell(), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .task(id: attachment.id) {
             guard attachment.kind == .image, thumbnail == nil, let data = model.attachmentData(attachment.id) else { return }
             thumbnail = NSImage(data: data)

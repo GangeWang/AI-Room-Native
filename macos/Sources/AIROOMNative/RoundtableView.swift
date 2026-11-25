@@ -211,7 +211,7 @@ struct RoundtableTopicView: View {
                     }
                     Spacer()
                     Button(t("公開", "Reveal")) { model.revealRoundtable(topic.id) }
-                        .buttonStyle(.borderedProminent).disabled(model.roundtableRunning || topic.completed == 0)
+                        .buttonStyle(.studioPrimary).disabled(model.roundtableRunning || topic.completed == 0)
                 }
             }
         default:
@@ -291,6 +291,7 @@ struct RoundtableTopicView: View {
                         } label: {
                             Text(t("整理會議紀要", "Write minutes"))
                         } primaryAction: { model.concludeRoundtable(topic.id, by: topic.lead) }
+                        .buttonStyle(.automatic)
                         .fixedSize()
                         .help(t("由匯總成員 \(model.memberName(topic.lead)) 整理；按箭頭可改請其他成員", "Written by the lead, \(model.memberName(topic.lead)); use the arrow to pick someone else"))
                     }
@@ -357,7 +358,7 @@ struct RoundtableTopicView: View {
                         Spacer()
                         if topic.status == .conclusion {
                             Button(t("確認結論", "Confirm conclusion")) { model.confirmConclusion(topic.id) }
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(.studioPrimary)
                         } else {
                             Label(t("已確認", "Confirmed"), systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                         }
@@ -419,7 +420,7 @@ struct CompareSheet: View {
                                 Label(t("已採用", "Adopted"), systemImage: "checkmark.seal.fill").foregroundStyle(.green)
                             } else {
                                 Button(t("採用此候選", "Adopt this")) { model.adoptCandidate(topic.id, agent: submission.agent) }
-                                    .buttonStyle(.borderedProminent)
+                                    .buttonStyle(.studioPrimary)
                             }
                         }
                         ScrollView {
@@ -428,7 +429,7 @@ struct CompareSheet: View {
                         }
                     }
                     .padding(12)
-                    .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                    .background(StudioWell(), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
             }
         }
@@ -495,7 +496,7 @@ struct NewRoundtableSheet: View {
                                          members: Array(members), lead: lead, peerReview: peerReview)
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.studioPrimary)
                 .disabled(members.count < 2 || (material.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty))
             }
         }
