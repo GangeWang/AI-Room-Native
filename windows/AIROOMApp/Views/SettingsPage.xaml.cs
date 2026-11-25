@@ -127,6 +127,8 @@ public sealed partial class SettingsPage : Page
         codexPath.LostFocus += (_, _) => Update(s => s.CodexPath = codexPath.Text.Trim());
         var workspace = new TextBox { Header = "預設工作資料夾（工位裡逐話題可另選）", Text = settings.WorkspacePath, MinWidth = 460 };
         workspace.LostFocus += (_, _) => Update(s => s.WorkspacePath = workspace.Text.Trim());
+        var vtsPath = new TextBox { Header = "VTube Studio.exe 完整路徑（直播舞台用；空白＝在 Steam 資料夾自動偵測）", Text = settings.VtsPath, MinWidth = 460 };
+        vtsPath.LostFocus += (_, _) => Update(s => s.VtsPath = vtsPath.Text.Trim());
 
         // Profile
         var userName = new TextBox { Header = "怎麼稱呼你（成員會用這個名字叫你）", Text = settings.UserName, MaxLength = 40, MinWidth = 300 };
@@ -149,7 +151,7 @@ public sealed partial class SettingsPage : Page
                 Children =
                 {
                     new TextBlock { Text = "工作台", Style = (Style)Application.Current.Resources["StudioEyebrow"] },
-                    claudePath, codexPath, workspace, userName, language, updates,
+                    claudePath, codexPath, workspace, vtsPath, userName, language, updates,
                 },
             },
         });

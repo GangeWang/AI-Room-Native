@@ -4,30 +4,71 @@ import AIROOMCore
 
 // Native reconstruction of AIROOM's warm paper / lamplight design system.
 // The original Electron stylesheet is not loaded; all controls are SwiftUI.
+//
+// One palette, one spacing scale, one set of radii and type roles. Views should
+// reach for these tokens instead of literal numbers so every page reads as one app.
 enum StudioTheme {
-    static let amber = Color(red: 0.86, green: 0.59, blue: 0.29)
-    static let orange = Color(red: 0.85, green: 0.41, blue: 0.18)
-    static let violet = Color(red: 0.48, green: 0.43, blue: 0.84)
-    static let moss = Color(red: 0.24, green: 0.54, blue: 0.36)
-    static let warning = Color(red: 0.65, green: 0.43, blue: 0.14)
+    static let amber = Color(red: 0.90, green: 0.62, blue: 0.30)
+    static let orange = Color(red: 0.88, green: 0.43, blue: 0.19)
+    static let violet = Color(red: 0.49, green: 0.44, blue: 0.86)
+    static let moss = Color(red: 0.27, green: 0.58, blue: 0.39)
+    static let warning = Color(red: 0.71, green: 0.47, blue: 0.16)
+    static let sky = Color(red: 0.27, green: 0.52, blue: 0.86)
+    static let teal = Color(red: 0.18, green: 0.58, blue: 0.60)
+    static let rose = Color(red: 0.86, green: 0.36, blue: 0.50)
+    static let plum = Color(red: 0.62, green: 0.38, blue: 0.74)
+    static let slate = Color(red: 0.47, green: 0.46, blue: 0.50)
+
     static func background(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(red: 0.10, green: 0.085, blue: 0.075) : Color(red: 0.965, green: 0.941, blue: 0.907)
+        scheme == .dark ? Color(red: 0.095, green: 0.082, blue: 0.074) : Color(red: 0.962, green: 0.938, blue: 0.902)
     }
     static func sidebar(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(red: 0.13, green: 0.11, blue: 0.095) : Color(red: 0.943, green: 0.905, blue: 0.855)
+        scheme == .dark ? Color(red: 0.122, green: 0.104, blue: 0.092) : Color(red: 0.935, green: 0.898, blue: 0.848)
     }
     static func surface(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(red: 0.15, green: 0.13, blue: 0.115) : Color(red: 1.0, green: 0.993, blue: 0.972)
+        scheme == .dark ? Color(red: 0.145, green: 0.126, blue: 0.112) : Color(red: 1.0, green: 0.994, blue: 0.978)
+    }
+    /// A surface one step above `surface`: inputs, chips and nested rows.
+    static func elevated(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(red: 0.18, green: 0.158, blue: 0.14) : Color(red: 0.985, green: 0.968, blue: 0.94)
     }
     static func secondary(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(red: 0.18, green: 0.15, blue: 0.13) : Color(red: 0.982, green: 0.961, blue: 0.934)
+        scheme == .dark ? Color(red: 0.165, green: 0.142, blue: 0.125) : Color(red: 0.975, green: 0.952, blue: 0.92)
     }
     static func border(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(red: 0.26, green: 0.22, blue: 0.19) : Color(red: 0.89, green: 0.854, blue: 0.805)
+        scheme == .dark ? Color(red: 0.255, green: 0.222, blue: 0.195) : Color(red: 0.878, green: 0.838, blue: 0.784)
+    }
+    /// Hairline inside a panel (dividers, row separators).
+    static func hairline(_ scheme: ColorScheme) -> Color {
+        border(scheme).opacity(scheme == .dark ? 0.75 : 0.85)
     }
     static func ink(_ scheme: ColorScheme) -> Color {
         scheme == .dark ? Color(red: 0.95, green: 0.92, blue: 0.88) : Color(red: 0.20, green: 0.16, blue: 0.13)
     }
+    static func subtleFill(_ scheme: ColorScheme) -> Color {
+        ink(scheme).opacity(scheme == .dark ? 0.06 : 0.045)
+    }
+    static func shadow(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? .black.opacity(0.28) : Color(red: 0.42, green: 0.30, blue: 0.18).opacity(0.075)
+    }
+}
+
+/// Page padding and corner radii.
+enum StudioMetrics {
+    /// Outer padding of every scrolling page.
+    static let page: CGFloat = 28
+    /// One reading column for conversation pages: header, transcript and composer share its edges.
+    static let column: CGFloat = 860
+    static let radiusControl: CGFloat = 10
+    static let radiusCard: CGFloat = 14
+    static let radiusPanel: CGFloat = 16
+}
+
+/// Type roles. Rounded display faces for headings, the system face for reading.
+enum StudioType {
+    static let pageTitle = Font.system(size: 26, weight: .semibold, design: .rounded)
+    static let heroTitle = Font.system(size: 32, weight: .semibold, design: .rounded)
+    static let sectionTitle = Font.system(size: 15, weight: .semibold, design: .rounded)
 }
 
 enum StudioI18n {
@@ -89,6 +130,25 @@ extension Executor {
     }
 }
 
+/// A small status capsule: colored dot, short text.
+struct StudioStatusBadge: View {
+    var text: String
+    var tint: Color
+    var icon: String? = nil
+    var body: some View {
+        HStack(spacing: 5) {
+            if let icon { Image(systemName: icon).font(.system(size: 10, weight: .bold)) }
+            else { Circle().fill(tint).frame(width: 6, height: 6) }
+            Text(text).font(.caption.weight(.semibold)).lineLimit(1)
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 9).padding(.vertical, 4)
+        .background(tint.opacity(0.12), in: Capsule())
+        .overlay(Capsule().strokeBorder(tint.opacity(0.25), lineWidth: 1))
+    }
+}
+
+/// The card every page is built from: warm surface, hairline border, a soft lift.
 struct StudioPanel<Content: View>: View {
     @Environment(\.colorScheme) private var scheme
     var padding: CGFloat = 18
@@ -96,30 +156,111 @@ struct StudioPanel<Content: View>: View {
     var body: some View {
         content
             .padding(padding)
-            .background(StudioTheme.surface(scheme), in: RoundedRectangle(cornerRadius: 17))
-            .overlay(RoundedRectangle(cornerRadius: 17).strokeBorder(StudioTheme.border(scheme), lineWidth: 1))
+            // Panels span their column so stacked panels line up on both edges.
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .studioCard(radius: StudioMetrics.radiusPanel)
     }
 }
 
-struct StudioBrandMark: View {
-    var size: CGFloat = 36
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.28)
-                .fill(Color(red: 0.23, green: 0.18, blue: 0.15))
-            Circle().fill(StudioTheme.orange)
-                .frame(width: size * 0.27, height: size * 0.27)
-                .offset(x: -size * 0.19, y: size * 0.14)
-            Circle().fill(StudioTheme.violet)
-                .frame(width: size * 0.27, height: size * 0.27)
-                .offset(x: size * 0.19, y: size * 0.14)
-            Circle().fill(Color(red: 0.26, green: 0.44, blue: 0.82))
-                .frame(width: size * 0.27, height: size * 0.27)
-                .offset(y: -size * 0.18)
-        }
-        .frame(width: size, height: size)
-        .accessibilityLabel("AIROOM")
+private struct StudioCardModifier: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.colorSchemeContrast) private var contrast
+    var radius: CGFloat
+    var fill: Color?
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        content
+            .background {
+                // A flat surface with a hairline edge; only a whisper of shadow in light mode.
+                shape.fill(fill ?? StudioTheme.surface(scheme))
+                    .shadow(color: StudioTheme.shadow(scheme).opacity(scheme == .dark ? 0 : 0.8), radius: 3, y: 1)
+            }
+            // Increase Contrast: a firmer edge, as system controls do.
+            .overlay(shape.strokeBorder(contrast == .increased ? StudioTheme.ink(scheme).opacity(0.45) : StudioTheme.border(scheme),
+                                        lineWidth: 1))
     }
+}
+
+extension View {
+    /// Surface + hairline border, the shared look of panels and cards.
+    func studioCard(radius: CGFloat = StudioMetrics.radiusCard, fill: Color? = nil) -> some View {
+        modifier(StudioCardModifier(radius: radius, fill: fill))
+    }
+}
+
+/// An inset well for nested boxes inside a panel (lists, previews, file rows).
+/// Resolves against the current color scheme, so it can be used anywhere a ShapeStyle goes.
+struct StudioWell: ShapeStyle {
+    func resolve(in environment: EnvironmentValues) -> Color {
+        environment.colorScheme == .dark
+            ? Color(red: 0.115, green: 0.099, blue: 0.088)
+            : Color(red: 0.958, green: 0.932, blue: 0.895)
+    }
+}
+
+/// Filled, warm call-to-action button. Honors controlSize, isEnabled and destructive role.
+struct StudioPrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.controlSize) private var size
+    func makeBody(configuration: Configuration) -> some View {
+        let small = size == .small || size == .mini
+        let shape = RoundedRectangle(cornerRadius: small ? 7 : 9, style: .continuous)
+        configuration.label
+            .font(small ? .caption.weight(.semibold) : .callout.weight(.semibold))
+            .labelStyle(StudioButtonLabelStyle())
+            .foregroundStyle(.white)
+            .padding(.horizontal, small ? 9 : 13).padding(.vertical, small ? 3.5 : 6)
+            .background {
+                // Solid tint, like a default push button: it follows the place's colour
+                // (a member's own colour in their editor).
+                if configuration.role == .destructive {
+                    shape.fill(Color.red)
+                } else {
+                    shape.fill(.tint)
+                }
+            }
+            .brightness(configuration.isPressed ? -0.08 : 0)
+            .opacity(enabled ? 1 : 0.42)
+            .contentShape(shape)
+            .animation(StudioMotion.press, value: configuration.isPressed)
+    }
+}
+
+/// Quiet bordered button on the warm surface; the app-wide default.
+struct StudioSecondaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.controlSize) private var size
+    @Environment(\.colorScheme) private var scheme
+    func makeBody(configuration: Configuration) -> some View {
+        let small = size == .small || size == .mini
+        let shape = RoundedRectangle(cornerRadius: small ? 7 : 9, style: .continuous)
+        configuration.label
+            .font(small ? .caption.weight(.medium) : .callout.weight(.medium))
+            .labelStyle(StudioButtonLabelStyle())
+            .foregroundStyle(configuration.role == .destructive ? Color.red : StudioTheme.ink(scheme))
+            .padding(.horizontal, small ? 9 : 12).padding(.vertical, small ? 3.5 : 6)
+            .background(shape.fill(StudioTheme.elevated(scheme)))
+            .overlay(shape.fill(configuration.isPressed ? StudioTheme.ink(scheme).opacity(0.08) : .clear))
+            .overlay(shape.strokeBorder(StudioTheme.border(scheme), lineWidth: 1))
+            .opacity(enabled ? 1 : 0.45)
+            .contentShape(shape)
+    }
+}
+
+private struct StudioButtonLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 5) {
+            configuration.icon.imageScale(.small)
+            configuration.title
+        }
+    }
+}
+
+extension ButtonStyle where Self == StudioPrimaryButtonStyle {
+    static var studioPrimary: StudioPrimaryButtonStyle { StudioPrimaryButtonStyle() }
+}
+extension ButtonStyle where Self == StudioSecondaryButtonStyle {
+    static var studioSecondary: StudioSecondaryButtonStyle { StudioSecondaryButtonStyle() }
 }
 
 /// Face crop shared by the sidebar, member card, chat bubbles and room participants.
@@ -222,6 +363,9 @@ struct StudioAvatar: View {
     let agent: MemberID
     var size: CGFloat = 40
     var running = false
+    /// Breathe the status dot while the member works (only where one avatar stands for the member).
+    var pulses = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             Circle().fill(agent.studioColor.opacity(0.15))
@@ -232,7 +376,17 @@ struct StudioAvatar: View {
             Circle()
                 .fill(running ? StudioTheme.amber : StudioTheme.moss)
                 .frame(width: size * 0.23, height: size * 0.23)
+                .background {
+                    if running && pulses && !reduceMotion {
+                        // A ring that widens and fades, over and over, for as long as the work runs.
+                        Circle().fill(StudioTheme.amber)
+                            .phaseAnimator([false, true]) { ring, out in
+                                ring.scaleEffect(out ? 2.4 : 1).opacity(out ? 0 : 0.6)
+                            } animation: { out in out ? .easeOut(duration: 1.1) : .linear(duration: 0) }
+                    }
+                }
                 .overlay(Circle().strokeBorder(.background, lineWidth: 2))
+                .animation(StudioMotion.ease(), value: running)
         }
         .frame(width: size, height: size)
         .accessibilityLabel(agent.shortName)
@@ -241,38 +395,66 @@ struct StudioAvatar: View {
 
 struct StudioPageHeading: View {
     @Environment(\.colorScheme) private var scheme
-    var eyebrow: String
     var title: String
     var subtitle: String
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(eyebrow.uppercased())
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .tracking(1.8)
-                .foregroundStyle(StudioTheme.warning)
+        VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .font(StudioType.pageTitle)
                 .foregroundStyle(StudioTheme.ink(scheme))
             Text(subtitle)
-                .font(.subheadline)
+                .font(.callout)
                 .foregroundStyle(.secondary)
+                .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.bottom, 4)
+    }
+}
+
+
+/// Title row of a panel: a tinted symbol and a rounded heading.
+struct StudioSectionTitle: View {
+    @Environment(\.colorScheme) private var scheme
+    var title: String
+    var icon: String
+    var tint: Color = StudioTheme.orange
+    init(_ title: String, icon: String, tint: Color = StudioTheme.orange) {
+        self.title = title; self.icon = icon; self.tint = tint
+    }
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: 18)
+            Text(title).font(StudioType.sectionTitle).foregroundStyle(StudioTheme.ink(scheme))
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
 struct StudioNotice: View {
+    @Environment(\.colorScheme) private var scheme
     var icon: String = "shield.lefthalf.filled"
     var message: String
     var body: some View {
-        HStack(alignment: .top, spacing: 9) {
-            Image(systemName: icon).foregroundStyle(StudioTheme.warning)
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(StudioTheme.warning)
+                .frame(width: 16)
+                .padding(.top, 1)
             Text(message).font(.caption).foregroundStyle(.secondary)
+                .lineSpacing(1.5)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(12)
+        .padding(.vertical, 11).padding(.horizontal, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(StudioTheme.amber.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
+        .background(StudioTheme.amber.opacity(scheme == .dark ? 0.08 : 0.1),
+                    in: RoundedRectangle(cornerRadius: StudioMetrics.radiusControl, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: StudioMetrics.radiusControl, style: .continuous)
+            .strokeBorder(StudioTheme.amber.opacity(0.22), lineWidth: 1))
     }
 }
 
@@ -289,11 +471,15 @@ struct StudioPhasePill: View {
         }
     }
     var body: some View {
-        Text(LocalizedUI.phase(phase, language: language))
-            .font(.caption.weight(.medium))
-            .padding(.horizontal, 9).padding(.vertical, 4)
-            .background(color.opacity(0.12), in: Capsule())
-            .foregroundStyle(color)
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 5, height: 5)
+            Text(LocalizedUI.phase(phase, language: language))
+        }
+        .font(.caption.weight(.semibold))
+        .padding(.horizontal, 9).padding(.vertical, 4)
+        .background(color.opacity(0.12), in: Capsule())
+        .overlay(Capsule().strokeBorder(color.opacity(0.22), lineWidth: 1))
+        .foregroundStyle(color)
     }
 }
 
@@ -302,13 +488,8 @@ struct StudioEmptyState: View {
     var title: String
     var detail: String
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: icon).font(.system(size: 38)).foregroundStyle(StudioTheme.amber)
-            Text(title).font(.title3.weight(.semibold))
-            Text(detail).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-        }
-        .padding(30)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The system's own empty-state view: same type, spacing and symbol weight as other Mac apps.
+        ContentUnavailableView(title, systemImage: icon, description: Text(detail))
     }
 }
 
@@ -344,5 +525,86 @@ struct RichText: View {
             if index < lines.count - 1 { result += AttributedString("\n") }
         }
         return result
+    }
+}
+
+/// Motion tokens. Curves from Emil Kowalski's design-engineering notes (via the SwiftUI port
+/// emil-design-swiftui, MIT); springs for anything people can interrupt.
+enum StudioMotion {
+    /// Strong ease-out for things that enter or answer a press. cubic-bezier(0.23, 1, 0.32, 1)
+    static func easeOut(_ duration: TimeInterval = 0.2) -> Animation { .timingCurve(0.23, 1, 0.32, 1, duration: duration) }
+    /// Colour and highlight changes. CSS `ease`.
+    static func ease(_ duration: TimeInterval = 0.2) -> Animation { .timingCurve(0.25, 0.1, 0.25, 1, duration: duration) }
+    /// Press feedback: 160 ms strong ease-out, starting on mouse-down.
+    static let press = easeOut(0.16)
+    /// Things the pointer or new content moves: critically damped, so nothing wobbles.
+    static let settle = Animation.spring(response: 0.32, dampingFraction: 0.9)
+    /// A new message arriving: rises a little into place. Reduce Motion: fades only.
+    static func arrival(_ reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .offset(y: 12))
+    }
+}
+
+/// Hover state that cannot get stuck: an inactive window never shows hover
+/// (SwiftUI may miss the exit when the window loses focus under the pointer).
+struct StudioHoverReader<Content: View>: View {
+    @State private var hovering = false
+    @Environment(\.controlActiveState) private var active
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ViewBuilder var content: (Bool) -> Content
+    var body: some View {
+        content(hovering && active != .inactive)
+            .onHover { inside in
+                withAnimation(reduceMotion ? StudioMotion.ease(0.15) : StudioMotion.settle) { hovering = inside }
+            }
+    }
+}
+
+/// Press feedback for custom clickable cards and tiles: a slight give on mouse-down
+/// (HIG: Buttons — always include a press state for a custom button). Reduce Motion dims instead.
+struct StudioPressableStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .opacity(configuration.isPressed && reduceMotion ? 0.75 : 1)
+            .animation(StudioMotion.press, value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == StudioPressableStyle {
+    static var studioPressable: StudioPressableStyle { StudioPressableStyle() }
+}
+
+/// A page's own tabs (second-level views). The new view slides in from the side its tab
+/// sits on, so left and right keep their meaning; the old one just fades. Reduce Motion: fade only.
+struct StudioTabContent<Tab: Hashable, Content: View>: View {
+    let selection: Tab
+    /// The tabs in the order they appear in the control.
+    let order: [Tab]
+    @ViewBuilder var content: (Tab) -> Content
+    @State private var shown: Tab
+    @State private var forward = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(selection: Tab, order: [Tab], @ViewBuilder content: @escaping (Tab) -> Content) {
+        self.selection = selection
+        self.order = order
+        self.content = content
+        _shown = State(initialValue: selection)
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            content(shown)
+                .id(shown)
+                .transition(.asymmetric(
+                    insertion: reduceMotion ? .opacity : .opacity.combined(with: .offset(x: forward ? 28 : -28)),
+                    removal: .opacity))
+        }
+        .onChange(of: selection) { old, new in
+            forward = (order.firstIndex(of: new) ?? 0) >= (order.firstIndex(of: old) ?? 0)
+            withAnimation(StudioMotion.easeOut(0.22)) { shown = new }
+        }
     }
 }

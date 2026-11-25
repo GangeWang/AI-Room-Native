@@ -17,9 +17,10 @@ struct LiveStageView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                StudioPageHeading(eyebrow: "LIVE STAGE", title: t("直播舞台", "Live Stage"),
+                StudioPageHeading(title: t("直播舞台", "Live Stage"),
                     subtitle: t("把 AI 直播的每一句話念出來，並用 VTube Studio 驅動 Live2D 表情與嘴型。一位說完才輪到下一位。",
                                 "Speak every co-host line and drive Live2D expressions and lip sync through VTube Studio. One speaker at a time."))
+                onAirStrip
                 bodyPanel
                 speechPanel
                 vtsPanel
@@ -27,8 +28,9 @@ struct LiveStageView: View {
                 StudioNotice(message: t("AI 只能從固定的 8 種情緒中選擇；App 只觸發你在下方對應、且目前模型確實存在的熱鍵。VTube Studio 授權 Token 只存在本機加密資料中。聲音從系統預設輸出播放，OBS 擷取桌面音訊即可。",
                                         "Agents can only pick one of 8 fixed emotions; the app only fires hotkeys you mapped below that exist on the loaded model. The VTube Studio token stays in the local encrypted state. Audio plays on the default output for OBS desktop capture."))
             }
-            .padding(26)
+            .padding(StudioMetrics.page)
             .frame(maxWidth: 980, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
         .onAppear { if voices.isEmpty { voices = SpeechPlayer.voices() } }
     }
@@ -58,8 +60,8 @@ struct LiveStageView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Toggle(isOn: Binding(get: { settings.speechEnabled },
                                      set: { value in model.updateLiveStage { $0.speechEnabled = value } })) {
-                    Label(t("直播時用語音念出發言（macOS 內建 TTS）", "Speak lines aloud (built-in macOS TTS)"),
-                          systemImage: "waveform").font(.headline)
+                    Text(t("直播時用語音念出發言（macOS 內建 TTS）", "Speak lines aloud (built-in macOS TTS)"))
+                        .font(StudioType.sectionTitle)
                 }
                 Text(t("想要更自然的中文聲音：系統設定 → 輔助使用 → 朗讀內容 → 系統聲音 → 管理聲音，下載「美佳（加強版）」等高品質語音後，回到這裡選擇。",
                        "For better voices: System Settings → Accessibility → Spoken Content → System Voice → Manage Voices, download an Enhanced/Premium voice, then pick it below."))
@@ -73,8 +75,8 @@ struct LiveStageView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Toggle(isOn: Binding(get: { settings.vtsEnabled },
                                      set: { value in model.updateLiveStage { $0.vtsEnabled = value } })) {
-                    Label(t("連接 VTube Studio（Live2D）", "Connect VTube Studio (Live2D)"),
-                          systemImage: "person.crop.square.badge.camera").font(.headline)
+                    Text(t("連接 VTube Studio（Live2D）", "Connect VTube Studio (Live2D)"))
+                        .font(StudioType.sectionTitle)
                 }
                 Text(t("每位成員各用一個原生版 VTube Studio（不需要 Steam）。按「開啟 VTube Studio」會依連接埠由小到大一個一個開，開好就自動連線並換上各自的模型。連接埠和 NDI 名稱都依開啟順序決定：先開的是 8001／Live2D Camera NDI5，後開的是 8002／Live2D Camera NDI5 2。第一次要在 VTS 設定開啟「Start API」，兩個實例共用設定，開一次即可。",
                        "Each co-host uses its own native VTube Studio (no Steam needed). \"Open VTube Studio\" starts them one by one, lowest port first, then connects each and puts on its model. Ports and NDI names follow start order: first is 8001 / Live2D Camera NDI5, second is 8002 / Live2D Camera NDI5 2. Turn on \"Start API\" in VTS once; both instances share settings."))
@@ -105,7 +107,7 @@ struct LiveStageView: View {
                           format: .number.grouping(.never))
                     .frame(width: 80).textFieldStyle(.roundedBorder)
                 Button(stage.isConnected(agent) ? t("重新連線", "Reconnect") : t("連線", "Connect")) { model.connectVTubeStudio(agent) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.studioPrimary)
                     .disabled(!settings.vtsEnabled || stage.isBusy(agent))
                 if stage.isConnected(agent) || stage.isBusy(agent) {
                     Button(t("重新讀取熱鍵", "Reload hotkeys")) { Task { await stage.refreshHotkeys(agent) } }
@@ -165,11 +167,12 @@ struct LiveStageView: View {
     private func characterPanel(_ agent: MemberID) -> some View {
         let character = settings.character(agent)
         let name = model.archive.members.first(where: { $0.agent == agent })?.name ?? agent.shortName
-        return StudioPanel {
+        let shape = RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous)
+        return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
                     StudioAvatar(agent: agent, size: 34)
-                    Text(name).font(.headline)
+                    Text(name).font(StudioType.sectionTitle)
                     Spacer()
                     if stage.speaking == agent {
                         Label(t("發言中", "Speaking"), systemImage: "speaker.wave.2.fill").font(.caption).foregroundStyle(agent.studioColor)
@@ -224,6 +227,68 @@ struct LiveStageView: View {
                 }
             }
         }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // The member's color washes down from the top, like a gel on a stage light.
+        .background(alignment: .top) {
+            LinearGradient(colors: [agent.studioColor.opacity(stage.speaking == agent ? 0.3 : 0.17), .clear],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: 96)
+                .animation(StudioMotion.ease(0.2), value: stage.speaking == agent)
+        }
+        .clipShape(shape)
+        .studioCard(radius: StudioMetrics.radiusPanel)
+        .overlay(shape.strokeBorder(stage.speaking == agent ? agent.studioColor.opacity(0.7) : .clear, lineWidth: 1.5))
+    }
+
+    /// Broadcast status at a glance: on air or not, who has the mic, which outputs are armed.
+    private var onAirStrip: some View {
+        let live = model.liveActive
+        let connected = model.enabledMemberIDs.filter { stage.isConnected($0) }.count
+        let avatars = model.enabledMemberIDs.filter { settings.character($0).drivesAvatar }.count
+        return HStack(spacing: 14) {
+            HStack(spacing: 7) {
+                Circle().fill(live ? Color.white : Color.white.opacity(0.35)).frame(width: 8, height: 8)
+                Text(live ? "ON AIR" : "OFF AIR")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded)).tracking(1)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 11).padding(.vertical, 6)
+            .background(live ? Color.red : Color.white.opacity(0.12), in: Capsule())
+            if let speaker = stage.speaking {
+                HStack(spacing: 7) {
+                    StudioAvatar(agent: speaker, size: 24)
+                    Text(t("\(speaker.shortName) 發言中", "\(speaker.shortName) speaking"))
+                        .font(.callout.weight(.semibold)).foregroundStyle(.white)
+                    Image(systemName: "waveform").symbolEffect(.variableColor.iterative, options: .repeating)
+                        .foregroundStyle(speaker.studioColor)
+                }
+            } else {
+                Text(live ? t("等待下一句", "Waiting for the next line") : t("直播尚未開始，到「直播」分頁開播", "Not live. Go live from the Show tab"))
+                    .font(.callout).foregroundStyle(.white.opacity(0.75)).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            stripBadge(icon: "waveform", text: t("語音", "Voice"), on: settings.speechEnabled)
+            stripBadge(icon: "person.crop.square.badge.camera", text: "VTS \(connected)/\(avatars)", on: settings.vtsEnabled && connected > 0)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 13)
+        .background {
+            RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous)
+                .fill(Color(red: 0.12, green: 0.10, blue: 0.11))
+        }
+        .overlay(RoundedRectangle(cornerRadius: StudioMetrics.radiusPanel, style: .continuous)
+            .strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .environment(\.colorScheme, .dark)
+    }
+
+    private func stripBadge(icon: String, text: String, on: Bool) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon).font(.system(size: 11, weight: .semibold))
+            Text(text).font(.caption.weight(.semibold)).monospacedDigit()
+        }
+        .foregroundStyle(on ? Color.white : Color.white.opacity(0.45))
+        .padding(.horizontal, 9).padding(.vertical, 5)
+        .background(on ? StudioTheme.moss.opacity(0.55) : Color.white.opacity(0.08), in: Capsule())
     }
 
     private func emotionGrid(_ agent: MemberID, _ character: LiveCharacterStage) -> some View {

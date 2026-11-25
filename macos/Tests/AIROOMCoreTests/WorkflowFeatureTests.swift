@@ -79,13 +79,13 @@ final class WorkflowFeatureTests: XCTestCase {
         let cal = Calendar(identifier: .gregorian)
         var item = ScheduledActivity(name: "Noon", action: .reminder, text: "Hello", hour: 12, minute: 5)
         let now = cal.date(from: DateComponents(year: 2026, month: 11, day: 2, hour: 12, minute: 5))!
-        XCTAssertTrue(LocalAutomation.shouldFire(item, now: now, calendar: cal))
+        XCTAssertEqual(LocalAutomation.evaluate(item, now: now, calendar: cal), .fire)
         item.lastFiredDay = LocalAutomation.dayKey(now, calendar: cal)
-        XCTAssertFalse(LocalAutomation.shouldFire(item, now: now, calendar: cal))
+        XCTAssertNotEqual(LocalAutomation.evaluate(item, now: now, calendar: cal), .fire)
         item.lastFiredDay = nil; item.weekdays = [7] // Nov 2, 2026 Monday
-        XCTAssertFalse(LocalAutomation.shouldFire(item, now: now, calendar: cal))
+        XCTAssertNotEqual(LocalAutomation.evaluate(item, now: now, calendar: cal), .fire)
         item.weekdays = [1]
-        XCTAssertTrue(LocalAutomation.shouldFire(item, now: now, calendar: cal))
+        XCTAssertEqual(LocalAutomation.evaluate(item, now: now, calendar: cal), .fire)
     }
 
     func testOccasionalChatDailyLimitAndInterval() {
@@ -99,16 +99,6 @@ final class WorkflowFeatureTests: XCTestCase {
         XCTAssertFalse(LocalAutomation.shouldAutoChat(rule, now: now, roomExists: true, quotaAvailable: true))
         rule.firedDays[LocalAutomation.dayKey(now)] = 1
         XCTAssertFalse(LocalAutomation.shouldAutoChat(rule, now: now, roomExists: true, quotaAvailable: false))
-    }
-
-    func testRoundtableVotesAreAdvisoryAndRequireExactFirstLine() {
-        XCTAssertEqual(RoundtableDecision.parseVote("Vote: codex\nReasons"), .codex)
-        XCTAssertEqual(RoundtableDecision.parseVote("vote: CLAUDE\nReasons"), .claude)
-        XCTAssertNil(RoundtableDecision.parseVote("I would vote: codex"))
-        XCTAssertNil(RoundtableDecision.parseVote("Vote: someone else"))
-        let results = [RoundtableResult(agent: .codex, text: "candidate"), RoundtableResult(agent: .claude, text: "", error: "failed")]
-        XCTAssertTrue(RoundtableDecision.eligible(results, agent: .codex))
-        XCTAssertFalse(RoundtableDecision.eligible(results, agent: .claude))
     }
 
     func testProjectCannotExecuteUntilHumanApprovesProposal() throws {

@@ -8,3 +8,10 @@ This license covers the artwork only, not the AI Room Native source code.
 
 ./Scripts/fetch-original-assets.sh can re-download these files from the pinned
 upstream commit and verify their Git blob hashes.
+
+The *-mask.png files are subject masks derived from the portraits above (an adaptation,
+under the same CC BY-NC-SA 4.0 license). They let the relief card faces show without
+loading Vision at launch. After a portrait changes, regenerate them from macos/ with:
+  swift Scripts/bake-portrait-masks.swift
+A mask whose shape no longer matches its portrait is ignored, and the app falls back to
+making the cut-out with Vision.

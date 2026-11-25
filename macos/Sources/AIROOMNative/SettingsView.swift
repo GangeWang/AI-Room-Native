@@ -25,8 +25,7 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                StudioPageHeading(eyebrow: "SETTINGS",
-                    title: t("設定與連接", "Settings & Connections"),
+                StudioPageHeading(title: t("設定與連接", "Settings & Connections"),
                     subtitle: t("官方執行端、本機資料與介面偏好。", "Official CLI connections, local data and display preferences."))
                 StudioPanel {
                     VStack(alignment: .leading, spacing: 0) {
@@ -41,17 +40,21 @@ struct SettingsView: View {
                             .textFieldStyle(.roundedBorder).frame(width: 265)
                         }
                         // A member card can set its own form of address.
-                        HStack(spacing: 16) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10, alignment: .leading)],
+                                  alignment: .leading, spacing: 8) {
                             ForEach(model.archive.members) { member in
                                 HStack(spacing: 6) {
                                     StudioAvatar(agent: member.agent, size: 22)
                                     Text("\(member.name)：「\(member.address(ownerName: model.archive.settings.ownerName))」").font(.caption)
+                                        .lineLimit(1)
                                 }
+                                .padding(.leading, 3).padding(.trailing, 10).padding(.vertical, 3)
+                                .background(StudioWell(), in: Capsule())
                             }
-                            Spacer()
-                            Text(t("單獨的稱呼在人物卡設定", "Set a member's own address on their card")).font(.caption2).foregroundStyle(.secondary)
                         }
-                        .padding(.top, 6)
+                        .padding(.top, 10)
+                        Text(t("單獨的稱呼在人物卡設定", "Set a member's own address on their card")).font(.caption2).foregroundStyle(.secondary)
+                            .padding(.top, 6)
                     }
                 }
                 StudioPanel {
@@ -77,13 +80,15 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
 
-                switch page {
-                case .members: connections
-                case .storage: storage
-                case .about: about
+                StudioTabContent(selection: page, order: [.members, .storage, .about]) { page in
+                    switch page {
+                    case .members: connections
+                    case .storage: storage
+                    case .about: about
+                    }
                 }
             }
-            .padding(26)
+            .padding(StudioMetrics.page)
             .frame(maxWidth: 990)
             .frame(maxWidth: .infinity)
         }
@@ -95,12 +100,9 @@ struct SettingsView: View {
                 StudioPanel {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 12) {
-                            Image(systemName: agent.symbol)
-                                .font(.system(size: 19, weight: .semibold))
-                                .frame(width: 41, height: 41)
-                                .background(.quaternary, in: Circle())
+                            ExecutorLogo(executor: agent, size: 40)
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(agent.rawValue).font(.headline)
+                                Text(agent.rawValue).font(StudioType.sectionTitle)
                                 Text(agent == .codex
                                      ? t("官方 App Server（自動使用 ChatGPT App 內附 Codex）", "Official App Server (uses bundled ChatGPT Codex)")
                                      : agent == .deepseek
@@ -113,7 +115,7 @@ struct SettingsView: View {
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Text("ARM64").font(.caption2.monospaced()).foregroundStyle(.secondary)
+                            statusBadge(model.officialCLIStatuses[agent])
                         }
                         HStack {
                             TextField(t("自動尋找 \(agent.executableName)", "Automatically find \(agent.executableName)"), text: cliPath(for: agent))
@@ -148,6 +150,17 @@ struct SettingsView: View {
                 }
             }
             StudioNotice(message: t("請只選擇你信任的官方 CLI。自訂路徑可能執行任意程式碼，外部 CLI 不受完整 OS 沙箱限制。", "Select trusted official CLIs only. Custom executables can run arbitrary code and are not protected by a full OS sandbox."))
+        }
+    }
+
+    @ViewBuilder private func statusBadge(_ status: OfficialCLIStatus?) -> some View {
+        switch status {
+        case .authenticated: StudioStatusBadge(text: t("已就緒", "Ready"), tint: StudioTheme.moss, icon: "checkmark")
+        case .notLoggedIn: StudioStatusBadge(text: t("需要登入", "Sign-in needed"), tint: StudioTheme.orange)
+        case .missingExecutable: StudioStatusBadge(text: t("找不到程式", "Not found"), tint: .red)
+        case .checking: StudioStatusBadge(text: t("檢查中", "Checking"), tint: StudioTheme.slate)
+        case .notConfirmed, .timedOut: StudioStatusBadge(text: t("未確認", "Unconfirmed"), tint: StudioTheme.slate)
+        case nil: EmptyView()
         }
     }
 
@@ -284,7 +297,7 @@ private struct BackupsPanel: View {
             }
             HStack(spacing: 12) {
                 Button(t("立即備份", "Create Backup")) { model.backup(); reload() }
-                    .buttonStyle(.borderedProminent).disabled(!model.storageAvailable)
+                    .buttonStyle(.studioPrimary).disabled(!model.storageAvailable)
                 Button(t("從其他檔案恢復…", "Restore from a file…")) { chooseFile() }
                     .disabled(!model.canRestore)
             }
@@ -370,7 +383,7 @@ private struct BackupsPanel: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .background(StudioWell(), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private func row(_ name: String, _ value: String) -> some View {
@@ -411,7 +424,7 @@ private struct PortableExportPanel: View {
             Label(t("搬到另一台 Mac：密碼匯出", "Move to Another Mac: Password Export"), systemImage: "key.horizontal").font(.headline)
             HStack(spacing: 12) {
                 Button(t("匯出加密檔…", "Export…")) { chooseDestination() }
-                    .buttonStyle(.borderedProminent).disabled(!model.storageAvailable)
+                    .buttonStyle(.studioPrimary).disabled(!model.storageAvailable)
                 Button(t("從匯出檔匯入…", "Import…")) { chooseExport() }
                     .disabled(!model.canRestore)
             }
@@ -487,7 +500,7 @@ private struct PortableExportPanel: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .background(StudioWell(), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private func row(_ name: String, _ value: String) -> some View {

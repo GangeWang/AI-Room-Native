@@ -42,7 +42,7 @@ struct AutomationView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                StudioPageHeading(eyebrow: "AUTOMATION", title: t("排程與自動對話", "Schedules & Auto Chat"),
+                StudioPageHeading(title: t("排程與自動對話", "Schedules & Auto Chat"),
                     subtitle: t("只有 App 執行時才檢查（關掉視窗後在選單列仍會執行）；錯過的觸發不補發。", "Checked only while the app runs (the menu bar keeps it running); missed triggers are never replayed."))
                 StudioPanel {
                     VStack(alignment: .leading, spacing: 13) {
@@ -93,7 +93,7 @@ struct AutomationView: View {
                                 model.saveSchedule(id: editing, name: title, text: text, kind: kind, hour: hour, minute: minute,
                                                    onceAt: onceAt, intervalMinutes: interval, action: action, target: target)
                                 resetForm()
-                            }.buttonStyle(.borderedProminent).disabled(title.isEmpty || text.isEmpty)
+                            }.buttonStyle(.studioPrimary).disabled(title.isEmpty || text.isEmpty)
                         }
                         if action == .roomMessage {
                             Text(t("「讓 AI 在聊天室回應」會送到建立時所在的茶歇室話題，並使用成員額度。", "AI room messages go to the lounge topic open when the schedule is made, and use member quota."))
@@ -186,13 +186,13 @@ struct AutomationView: View {
                                                      intervalMinutes: model.archive.autoChat.intervalMinutes, dailyLimit: $0) }),
                                 in: 1...6)
                         }
-                        Text(t("若想讓 Claude 和 Codex 長時間互相接話、回應觀眾，請到茶歇室使用「AI 直播」。",
-                               "For continuous multi-agent co-hosting and viewer comments, start a Live Show in the Lounge."))
+                        Text(t("若想讓 Claude 和 Codex 長時間互相接話、回應觀眾，請到「直播間」開始 AI 直播。",
+                               "For continuous multi-agent co-hosting and viewer comments, go live from the Live Room."))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
-            .padding(24)
+            .padding(StudioMetrics.page)
             .frame(maxWidth: 1000)
             .frame(maxWidth: .infinity)
         }

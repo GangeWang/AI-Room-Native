@@ -62,6 +62,15 @@ struct AIROOMNativeApp: App {
             MenuBarIcon(delegate: delegate, busy: workbench.anythingRunning)
         }
         .commands {
+            // View › Show/Hide Sidebar (⌃⌘S), as in every Mac app with a sidebar.
+            SidebarCommands()
+            // AIROOM › Settings… (⌘,), where Mac users look for settings first.
+            CommandGroup(replacing: .appSettings) {
+                Button(StudioI18n.t("設定…", "Settings…", workbench.archive.settings.language)) {
+                    workbench.settingsRequest += 1
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
             CommandGroup(after: .appInfo) {
                 Button(StudioI18n.t("檢查更新…", "Check for Updates…", workbench.archive.settings.language)) {
                     workbench.checkForUpdates(manual: true, announce: true)
