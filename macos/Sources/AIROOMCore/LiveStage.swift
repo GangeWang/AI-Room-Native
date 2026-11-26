@@ -46,7 +46,7 @@ public struct LivePose: Codable, Equatable, Sendable {
     public var headX: Double?
     public var headY: Double?
     public var headZ: Double?
-    /// -1...1: look left(-)/right(+), down(-)/up(+).
+    /// -1...1: look to the character's own left(-)/right(+) (viewers see the opposite), down(-)/up(+).
     public var gazeX: Double?
     public var gazeY: Double?
     /// 0 closed ... 1 open.
