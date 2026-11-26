@@ -57,8 +57,20 @@ public struct VTSHotkey: Identifiable, Equatable, Sendable {
     public var id: String
     public var name: String
     public var type: String
+    /// The expression or animation file the hotkey uses ("" when it has none).
+    public var file: String = ""
     /// VTS expression hotkeys toggle; triggering one again turns it off.
     public var toggles: Bool { type == "ToggleExpression" }
+    /// Plays a motion (wave, nod …) instead of switching an expression.
+    public var playsAnimation: Bool { type == "TriggerAnimation" }
+}
+
+/// One `.exp3.json` expression of the loaded model and whether it is on.
+public struct VTSExpression: Equatable, Sendable {
+    public var name: String
+    public var file: String
+    public var active: Bool
+    public init(name: String, file: String, active: Bool) { self.name = name; self.file = file; self.active = active }
 }
 
 public struct VTSModel: Identifiable, Equatable, Sendable {
@@ -141,6 +153,21 @@ public enum VTSProtocol {
     public static func hotkeys(id: String) -> VTSEnvelope {
         VTSEnvelope(requestID: id, messageType: "HotkeysInCurrentModelRequest")
     }
+    public static func expressionState(id: String) -> VTSEnvelope {
+        VTSEnvelope(requestID: id, messageType: "ExpressionStateRequest", data: .object(["details": .bool(false)]))
+    }
+    /// Turns one expression on or off explicitly (unlike its toggle hotkey).
+    public static func expressionActivation(id: String, file: String, active: Bool, fadeTime: Double = 0.3) -> VTSEnvelope {
+        VTSEnvelope(requestID: id, messageType: "ExpressionActivationRequest", data: .object([
+            "expressionFile": .string(file), "active": .bool(active),
+            "fadeTime": .number(min(2, max(0, fadeTime)))]))
+    }
+    public static func parseExpressions(_ data: JSONValue) -> [VTSExpression] {
+        (data["expressions"]?.array ?? []).compactMap { item in
+            guard let file = item["file"]?.string, !file.isEmpty else { return nil }
+            return VTSExpression(name: item["name"]?.string ?? file, file: file, active: item["active"]?.bool ?? false)
+        }
+    }
     public static func trigger(id: String, hotkeyID: String) -> VTSEnvelope {
         VTSEnvelope(requestID: id, messageType: "HotkeyTriggerRequest",
                     data: .object(["hotkeyID": .string(hotkeyID)]))
@@ -182,7 +209,8 @@ public enum VTSProtocol {
     public static func parseHotkeys(_ data: JSONValue) -> [VTSHotkey] {
         (data["availableHotkeys"]?.array ?? []).compactMap { item in
             guard let id = item["hotkeyID"]?.string, !id.isEmpty else { return nil }
-            return VTSHotkey(id: id, name: item["name"]?.string ?? id, type: item["type"]?.string ?? "")
+            return VTSHotkey(id: id, name: item["name"]?.string ?? id, type: item["type"]?.string ?? "",
+                             file: item["file"]?.string ?? "")
         }
     }
 }
@@ -228,6 +256,7 @@ public actor VTubeStudioClient {
     private var receiver: Task<Void, Never>?
     private var pending: [String: CheckedContinuation<VTSEnvelope, Error>] = [:]
     private var knownHotkeys: [String: VTSHotkey] = [:]
+    private var knownExpressions: Set<String> = []
     private var onLost: (@Sendable () -> Void)?
     /// Fire-and-forget requests (injection) get no waiter; an APIError they
     /// cause would otherwise vanish. The latest one is kept here.
@@ -293,6 +322,7 @@ public actor VTubeStudioClient {
         transport?.close(); transport = nil
         authenticated = false
         knownHotkeys = [:]
+        knownExpressions = []
         failPending(VTSError.disconnected)
     }
 
@@ -323,6 +353,7 @@ public actor VTubeStudioClient {
         _ = try VTSProtocol.payload(try await request(VTSProtocol.loadModel(id: Self.newID(), modelID: id), timeout: 20),
                                     expecting: "ModelLoadResponse")
         knownHotkeys = [:]
+        knownExpressions = []
     }
 
     /// Refreshes the whitelist of hotkeys that `trigger` may fire.
@@ -335,6 +366,25 @@ public actor VTubeStudioClient {
     }
 
     public func hotkey(_ id: String) -> VTSHotkey? { knownHotkeys[id] }
+
+    /// The loaded model's expressions and which are on; refreshes the
+    /// whitelist `setExpression` may switch.
+    public func expressions() async throws -> [VTSExpression] {
+        guard authenticated else { throw VTSError.disconnected }
+        let list = VTSProtocol.parseExpressions(try VTSProtocol.payload(
+            try await request(VTSProtocol.expressionState(id: Self.newID())), expecting: "ExpressionStateResponse"))
+        knownExpressions = Set(list.map(\.file))
+        return list
+    }
+
+    /// Switches one of the model's own expressions on or off. Only files
+    /// `expressions()` listed are accepted.
+    public func setExpression(file: String, active: Bool) async throws {
+        guard authenticated else { throw VTSError.disconnected }
+        guard knownExpressions.contains(file) else { throw VTSError.unknownHotkey(file) }
+        _ = try VTSProtocol.payload(try await request(VTSProtocol.expressionActivation(id: Self.newID(), file: file, active: active)),
+                                    expecting: "ExpressionActivationResponse")
+    }
 
     public func trigger(hotkeyID: String) async throws {
         guard authenticated else { throw VTSError.disconnected }
@@ -400,6 +450,7 @@ public actor VTubeStudioClient {
         let wasUp = authenticated
         transport = nil; authenticated = false
         knownHotkeys = [:]
+        knownExpressions = []
         failPending(VTSError.disconnected)
         if wasUp { onLost?() }
     }

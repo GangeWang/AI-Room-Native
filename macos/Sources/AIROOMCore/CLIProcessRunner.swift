@@ -47,6 +47,12 @@ public final class CLIProcessRunner {
     /// The program a member runs on.
     public func executor(for agent: MemberID) -> Executor { defaults(for: agent).executor }
 
+    /// The member's chosen model and effort ("" = the CLI's default).
+    public func modelChoice(for agent: MemberID) -> (model: String, effort: String) {
+        let member = defaults(for: agent)
+        return (member.model, member.effort)
+    }
+
     public func run(
         id: UUID = UUID(), agent: MemberID, prompt: String, settings: NativeSettings,
         fallbackWorkspace: URL, access: ExecutionAccess = .readOnly, onUpdate: @escaping (String) -> Void

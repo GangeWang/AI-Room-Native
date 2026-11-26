@@ -112,4 +112,40 @@ final class LiveArmTests: XCTestCase {
         let sent = VTSProtocol.inject(id: "1", parameters: [(inputs.armL, -5)])
         XCTAssertEqual(sent.data?["parameterValues"]?.array?.first?["value"]?.number, -1)
     }
+
+    func testBodyBlinksButOtherwiseHoldsStill() {
+        var rig = LivePoseAnimator(idle: false, blinks: true)
+        rig.apply(LivePose(headX: 10, eyes: 0.8, duration: 0.1), at: 0)
+        var closed = false
+        for step in 0..<600 {
+            let t = 1 + Double(step) / 60
+            let frame = Dictionary(uniqueKeysWithValues: rig.frame(at: t))
+            XCTAssertEqual(frame["FaceAngleX"]!, 10, accuracy: 1e-9, "no sway")
+            XCTAssertLessThanOrEqual(frame["EyeOpenLeft"]!, 0.8 + 1e-9)
+            if frame["EyeOpenLeft"]! < 0.2 { closed = true }
+        }
+        XCTAssertTrue(closed, "blinks within 10 s")
+        let still = LivePoseAnimator(idle: false)
+        XCTAssertTrue((0..<600).allSatisfy { Dictionary(uniqueKeysWithValues: still.frame(at: Double($0) / 60))["EyeOpenLeft"] == 1 })
+    }
+
+    func testBrowAngleIsItsOwnInput() {
+        var rig = LivePoseAnimator(idle: false)
+        rig.apply(LivePose(browAngle: -0.7, duration: 0.1), at: 0)
+        let name = LivePoseAnimator.browAngleInput(member: .claude)
+        XCTAssertEqual(name, "AIROOMclaudeBrowAngle")
+        XCTAssertTrue((4...32).contains(name.count))
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: rig.frame(at: 1, browAngle: name))[name]!, -0.7, accuracy: 1e-9)
+        XCTAssertNil(Dictionary(uniqueKeysWithValues: rig.frame(at: 1))[name])
+        XCTAssertLessThanOrEqual(LivePoseAnimator.browAngleInput(member: MemberID(rawValue: String(repeating: "x", count: 40))).count, 32)
+    }
+
+    func testAMotionGetsTheHeadAndArms() {
+        let rig = LivePoseAnimator(idle: false)
+        let arms = LivePoseAnimator.ArmInputs(member: .claude)
+        let frame = LivePoseAnimator.yieldingToMotion(rig.frame(at: 0, arms: arms, browAngle: "AIROOMclaudeBrowAngle"), arms: arms)
+        let names = Set(frame.map(\.0))
+        XCTAssertTrue(names.isDisjoint(with: ["FaceAngleX", "FaceAngleY", "FaceAngleZ"] + arms.all))
+        XCTAssertTrue(names.isSuperset(of: ["MouthOpen", "EyeOpenLeft", "Brows", "MouthSmile", "AIROOMclaudeBrowAngle"]))
+    }
 }

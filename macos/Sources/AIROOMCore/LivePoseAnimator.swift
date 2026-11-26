@@ -30,10 +30,26 @@ public struct LivePoseAnimator: Sendable {
         public var all: [String] { [armL, armR, elbowL, elbowR] }
     }
 
+    /// The member's own VTS custom input for the brow angle (-1 angry … 1
+    /// worried). VTS has no built-in tracking input for it, so the model has
+    /// to map this one to its brow-angle parameters.
+    public static func browAngleInput(member: MemberID) -> String {
+        let tag = String(member.handle.filter { $0.isASCII && ($0.isLetter || $0.isNumber) }.prefix(14))
+        return "AIROOM" + (tag.isEmpty ? "member" : tag) + "BrowAngle"
+    }
+
+    /// Parameters a played motion (VTS hotkey animation) moves itself: the head
+    /// and body angles and the arms. While a motion plays the body stops
+    /// sending these so it does not fight the animation.
+    public static func yieldingToMotion(_ frame: [(String, Double)], arms: ArmInputs?) -> [(String, Double)] {
+        let held = Set(arms?.all ?? [])
+        return frame.filter { name, _ in !name.hasPrefix("FaceAngle") && !held.contains(name) }
+    }
+
     struct Values: Equatable, Sendable {
         var headX = 0.0, headY = 0.0, headZ = 0.0, gazeX = 0.0, gazeY = 0.0
         var eyes = 1.0, brows = 0.5, smile = 0.35
-        var armL = 0.0, armR = 0.0, elbowL = 0.0, elbowR = 0.0
+        var armL = 0.0, armR = 0.0, elbowL = 0.0, elbowR = 0.0, browAngle = 0.0
 
         func applying(_ pose: LivePose) -> Values {
             var next = self
@@ -43,6 +59,7 @@ public struct LivePoseAnimator: Sendable {
             if let v = pose.brows { next.brows = v }; if let v = pose.smile { next.smile = v }
             if let v = pose.armL { next.armL = v }; if let v = pose.armR { next.armR = v }
             if let v = pose.elbowL { next.elbowL = v }; if let v = pose.elbowR { next.elbowR = v }
+            if let v = pose.browAngle { next.browAngle = v }
             return next
         }
 
@@ -52,7 +69,8 @@ public struct LivePoseAnimator: Sendable {
                           gazeX: mix(a.gazeX, b.gazeX), gazeY: mix(a.gazeY, b.gazeY), eyes: mix(a.eyes, b.eyes),
                           brows: mix(a.brows, b.brows), smile: mix(a.smile, b.smile),
                           armL: mix(a.armL, b.armL), armR: mix(a.armR, b.armR),
-                          elbowL: mix(a.elbowL, b.elbowL), elbowR: mix(a.elbowR, b.elbowR))
+                          elbowL: mix(a.elbowL, b.elbowL), elbowR: mix(a.elbowR, b.elbowR),
+                          browAngle: mix(a.browAngle, b.browAngle))
         }
     }
 
@@ -64,8 +82,12 @@ public struct LivePoseAnimator: Sendable {
     public var mouth: Double = 0
     /// Idle motion on/off (tests turn it off to check exact values).
     public var idle: Bool
+    /// Blinking alone, without the sway and breathing of `idle`. An agent's
+    /// body uses this: the agent decides every movement, but nobody should
+    /// have to spend a turn on blinking.
+    public var blinks: Bool
 
-    public init(idle: Bool = true) { self.idle = idle }
+    public init(idle: Bool = true, blinks: Bool = false) { self.idle = idle; self.blinks = blinks }
 
     /// Starts moving from wherever the rig is now toward `pose`.
     public mutating func apply(_ pose: LivePose, at time: TimeInterval) {
@@ -102,7 +124,7 @@ public struct LivePoseAnimator: Sendable {
 
     /// The tracking inputs to send to VTube Studio at `time`.
     public func frame(at time: TimeInterval, mouthParameter: String = "MouthOpen",
-                      arms: ArmInputs? = nil) -> [(String, Double)] {
+                      arms: ArmInputs? = nil, browAngle: String? = nil) -> [(String, Double)] {
         var v = values(at: time)
         var eyes = v.eyes
         if idle {
@@ -113,6 +135,8 @@ public struct LivePoseAnimator: Sendable {
             // Arms drift a little with the breath so they never look pinned.
             let breath = 0.04 * sin(time * 2 * .pi / 4.5)
             v.armL += breath; v.armR += breath
+        } else if blinks {
+            eyes *= Self.blink(at: time)
         }
         var frame: [(String, Double)] = [
             (Input.headX, min(30, max(-30, v.headX))), (Input.headY, min(20, max(-20, v.headY))),
@@ -127,6 +151,7 @@ public struct LivePoseAnimator: Sendable {
             func c(_ x: Double) -> Double { min(1, max(-1, x)) }
             frame += [(arms.armL, c(v.armL)), (arms.armR, c(v.armR)), (arms.elbowL, c(v.elbowL)), (arms.elbowR, c(v.elbowR))]
         }
+        if let browAngle { frame.append((browAngle, min(1, max(-1, v.browAngle)))) }
         return frame
     }
 }

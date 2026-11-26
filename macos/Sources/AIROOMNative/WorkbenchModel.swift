@@ -84,6 +84,14 @@ final class WorkbenchModel: ObservableObject {
     private var liveStopRequested = false
     /// Bumped on every host cut-in; a line written ahead before it is stale.
     private var liveHostCutIns = 0
+    /// Body-driven show: each member's show-long agent session and the hub
+    /// that tells their bodies who holds the floor.
+    private var liveSessions: [MemberID: LiveAgentSession] = [:]
+    private var liveHub: LiveBodyHub?
+    /// The room entry collecting the current floor holder's spoken lines.
+    private var liveBodyEntry: (member: MemberID, entryID: UUID)?
+    /// Per member: the latest note from its body or agent session (stage panel).
+    @Published var liveBodyNotes: [MemberID: String] = [:]
     private var liveTask: Task<Void, Never>?
     private var scheduleTimer: Task<Void, Never>?
     private var draftSaveTask: Task<Void, Never>?
@@ -1388,9 +1396,10 @@ final class WorkbenchModel: ObservableObject {
         }
         do { try PrivacyGuard.validatePrompt(text) }
         catch { statusMessage = error.localizedDescription; return }
-        archive.rooms[index].entries.append(RoomEntry(
-            speaker: .user, displayName: "觀眾 · \(label.isEmpty ? "匿名" : label)", body: text))
+        let viewer = "觀眾 · \(label.isEmpty ? "匿名" : label)"
+        archive.rooms[index].entries.append(RoomEntry(speaker: .user, displayName: viewer, body: text))
         archive.rooms[index].updatedAt = .now
+        liveBroadcast(LiveBodyPrompt.audience(viewer, text))
         liveAudienceDraft = ""
         persist()
         // The in-flight agent request is not interrupted. The next speaker sees
@@ -1414,6 +1423,7 @@ final class WorkbenchModel: ObservableObject {
         archive.rooms[index].updatedAt = .now
         liveHostDraft = ""
         liveHostCutIns += 1
+        liveBroadcast(LiveBodyPrompt.host(LiveShowPolicy.hostDisplayName(userName: archive.settings.userName), text))
         persist()
         statusMessage = "已插話，下一位發言的 AI 會先處理。"
     }
@@ -1446,9 +1456,13 @@ final class WorkbenchModel: ObservableObject {
         persist()
         let showID = room.id
         let start = Date()
+        let hosts = room.participants.filter(enabled.contains)
+        let bodies = archive.liveStage.agentBodies && !hosts.isEmpty
+            && hosts.allSatisfy { [.claude, .codex].contains(runner.executor(for: $0)) }
         liveTask = Task { [weak self] in
             guard let self else { return }
-            await self.liveLoop(roomID: showID, started: start, config: config)
+            if bodies { await self.liveBodyLoop(roomID: showID, started: start, config: config) }
+            else { await self.liveLoop(roomID: showID, started: start, config: config) }
         }
     }
 
@@ -1456,6 +1470,8 @@ final class WorkbenchModel: ObservableObject {
         guard liveActive else { return }
         liveStopRequested = true
         for id in liveRunIDs { _ = runner.cancel(id: id) }
+        liveHub?.setFloor(nil)
+        for session in liveSessions.values { session.stop() }
         stage.stop()
         liveTask?.cancel()
         // liveLoop does final state cleanup when its in-flight request exits.
@@ -1621,12 +1637,170 @@ final class WorkbenchModel: ObservableObject {
         await stage.resetAvatars()
     }
 
+    // MARK: Body-driven show
+
+    /// Every member's own agent stays in the show from start to end, speaks
+    /// and moves through its body tools, and hears everything said. AI Room
+    /// only passes the floor around and relays what was said.
+    private func liveBodyLoop(roomID: UUID, started: Date, config: LiveShowSettings) async {
+        let settings = archive.settings
+        let english = settings.language == .english
+        guard let firstIndex = archive.rooms.firstIndex(where: { $0.id == roomID }) else { return }
+        var members: [MemberID] = []
+        for agent in archive.rooms[firstIndex].participants
+            where archive.members.contains(where: { $0.agent == agent && $0.enabled }) && !members.contains(agent) {
+            members.append(agent)
+        }
+        let body = Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("airoom-body")
+        guard let body, FileManager.default.isExecutableFile(atPath: body.path) else {
+            statusMessage = t("找不到身體程式（airoom-body），改用 AI Room 代演。")
+            await liveLoop(roomID: roomID, started: started, config: config)
+            return
+        }
+        var configs: [MemberID: LiveBodyConfig] = [:]
+        for agent in members {
+            let character = archive.liveStage.character(agent)
+            let avatar = archive.liveStage.vtsEnabled && character.drivesAvatar
+            configs[agent] = LiveBodyConfig(
+                member: agent.rawValue, displayName: memberName(agent), port: avatar ? character.vtsPort : 0,
+                token: character.vtsToken, plugin: VTSProtocol.pluginName(for: agent),
+                mouthParameter: character.mouthParameter, voiceIdentifier: character.voiceIdentifier,
+                speechRate: character.speechRate, pitch: character.pitch, english: english,
+                arms: LivePoseAnimator.ArmInputs(member: agent).all)
+        }
+        let cwd = FileManager.default.temporaryDirectory.appendingPathComponent("airoom-live-\(UUID().uuidString)", isDirectory: true)
+        let hub: LiveBodyHub
+        do {
+            try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
+            hub = try LiveBodyHub(configs: configs)
+        } catch {
+            statusMessage = t("直播無法開始：") + error.localizedDescription
+            finishLive(roomID: roomID)
+            return
+        }
+        liveHub = hub
+        liveBodyNotes = [:]
+        hub.onSpeech = { [weak self] member, text, done in self?.bodySpoke(roomID: roomID, member: member, text: text, done: done) }
+        hub.onToken = { [weak self] member, token in self?.updateStageCharacter(member) { $0.vtsToken = token } }
+        hub.onStatus = { [weak self] member, text in self?.liveBodyNotes[member] = text }
+        for agent in members { stage.handOver(agent) }
+        defer {
+            hub.stop()
+            for session in liveSessions.values { session.stop() }
+            liveSessions = [:]
+            liveHub = nil
+            liveBodyEntry = nil
+            for agent in members { stage.takeBack(agent) }
+            try? FileManager.default.removeItem(at: cwd)
+            finishLive(roomID: roomID)
+        }
+
+        for agent in members {
+            let executor = runner.executor(for: agent)
+            let choice = runner.modelChoice(for: agent)
+            let launch = LiveBodyLaunch(command: body.path,
+                                        arguments: ["--member", agent.rawValue, "--socket", hub.path] + (english ? ["--english"] : []),
+                                        environment: ["AIROOM_BODY_SECRET": hub.secret])
+            do {
+                let binary = try CommandPlan.resolveExecutable(agent: executor, settings: settings)
+                let session = LiveAgentSession(kind: executor == .codex ? .codex : .claude, binary: binary, cwd: cwd,
+                                               body: launch, model: choice.model, effort: choice.effort)
+                let name = memberName(agent)
+                session.onExit = { [weak self] reason in
+                    Task { @MainActor in self?.liveBodyNotes[agent] = "\(name) 的 agent 已結束：\(reason)" }
+                }
+                session.onNote = { [weak self] text in
+                    Task { @MainActor in self?.liveBodyNotes[agent] = text }
+                }
+                try session.start()
+                liveSessions[agent] = session
+            } catch {
+                statusMessage = t("\(memberName(agent)) 的 agent 無法啟動：") + error.localizedDescription
+                return
+            }
+        }
+        // Everyone gets the show so far and meets their body before the first line.
+        let transcript = RoomPromptBuilder.snapshot(room: archive.rooms[firstIndex], maxCharacters: 18_000,
+                                                    language: settings.language).transcript
+        for agent in members {
+            liveSessions[agent]?.send(LiveBodyPrompt.brief(
+                name: memberName(agent), topic: config.topic,
+                others: members.filter { $0 != agent }.map(memberName), transcript: transcript,
+                summary: archive.liveShow.summary, english: english))
+        }
+
+        var last: MemberID?
+        while !liveStopRequested && !Task.isCancelled {
+            guard let index = archive.rooms.firstIndex(where: { $0.id == roomID }),
+                  let speaker = nextLiveSpeaker(index: index, started: started, config: config, last: last),
+                  let session = liveSessions[speaker] else { break }
+            liveBodyEntry = nil
+            hub.setFloor(speaker)
+            let ended = await session.sendAndWait(LiveBodyPrompt.yourTurn(english: english), timeout: 240)
+            hub.setFloor(nil)
+            if liveStopRequested || Task.isCancelled { break }
+            if !ended {
+                statusMessage = t("\(memberName(speaker)) 這一輪沒有在 4 分鐘內結束，直播已停止。")
+                break
+            }
+            if liveBodyEntry == nil { liveBodyNotes[speaker] = t("這一輪沒有開口。") }
+            liveBodyEntry = nil
+            last = speaker
+            liveLastSpeaker = speaker
+            liveTurns += 1
+            persist()
+            if config.turnDelaySeconds > 0 {
+                do { try await Task.sleep(nanoseconds: UInt64(config.turnDelaySeconds) * 1_000_000_000) }
+                catch { break }
+            }
+        }
+    }
+
+    /// A body started (or finished) a line. Only the floor holder's lines count.
+    private func bodySpoke(roomID: UUID, member: MemberID, text: String, done: Bool) {
+        guard !done, liveHub?.floor == member,
+              let index = archive.rooms.firstIndex(where: { $0.id == roomID }) else { return }
+        let line = String(text.prefix(LiveBodyTools.maxLine))
+        if let current = liveBodyEntry, current.member == member,
+           let entry = archive.rooms[index].entries.firstIndex(where: { $0.id == current.entryID }) {
+            archive.rooms[index].entries[entry].body += "\n" + line
+        } else {
+            let entry = RoomEntry(speaker: .assistant, agent: member, displayName: memberName(member),
+                                  body: line, delivery: .completed)
+            archive.rooms[index].entries.append(entry)
+            liveBodyEntry = (member, entry.id)
+        }
+        archive.rooms[index].updatedAt = .now
+        liveSubtitle = line
+        persist()
+        let heard = LiveBodyPrompt.heard(memberName(member), line, english: archive.settings.language == .english)
+        liveBroadcast(heard, except: member)
+    }
+
+    /// Tells every agent in a body-driven show what just happened in the room.
+    private func liveBroadcast(_ text: String, except: MemberID? = nil) {
+        for (agent, session) in liveSessions where agent != except { session.send(text) }
+    }
+
+    private func finishLive(roomID: UUID) {
+        liveActive = false
+        liveRunIDs = []
+        liveTask = nil
+        liveStartedAt = nil
+        if let index = archive.rooms.firstIndex(where: { $0.id == roomID }) {
+            archive.rooms[index].entries.append(RoomEntry(speaker: .system, displayName: "AIROOM LIVE",
+                body: "直播結束：已完成 \(liveTurns) 輪。需要時可再次手動開始。"))
+            archive.rooms[index].updatedAt = .now
+        }
+        persist()
+    }
+
     // MARK: Live stage (TTS + VTube Studio)
     func updateLiveStage(_ change: (inout LiveStageSettings) -> Void) {
         change(&archive.liveStage)
         let edited = archive.liveStage
         archive.liveStage = LiveStageSettings(speechEnabled: edited.speechEnabled, vtsEnabled: edited.vtsEnabled,
-                                              characters: edited.characters)
+                                              characters: edited.characters, agentBodies: edited.agentBodies)
         persist()
     }
 

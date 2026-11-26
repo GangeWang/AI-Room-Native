@@ -46,7 +46,7 @@ public struct LivePose: Codable, Equatable, Sendable {
     public var headX: Double?
     public var headY: Double?
     public var headZ: Double?
-    /// -1...1: look left(-)/right(+), down(-)/up(+).
+    /// -1...1: look to the character's own left(-)/right(+) (viewers see the opposite), down(-)/up(+).
     public var gazeX: Double?
     public var gazeY: Double?
     /// 0 closed ... 1 open.
@@ -61,6 +61,10 @@ public struct LivePose: Codable, Equatable, Sendable {
     public var armR: Double?
     public var elbowL: Double?
     public var elbowR: Double?
+    /// -1 angry (inner ends down) ... 0 neutral ... 1 worried (inner ends up).
+    /// Sent as the member's own VTS custom input; the model maps it to its
+    /// brow-angle parameters. Only the agent's own body sends it.
+    public var browAngle: Double?
     /// Seconds to move into this pose.
     public var duration: Double
 
@@ -69,7 +73,7 @@ public struct LivePose: Codable, Equatable, Sendable {
     public init(headX: Double? = nil, headY: Double? = nil, headZ: Double? = nil, gazeX: Double? = nil,
                 gazeY: Double? = nil, eyes: Double? = nil, brows: Double? = nil, smile: Double? = nil,
                 armL: Double? = nil, armR: Double? = nil, elbowL: Double? = nil, elbowR: Double? = nil,
-                duration: Double = LivePose.defaultDuration) {
+                browAngle: Double? = nil, duration: Double = LivePose.defaultDuration) {
         func clamp(_ value: Double?, _ low: Double, _ high: Double) -> Double? {
             guard let value, value.isFinite else { return nil }
             return min(high, max(low, value))
@@ -79,11 +83,12 @@ public struct LivePose: Codable, Equatable, Sendable {
         self.eyes = clamp(eyes, 0, 1); self.brows = clamp(brows, 0, 1); self.smile = clamp(smile, 0, 1)
         self.armL = clamp(armL, -1, 1); self.armR = clamp(armR, -1, 1)
         self.elbowL = clamp(elbowL, -1, 1); self.elbowR = clamp(elbowR, -1, 1)
+        self.browAngle = clamp(browAngle, -1, 1)
         self.duration = clamp(duration, 0.1, 4) ?? LivePose.defaultDuration
     }
 
     public var isEmpty: Bool {
-        [headX, headY, headZ, gazeX, gazeY, eyes, brows, smile, armL, armR, elbowL, elbowR].allSatisfy { $0 == nil }
+        [headX, headY, headZ, gazeX, gazeY, eyes, brows, smile, armL, armR, elbowL, elbowR, browAngle].allSatisfy { $0 == nil }
     }
 
     /// Parses the inside of a `[pose …]` tag. Unknown keys and bad numbers are
@@ -356,10 +361,15 @@ public struct LiveStageSettings: Codable, Equatable, Sendable {
     public var speechEnabled: Bool
     public var vtsEnabled: Bool
     public var characters: [LiveCharacterStage]
+    /// Members on Claude Code or Codex speak and move through their own body
+    /// tools during a show; AI Room only manages the floor.
+    public var agentBodies: Bool
 
-    public init(speechEnabled: Bool = false, vtsEnabled: Bool = false, characters: [LiveCharacterStage] = []) {
+    public init(speechEnabled: Bool = false, vtsEnabled: Bool = false, characters: [LiveCharacterStage] = [],
+                agentBodies: Bool = true) {
         self.speechEnabled = speechEnabled
         self.vtsEnabled = vtsEnabled
+        self.agentBodies = agentBodies
         var unique: [LiveCharacterStage] = []
         for item in characters where !unique.contains(where: { $0.agent == item.agent }) { unique.append(item) }
         for agent in MemberID.builtIn where !unique.contains(where: { $0.agent == agent }) {
@@ -368,12 +378,13 @@ public struct LiveStageSettings: Codable, Equatable, Sendable {
         self.characters = unique
     }
 
-    private enum CodingKeys: String, CodingKey { case speechEnabled, vtsEnabled, characters }
+    private enum CodingKeys: String, CodingKey { case speechEnabled, vtsEnabled, characters, agentBodies }
     public init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
         self.init(speechEnabled: try box.decodeIfPresent(Bool.self, forKey: .speechEnabled) ?? false,
                   vtsEnabled: try box.decodeIfPresent(Bool.self, forKey: .vtsEnabled) ?? false,
-                  characters: try box.decodeIfPresent([LiveCharacterStage].self, forKey: .characters) ?? [])
+                  characters: try box.decodeIfPresent([LiveCharacterStage].self, forKey: .characters) ?? [],
+                  agentBodies: try box.decodeIfPresent(Bool.self, forKey: .agentBodies) ?? true)
     }
 
     public var performs: Bool { speechEnabled || vtsEnabled }
